@@ -1,0 +1,16 @@
+node_modules
+.env
+.env.local
+.env.*.local
+dist
+*.log
+*.tsbuildinfo
+coverage
+tmp
+.DS_Store
+backend/.env*
+!backend/.env.example
+!backend/.env.*.example
+frontend/.env*
+!frontend/.env.example
+!frontend/.env.*.example

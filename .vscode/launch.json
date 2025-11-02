@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: TSX Dev Server",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/backend/node_modules/**/*.js"]
+    },
+    {
+      "name": "Frontend: Vite Dev Server",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--host"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/frontend/node_modules/**/*.js"],
+      "serverReadyAction": {
+        "action": "debugWithChrome",
+        "pattern": "Local:\\s+(https?://\\S+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      "name": "Frontend: Chrome Attach",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch Frontend & Backend",
+      "configurations": [
+        "Backend: TSX Dev Server",
+        "Frontend: Vite Dev Server"
+      ]
+    }
+  ]
+}
