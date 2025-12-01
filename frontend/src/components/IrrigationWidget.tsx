@@ -122,16 +122,18 @@ export const IrrigationWidget = ({
                   <span className="irrigation-zone-row__label">{record.isActive ? "" : "To"}</span>
                   <span className="irrigation-zone-row__value">
                     {record.isActive || !record.end ? "" : formatTimestampShort(record.end)}
-                    <span className="duration-value">
-                      {record.isActive || !record.end ? "" : ` (${formatDurationLabel(record.durationMs)})`}
-                    </span>
                   </span>
 
-                  {record.pressureOff !== null && (
-                    <span className={getPressureClass(record.pressureOff)}>
-                      {record.pressureOff.toFixed(1)} psi
+                  <div className="irrigation-metadata">
+                    {record.pressureOff !== null && (
+                      <span className={getPressureClass(record.pressureOff)}>
+                        {record.pressureOff.toFixed(1)} psi
+                      </span>
+                    )}
+                    <span className="duration-value">
+                      {record.isActive || !record.end ? "" : "⏲ " + formatDurationLabel(record.durationMs)}
                     </span>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>

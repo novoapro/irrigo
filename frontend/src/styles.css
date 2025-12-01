@@ -715,10 +715,30 @@ body {
   color: #03321c;
 }
 
-.irrigation-zone-row__duration, .irrigation-zone-row__value .duration-value {
+.irrigation-zone-row__duration {
   color: #0f766e;
   font-weight: 600;
   font-size: small;
+}
+
+.irrigation-metadata {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.irrigation-metadata .duration-value {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  background: rgba(113, 164, 247, 0.16);
+  color: #1d4ed8;
 }
 
 .irrigation-zone-row__meta {
