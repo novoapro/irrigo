@@ -67,7 +67,7 @@ const float PSI_FULL_SCALE = 100.0;  // Maximum PSI reading
 
 // Timing Configuration (defaults, can be overridden by server)
 unsigned long SAMPLE_MS    = 60000;   // Sample interval: 1 minute
-unsigned long HEARTBEAT_MS = 1800000; // Heartbeat interval: 30 minutes
+unsigned long heartbeatIntervalMs = 3600000; // Heartbeat interval: 60 minutes (synced to server)
 
 // LED Matrix and Display Settings
 const unsigned long BASELINE_BLINK_MS = 120;  // Baseline mode blink interval
@@ -126,7 +126,6 @@ bool rainEnabled = false;   // Rain sensor enable
 bool moistEnabled = false;  // Moisture sensor enable
 
 // Timing configuration
-unsigned long heartbeatIntervalMs = 3600000; // Heartbeat interval (1 hour)
 unsigned long sampleIntervalMs = 60000;      // Sample interval (1 minute)
 struct MatrixRenderState {
   char text[16];
@@ -850,7 +849,6 @@ static bool parseServerConfig(const String &response) {
     unsigned long newHb = (unsigned long)v.toFloat();
     if (newHb != heartbeatIntervalMs) {
       heartbeatIntervalMs = newHb;
-      HEARTBEAT_MS = heartbeatIntervalMs;
       configChanged = true;
     }
   }
@@ -1020,7 +1018,7 @@ void handleSamplingAndEvents(unsigned long now) {
 
   // Heartbeat
   bool heartbeatDue = false;
-  if (!forced && lastSentValid && (now - lastSendMs > HEARTBEAT_MS)) {
+  if (!forced && lastSentValid && (now - lastSendMs > heartbeatIntervalMs)) {
     sendNow   = true;
     sendValue = lastSentValue;
     heartbeatDue = true;

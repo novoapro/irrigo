@@ -63,14 +63,14 @@ export const formatElapsedSince = (iso: string | null | undefined) => {
 
   const minutes = Math.floor(deltaMs / 60000);
   if (minutes < 60) {
-    return ` - ${minutes || 1}m ago`;
+    return `${minutes || 1}m ago`;
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return ` - ${hours}h ago`;
+    return `${hours}h ago`;
   }
 
   const days = Math.floor(hours / 24);
-  return ` - ${days}d ago`;
+  return `${days}d ago`;
 };

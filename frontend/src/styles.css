@@ -677,8 +677,8 @@ body {
 }
 
 .irrigation-widget__list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.65rem;
 }
 
@@ -715,7 +715,7 @@ body {
   color: #03321c;
 }
 
-.irrigation-zone-row__duration {
+.irrigation-zone-row__duration, .irrigation-zone-row__value .duration-value {
   color: #0f766e;
   font-weight: 600;
   font-size: small;
@@ -1289,8 +1289,12 @@ body {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1.2rem;
+}
+
+.overview-grid .water-pressure-overview {
+  grid-column: 1 / -1;
 }
 
 .overview-item {
@@ -2425,6 +2429,7 @@ tbody tr:hover {
   .pagination-status {
     font-size: 0.85rem;
   }
+
 }
 
 @media (max-width: 720px) {
@@ -2536,7 +2541,7 @@ tbody tr:hover {
     display: none;
   }
 
-  .forecast-meta{
+  .forecast-meta {
     display: flex;
     flex-direction: row;
     gap: 0.9rem;
@@ -2616,6 +2621,12 @@ tbody tr:hover {
   .forecast-updated-label {
     align-self: right;
     flex: 1;
+  }
+
+  .irrigation-widget__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
   }
 }
 

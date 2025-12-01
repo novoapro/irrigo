@@ -67,64 +67,11 @@ const OverviewSection = ({
       ) : cards.length > 0 ? (
         <div className="overview-grid">
           {pressureOverview ? (
-            <div className="overview-item">
+            <div className="overview-item water-pressure-overview">
               <header>
                 <h4>Water Pressure</h4>
               </header>
               <div className="pressure-card-body">
-                {pressureOverview.total > 0 ? (
-                  <div className="chart-with-legend">
-                    <div className="overview-chart">
-                      <ResponsiveContainer minWidth={165} minHeight={165}>
-                        <PieChart>
-                          <Tooltip
-                            formatter={(value: number, name: string) => [
-                              formatDurationLabel(value as number),
-                              name
-                            ]}
-                          />
-                          <Pie
-                            data={pressureOverview.data}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius="60%"
-                            outerRadius="80%"
-                            paddingAngle={2}
-                          >
-                            {pressureOverview.data.map((entry) => (
-                              <Cell key={`pressure-${entry.key}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    <div className="overview-legend compact">
-                      {pressureOverview.data.map((entry) => {
-                        const total = pressureOverview.total || 1;
-                        const percentage = Math.round((entry.value / total) * 100);
-                        return (
-                          <div key={`pressure-legend-${entry.key}`} className="overview-legend-row">
-                            <span
-                              className="legend-dot"
-                              style={{ backgroundColor: entry.color }}
-                            />
-                            <div className="legend-labels">
-                              <span>{entry.name}</span>
-                              <span className="legend-meta">
-                                {formatDurationLabel(entry.value)} • {percentage}%
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="muted chart-placeholder pressure-placeholder">
-                    No pressure breakdown for this range.
-                  </p>
-                )}
                 <div className="chart-wrapper pressure-trend">
                   {trendData.length > 0 ? (
                     <div className="pressure-trend-container">
@@ -183,7 +130,6 @@ const OverviewSection = ({
               </div>
             </div>
           ) : null}
-
           {cards.map((card) => (
             <div key={card.key} className="overview-item">
               <header>

@@ -105,7 +105,7 @@ export const IrrigationWidget = ({
               <div className="irrigation-zone-row__main">
                 <span className="irrigation-zone-row__zone">{record.zone}</span>
                 <span className="irrigation-zone-row__duration">
-                 {record.isActive ? "Running " : "Ran "} for {formatDurationLabel(record.durationMs)} {formatElapsedSince(record.end) ?? "0" }
+                  {formatElapsedSince(record.end) ?? ""}
                 </span>
               </div>
               <div className="irrigation-zone-row__meta">
@@ -119,10 +119,14 @@ export const IrrigationWidget = ({
                   )}
                 </div>
                 <div className="irrigation-zone-row__meta-item">
-                  <span className="irrigation-zone-row__label">{record.isActive ? "To (ongoing)" : "To"}</span>
+                  <span className="irrigation-zone-row__label">{record.isActive ? "" : "To"}</span>
                   <span className="irrigation-zone-row__value">
-                    {record.isActive || !record.end ? "Ongoing" : formatTimestampShort(record.end)}
+                    {record.isActive || !record.end ? "" : formatTimestampShort(record.end)}
+                    <span className="duration-value">
+                      {record.isActive || !record.end ? "" : ` (${formatDurationLabel(record.durationMs)})`}
+                    </span>
                   </span>
+
                   {record.pressureOff !== null && (
                     <span className={getPressureClass(record.pressureOff)}>
                       {record.pressureOff.toFixed(1)} psi
