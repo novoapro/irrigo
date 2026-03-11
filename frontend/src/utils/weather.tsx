@@ -189,6 +189,23 @@ interface ForecastIconOptions {
   background?: IconBackground;
 }
 
+/**
+ * Pure classification function: resolves a raw NWS shortForecast string to a
+ * ForecastCategory without rendering any React.  Useful for testing and for
+ * callers that only need the category key.
+ */
+export const classifyForecast = (shortForecast: string | null | undefined): ForecastCategory => {
+  if (!shortForecast) return "clear";
+  const normalized = normalizeForecastLabel(shortForecast);
+  if (normalized) {
+    const direct = CONDITION_CATEGORY_MAP[normalized];
+    if (direct) return direct;
+    const fallback = FORECAST_CATEGORY_FALLBACKS.find(({ pattern }) => pattern.test(normalized));
+    if (fallback) return fallback.category;
+  }
+  return "clear";
+};
+
 export const getForecastIcon = (
   isDaytime?: boolean | null,
   shortForecast?: string | null,

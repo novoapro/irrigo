@@ -15,7 +15,7 @@ import {
   WEATHER_FORECAST_REFRESH_THRESHOLD_MS
 } from "../config/weather";
 
-interface WeatherGovForecastPeriod {
+export interface WeatherGovForecastPeriod {
   startTime: string;
   endTime: string;
   temperature: number | null;
@@ -28,7 +28,7 @@ interface WeatherGovForecastPeriod {
   shortForecast: string | null;
 }
 
-interface ParsedForecastPeriod {
+export interface ParsedForecastPeriod {
   startTime: Date;
   endTime: Date;
   isDaytime: boolean | null;
@@ -48,7 +48,7 @@ interface WeatherGovForecastResponse {
 const getForecastUrl = (office: string, gridX: number, gridY: number) =>
   `${WEATHER_API_BASE}/gridpoints/${office}/${gridX},${gridY}/forecast/hourly`;
 
-const safeDate = (value: string | Date | undefined | null): Date => {
+export const safeDate = (value: string | Date | undefined | null): Date => {
   if (!value) {
     return new Date();
   }
@@ -57,7 +57,7 @@ const safeDate = (value: string | Date | undefined | null): Date => {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
 
-const convertPeriod = (period: WeatherGovForecastPeriod): ParsedForecastPeriod => ({
+export const convertPeriod = (period: WeatherGovForecastPeriod): ParsedForecastPeriod => ({
   startTime: safeDate(period.startTime),
   endTime: safeDate(period.endTime),
   temperature: period.temperature,
@@ -80,7 +80,7 @@ const toSnapshotPeriods = (
     shortForecast: period.shortForecast ?? null
   }));
 
-const findCurrentPeriod = (
+export const findCurrentPeriod = (
   periods: ParsedForecastPeriod[],
   nowMs = Date.now()
 ): ParsedForecastPeriod | null => {
@@ -116,7 +116,7 @@ const getSnapshotPeriodsAndCurrent = (
   return { periods, currentPeriod };
 };
 
-const findNextPeriodStart = (
+export const findNextPeriodStart = (
   periods: ParsedForecastPeriod[],
   nowMs = Date.now()
 ): number | null => {

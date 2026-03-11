@@ -267,6 +267,61 @@ Enable the backend to relay guard state changes to a HomeKit-compatible switch:
 
 ---
 
+## Testing
+
+Both the backend and the frontend have unit test suites that cover the core
+business logic and utility functions. All tests run without a database or
+network connection — external dependencies are either pure functions or are
+isolated via mocks.
+
+### Backend (Jest + ts-jest)
+
+Tests live in `backend/src/services/__tests__/` and cover:
+
+- **`heartbeatAnalyticsService`** — interval accumulation, guard/pressure time
+  splitting, rain/soil day counting, chronological sort, and range clamping
+- **`weatherForecastService`** — `safeDate`, `convertPeriod`, `findCurrentPeriod`,
+  and `findNextPeriodStart` pure utility functions
+- **`guardRelayService`** — `isRelayConfigured` flag logic across all env-var
+  combinations
+
+```bash
+cd backend
+
+# Run all tests once
+npm test
+
+# Watch mode (re-runs on file change)
+npm run test:watch
+
+# With coverage report
+npm run test:coverage
+```
+
+### Frontend (Vitest)
+
+Tests live in `frontend/src/utils/__tests__/` and cover:
+
+- **`date.ts`** — `formatDurationLabel`, `formatElapsedSince`, `formatRelativeTime`,
+  `formatCountLabel`, `toQueryDateTime`, and the two timestamp formatters
+- **`weather.tsx`** — `classifyForecast` (full direct-map + regex-fallback matrix)
+  and `formatWeatherWindow` for all null/both/start-only/end-only combinations
+
+```bash
+cd frontend
+
+# Run all tests once
+npm test
+
+# Watch mode (re-runs on file change)
+npm run test:watch
+
+# With coverage report
+npm run test:coverage
+```
+
+---
+
 ## API Reference
 
 | Method | Endpoint | Description |
