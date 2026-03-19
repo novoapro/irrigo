@@ -19,5 +19,6 @@
       "@weather/*": ["src/assets/weather/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/test"]
 }

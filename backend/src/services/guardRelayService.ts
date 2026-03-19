@@ -25,7 +25,6 @@ export const relayGuardState = async (guard: boolean) => {
       },
       body: JSON.stringify({
         id: relayId,
-        set: "On",
         value: guard
       })
     });
