@@ -19,9 +19,9 @@
 
 
 // ======== Network Configuration ========
-const char* WIFI_SSID = "OurHome";
-const char* WIFI_PASS = "ManuJoa2017!";
-const char* API_HOST  = "192.168.1.88";
+const char* WIFI_SSID = "";
+const char* WIFI_PASS = "";
+const char* API_HOST  = "";
 const int   API_PORT  = 4000;
 const char* API_PATH  = "/api/heartbeats/";
 const char* CONFIG_PATH = "/api/device/config/";

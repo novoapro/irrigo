@@ -5,13 +5,14 @@ services:
     image: ${COMPOSE_PROJECT_NAME:-my-lawn-monitor}-backend:${APP_ENV:-production}
     env_file:
       - ./backend/.env.${APP_ENV:-production}
-    depends_on:
-      - mongo
     environment:
       APP_ENV: ${APP_ENV:-production}
       PORT: ${BACKEND_PORT:-4000}
     ports:
       - "${BACKEND_PORT:-4000}:${BACKEND_PORT:-4000}"
+    networks:
+      - default
+      - mongodb
     restart: unless-stopped
 
   frontend:
@@ -26,15 +27,6 @@ services:
       - backend
     restart: unless-stopped
 
-  mongo:
-    image: mongo:7.0
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-my_lawn_monitor}
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
-    volumes:
-      - mongo_data:/data/db
-
-volumes:
-  mongo_data:
+networks:
+  mongodb:
+    external: true
