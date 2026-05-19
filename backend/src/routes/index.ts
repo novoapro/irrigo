@@ -4,6 +4,13 @@ import statusRouter from "./status.routes";
 import weatherRouter from "./weather.routes";
 import deviceRouter from "./device.routes";
 import irrigationRouter from "./irrigation.routes";
+import zoneRouter from "./zone.routes";
+import zoneControlRouter from "./zoneControl.routes";
+import externalControllerRouter from "./externalController.routes";
+import aiScheduleRouter from "./aiSchedule.routes";
+import systemConfigRouter from "./systemConfig.routes";
+import programRouter from "./program.routes";
+import manualRunRouter from "./manualRun.routes";
 
 const router = Router();
 router.use("/heartbeats", heartbeatRouter);
@@ -11,5 +18,12 @@ router.use("/status", statusRouter);
 router.use("/weather", weatherRouter);
 router.use("/device", deviceRouter);
 router.use("/irrigation", irrigationRouter);
+router.use("/zones", zoneRouter);
+router.use("/zones", zoneControlRouter);
+router.use("/external-controller", externalControllerRouter);
+router.use("/ai-schedule", aiScheduleRouter);
+router.use("/system-config", systemConfigRouter);
+router.use("/programs", programRouter);
+router.use("/manual-run", manualRunRouter);
 
 export default router;

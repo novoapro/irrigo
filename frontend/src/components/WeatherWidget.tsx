@@ -47,7 +47,7 @@ const WeatherWidget = ({
         {loading ? (
           <p className="muted">Loading forecast…</p>
         ) : error ? (
-          <p className="error-text">⚠️ {error}</p>
+          <p className="error-text">{error}</p>
         ) : currentWeather ? (
           <div className="forecast-body">
             <div className="forecast-columns">

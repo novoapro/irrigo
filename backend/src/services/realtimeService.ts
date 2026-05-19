@@ -16,7 +16,22 @@ export type RealtimeEventType =
   | "forecast:new"
   | "deviceConfig:updated"
   | "irrigation:updated"
-  | "status:updated";
+  | "status:updated"
+  | "zone:created"
+  | "zone:updated"
+  | "zone:deleted"
+  | "command:created"
+  | "command:updated"
+  | "zoneState:changed"
+  | "schedule:runStarted"
+  | "schedule:runCompleted"
+  | "schedule:entryUpdated"
+  | "systemConfig:updated"
+  | "program:created"
+  | "program:updated"
+  | "program:deleted"
+  | "program:triggered"
+  | "manualRun:completed";
 
 export interface RealtimeEvent<TPayload = unknown> {
   type: RealtimeEventType;

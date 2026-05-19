@@ -10,6 +10,7 @@ import {
   scheduleForecastPeriodPush
 } from "./services/weatherForecastService";
 import { startRealtimeService } from "./services/realtimeService";
+import { getSystemConfig, applyModeServices } from "./services/systemConfigService";
 
 const loadEnvironment = () => {
   const env =
@@ -43,6 +44,9 @@ const start = async () => {
 
     const server = http.createServer(app);
     startRealtimeService(server);
+
+    const sysConfig = await getSystemConfig();
+    applyModeServices(sysConfig.irrigationMode);
 
     server.listen(PORT, () => {
       console.log(`API listening on port ${PORT}`);

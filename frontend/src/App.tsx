@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Routes, Route, NavLink } from "react-router-dom";
 import { format } from "date-fns";
 import ReactDatePicker from "react-datepicker";
+import RecordsPage from "./pages/RecordsPage";
 import {
   buildRealtimeUrl,
   fetchDeviceConfig,
@@ -10,7 +12,11 @@ import {
   fetchHeartbeatSeries,
   fetchIrrigationEvents,
   fetchStatus,
-  fetchWeatherForecast
+  fetchAIScheduleConfig,
+  fetchSystemConfig,
+  fetchWeatherForecast,
+  fetchZones,
+  fetchZoneStates
 } from "./api";
 import type {
   DeviceConfig,
@@ -19,25 +25,29 @@ import type {
   HeartbeatOverviewStats,
   HeartbeatSeriesSample,
   IrrigationEvent,
+  IrrigationMode,
   StatusPayload,
   WeatherOverviewPayload,
   WeatherConditionsSnapshot,
-  RealtimeEvent
+  RealtimeEvent,
+  Zone,
+  ZoneState
 } from "./types";
 import "react-datepicker/dist/react-datepicker.css";
 import "./modal.css";
 import WeatherWidget, { type PrecipitationPoint } from "./components/WeatherWidget";
-import DeviceWidget from "./components/DeviceWidget";
-import IrrigationWidget from "./components/IrrigationWidget";
+import ZoneControlPanel from "./components/ZoneControlPanel";
+import IrrigationQueuePanel from "./components/IrrigationQueuePanel";
+import SettingsPanel from "./components/SettingsPanel";
 import OverviewSection, {
   type OverviewCardDefinition
 } from "./components/OverviewSection";
-import HistorySection from "./components/HistorySection";
 import { GuardCard } from "./components/status/GuardCard";
 import {
   SensorWidget,
   type StatusTone
 } from "./components/status/SensorWidgets";
+import { StatusPanel } from "./components/status/StatusPanel";
 import {
   formatTimestamp,
   toQueryDateTime
@@ -49,6 +59,8 @@ import {
   type RefreshStatusKey
 } from "./components/RefreshStatusIcons";
 import { useRealtimeChannel } from "./hooks/useRealtimeChannel";
+import { useIntegrationHealth } from "./hooks/useIntegrationHealth";
+import HeaderHealthBar from "./components/HeaderHealthBar";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -147,9 +159,14 @@ const App = () => {
   const [deviceConfig, setDeviceConfig] = useState<DeviceConfig | null>(null);
   const [deviceConfigLoading, setDeviceConfigLoading] = useState<boolean>(false);
   const [refreshPhase, setRefreshPhase] = useState<RefreshPhase>("idle");
-  const [isStatusChipVisible, setIsStatusChipVisible] = useState(false);
-  const [isDevicePanelOpen, setIsDevicePanelOpen] = useState(false);
-  const scrollPositionRef = useRef<number | null>(null);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [zoneStates, setZoneStates] = useState<Record<string, ZoneState>>({});
+  const [zonesLoading, setZonesLoading] = useState(false);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "schedule" | "programs" | "integrations" | "preferences">("zones");
+  const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
+  const [aiScheduleEnabled, setAiScheduleEnabled] = useState(false);
+
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
   const hasForecastRef = useRef(false);
@@ -355,6 +372,39 @@ const App = () => {
     }
   }, []);
 
+  const loadZones = useCallback(async () => {
+    setZonesLoading(true);
+    try {
+      const [zoneList, states] = await Promise.all([fetchZones(), fetchZoneStates()]);
+      setZones(zoneList);
+      const stateMap: Record<string, ZoneState> = {};
+      states.forEach((s) => { stateMap[s.zoneId] = s; });
+      setZoneStates(stateMap);
+    } catch (err) {
+      console.error("Failed to load zones:", err);
+    } finally {
+      setZonesLoading(false);
+    }
+  }, []);
+
+  const loadSystemConfig = useCallback(async () => {
+    try {
+      const config = await fetchSystemConfig();
+      setIrrigationMode(config.irrigationMode);
+    } catch (err) {
+      console.error("Failed to load system config:", err);
+    }
+  }, []);
+
+  const loadAIScheduleEnabled = useCallback(async () => {
+    try {
+      const config = await fetchAIScheduleConfig();
+      setAiScheduleEnabled(config?.enabled ?? false);
+    } catch {
+      setAiScheduleEnabled(false);
+    }
+  }, []);
+
   const realtimeUrl = useMemo(() => buildRealtimeUrl(), []);
 
   const {
@@ -369,6 +419,13 @@ const App = () => {
     url: realtimeUrl,
     preferenceKey: LOCAL_REALTIME_PREF_KEY,
     onEvent: (event) => realtimeEventHandlerRef.current(event)
+  });
+
+  const integrationHealth = useIntegrationHealth({
+    realtimeStatus,
+    isRealtimeActive,
+    forecastError,
+    hasForecast: forecast !== null
   });
 
   const updateCalendarPortalPosition = useCallback((anchor?: HTMLElement | null) => {
@@ -544,6 +601,15 @@ const App = () => {
 
 
   useEffect(() => {
+    void loadZones();
+  }, [loadZones]);
+
+  useEffect(() => {
+    void loadSystemConfig();
+    void loadAIScheduleEnabled();
+  }, [loadSystemConfig, loadAIScheduleEnabled]);
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);
@@ -552,55 +618,6 @@ const App = () => {
       window.clearInterval(intervalId);
     };
   }, []);
-
-  const totalPages = heartbeatMeta?.totalPages ?? 1;
-  const totalHeartbeatCount = heartbeatMeta?.totalCount ?? heartbeatPage.length;
-  const totalIrrigationCount = irrigationMeta?.totalCount ?? irrigationEvents.length;
-  const hasNextPage = heartbeatMeta?.hasNextPage ?? page < totalPages;
-  const hasPreviousPage = heartbeatMeta?.hasPreviousPage ?? page > 1;
-  const pagedHeartbeats = heartbeatPage;
-  const isHistoryLoading = loadState === "loading";
-  const rememberScrollPosition = useCallback(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    scrollPositionRef.current = window.scrollY;
-  }, []);
-
-  const restoreScrollPosition = useCallback(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const storedScroll = scrollPositionRef.current;
-    if (storedScroll === null) {
-      return;
-    }
-    window.scrollTo({
-      top: storedScroll
-    });
-    scrollPositionRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    if (!isHistoryLoading && scrollPositionRef.current !== null) {
-      if (typeof window !== "undefined") {
-        const frame = window.requestAnimationFrame(() => {
-          restoreScrollPosition();
-        });
-        return () => window.cancelAnimationFrame(frame);
-      }
-      restoreScrollPosition();
-    }
-    return;
-  }, [isHistoryLoading, restoreScrollPosition]);
-
-  useEffect(() => {
-    if (isHistoryLoading && scrollPositionRef.current !== null && typeof window !== "undefined") {
-      window.scrollTo({
-        top: scrollPositionRef.current
-      });
-    }
-  }, [isHistoryLoading]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -642,31 +659,9 @@ const App = () => {
     };
   }, [updateCalendarPortalPosition]);
 
-  const handlePreviousPage = useCallback(() => {
-    if (!hasPreviousPage) {
-      return;
-    }
-    rememberScrollPosition();
-    setPage((prev) => Math.max(1, prev - 1));
-  }, [hasPreviousPage, rememberScrollPosition]);
-
-  const handleNextPage = useCallback(() => {
-    if (!hasNextPage) {
-      return;
-    }
-    rememberScrollPosition();
-    setPage((prev) => Math.min(totalPages, prev + 1));
-  }, [hasNextPage, rememberScrollPosition, totalPages]);
-
   useEffect(() => {
     setPage(1);
   }, [startDate, endDate]);
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   const trendData = useMemo(
     () =>
@@ -838,31 +833,6 @@ const App = () => {
   const lastPressureChange =
     status?.changes?.sensors?.waterPsi ?? fallbackPressureChange;
 
-  const lastUpdateAt = useMemo(() => {
-    const parseTs = (value: string | null | undefined) => {
-      if (!value) return null;
-      const ts = Date.parse(value);
-      return Number.isFinite(ts) ? ts : null;
-    };
-    if (status?.lastUpdatedAt) {
-      const parsed = parseTs(status.lastUpdatedAt);
-      if (parsed) {
-        return new Date(parsed).toISOString();
-      }
-    }
-    const candidates = [
-      parseTs(lastGuardChange),
-      parseTs(latestHeartbeatSnapshot?.timestamp ?? null),
-      parseTs(lastIrrigationChange)
-    ].filter((ts): ts is number => ts !== null);
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    const maxTs = Math.max(...candidates);
-    return new Date(maxTs).toISOString();
-  }, [lastGuardChange, status?.lastUpdatedAt, latestHeartbeatSnapshot, lastIrrigationChange]);
 
   const precipitationSeries = useMemo<PrecipitationPoint[]>(() => {
     if (!forecast) {
@@ -1077,21 +1047,9 @@ const App = () => {
       case "error":
         return { key: "error", label: "Refresh failed · tap to retry" };
       default:
-        if (!isRealtimeActive) {
-          return null;
-        }
-        if (realtimeStatus === "connecting") {
-          return { key: "connecting", label: "Connecting live updates…" };
-        }
-        if (realtimeStatus === "disconnected") {
-          return { key: "disconnected", label: "Realtime channel offline" };
-        }
-        if (realtimeStatus === "connected") {
-          return { key: "ready", label: "Live updates ready" };
-        }
         return null;
     }
-  }, [refreshPhase, realtimeStatus, isRealtimeActive]);
+  }, [refreshPhase]);
 
   const handleResetFilters = useCallback(() => {
     setStartDate(null);
@@ -1112,8 +1070,8 @@ const App = () => {
     setEndDate(value);
   }, []);
 
-  const toggleDevicePanel = useCallback(() => {
-    setIsDevicePanelOpen((prev) => !prev);
+  const toggleSettingsPanel = useCallback(() => {
+    setIsSettingsPanelOpen((prev) => !prev);
   }, []);
 
   const handleCalendarOpen = useCallback(
@@ -1252,11 +1210,26 @@ const App = () => {
           }
           break;
         }
+        case "zone:created":
+        case "zone:updated":
+        case "zone:deleted":
+        case "command:created":
+        case "command:updated":
+        case "zoneState:changed": {
+          void loadZones();
+          break;
+        }
+        case "systemConfig:updated": {
+          if (event.payload && "irrigationMode" in event.payload) {
+            setIrrigationMode(event.payload.irrigationMode as IrrigationMode);
+          }
+          break;
+        }
         default:
           break;
       }
   },
-  [loadDeviceConfig, loadIrrigationEvents, loadStatus, syncDataAfterHeartbeat]
+  [loadDeviceConfig, loadIrrigationEvents, loadStatus, syncDataAfterHeartbeat, loadZones]
   );
 
   useEffect(() => {
@@ -1302,77 +1275,70 @@ const App = () => {
     };
   }, [latestWaterPsi, latestBaselinePsi]);
 
-  useEffect(() => {
-    if (!refreshStatusDisplay) {
-      setIsStatusChipVisible(false);
-      return;
-    }
-    if (typeof window === "undefined") {
-      setIsStatusChipVisible(true);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setIsStatusChipVisible(true);
-    }, 0);
-    return () => {
-      if (typeof window !== "undefined") {
-        window.clearTimeout(timer);
-      }
-      setIsStatusChipVisible(false);
-    };
-  }, [refreshStatusDisplay]);
 
   return (
     <main className="app">
       <header className="app-header">
         <img
           src="banner.png"
-          alt="Irrigation Monitor Logo"
+          alt="Irrigo Logo"
           className="app-logo"
         />
+
         <div className="app-header-actions">
-          <div className={`app-header-actions-row${refreshStatusDisplay ? " app-header-actions-row--active" : ""}`}>
-            {refreshStatusDisplay ? (
-              <span className={`refresh-status-chip${isStatusChipVisible ? " refresh-status-chip--visible" : ""}`}>
+          <div className="app-header-actions-row">
+            <button
+              type="button"
+              className={`refresh-icon-button${refreshStatusDisplay ? " refresh-icon-button--active" : ""}`}
+              onClick={() => {
+                void handleForceRefresh();
+              }}
+              disabled={isRefreshAnimating}
+              aria-label={refreshStatusDisplay ? refreshStatusDisplay.label : "Force refresh data"}
+              title={refreshStatusDisplay ? refreshStatusDisplay.label : "Refresh data"}
+            >
+              {refreshStatusDisplay ? (
                 <RefreshStatusIcon
                   status={refreshStatusDisplay.key}
                   label={refreshStatusDisplay.label}
                 />
-              </span>
-            ) : null}
-            <button
-              type="button"
-              className="refresh-icon-button"
-              onClick={() => {
-                void handleForceRefresh();
-              }}
-              aria-label="Force refresh data"
-            >
-              <span className={`refresh-icon${isRefreshAnimating ? " spin" : ""}`}>
-                <RefreshIcon />
-              </span>
+              ) : (
+                <span className="refresh-icon">
+                  <RefreshIcon />
+                </span>
+              )}
             </button>
             <button
               type="button"
-              className="device-panel__hamburger"
-              onClick={toggleDevicePanel}
-              aria-label="Toggle device panel"
-              aria-expanded={isDevicePanelOpen}
+              className="settings-gear-button"
+              onClick={toggleSettingsPanel}
+              aria-label="Open settings"
             >
-              <span className="device-panel__hamburger-icon" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+              </svg>
             </button>
           </div>
+          <HeaderHealthBar health={integrationHealth} />
         </div>
-
       </header>
 
-      {error ? <div className="error-banner">⚠️ {error}</div> : null}
+      <nav className="app-nav">
+        <NavLink to="/" end className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          Dashboard
+        </NavLink>
+        <NavLink to="/records" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          Records
+        </NavLink>
+      </nav>
 
-      <WeatherWidget
+      <Routes>
+        <Route path="/" element={
+          <>
+            {error ? <div className="error-banner">{error}</div> : null}
+
+            <WeatherWidget
         loading={forecastLoading}
         error={forecastError}
         currentWeather={currentWeather}
@@ -1381,47 +1347,42 @@ const App = () => {
         precipitationSeries={precipitationSeries}
       />
 
-      <section className="status-grid">
-          <GuardCard
-            guard={guardActive}
-            lastChangeAt={lastUpdateAt}
-            lastIrrigationChange={lastIrrigationChange}
-            irrigation={statusIrrigation}
-            now={now}
-          />
-        <SensorWidget
-          title="Pressure"
-          icon={getSensorIcon("pressure", "sensor-icon--pressure")}
-          status={waterPressureMeta.status}
-          statusTone={waterPressureMeta.tone}
-          detail={waterPressureMeta.detail}
-          active={connectedSensors.includes("PRESSURE")}
-          lastChangedAt={lastPressureChange}
-        />
-        <SensorWidget
-          title="Rain"
-          icon={getSensorIcon("rain", "sensor-icon--rain")}
-          status={rainStatus}
-          statusTone={rainStatusTone}
-          active={connectedSensors.includes("RAIN")}
-          lastChangedAt={lastRainChange}
-        />
-        <SensorWidget
-          title="Soil"
-          icon={getSensorIcon("soil", "sensor-icon--soil")}
-          status={soilStatus}
-          statusTone={soilStatusTone}
-          active={connectedSensors.includes("SOIL")}
-          lastChangedAt={lastSoilChange}
-        />
-        <IrrigationWidget
-          events={irrigationEvents}
-          isLoading={irrigationLoading}
-          totalCount={totalIrrigationCount}
-          error={irrigationError}
-          baselinePsi={latestBaselinePsi}
-        />
-      </section>
+      <StatusPanel
+        guard={guardActive}
+        irrigation={statusIrrigation}
+        lastIrrigationChange={lastIrrigationChange}
+        pressureStatus={waterPressureMeta.status}
+        pressureTone={waterPressureMeta.tone}
+        pressureDetail={waterPressureMeta.detail}
+        pressureActive={connectedSensors.includes("PRESSURE")}
+        rainStatus={rainStatus}
+        rainTone={rainStatusTone}
+        rainActive={connectedSensors.includes("RAIN")}
+        soilStatus={soilStatus}
+        soilTone={soilStatusTone}
+        soilActive={connectedSensors.includes("SOIL")}
+      />
+
+      <ZoneControlPanel
+        zones={zones}
+        zoneStates={zoneStates}
+        loading={zonesLoading}
+        onZonesChanged={loadZones}
+        mode="control"
+        onOpenSettings={() => { setSettingsTab("zones"); setIsSettingsPanelOpen(true); }}
+        irrigationEvents={irrigationEvents}
+        baselinePsi={latestBaselinePsi}
+      />
+
+      <IrrigationQueuePanel
+        zones={zones}
+        irrigationMode={irrigationMode}
+        aiScheduleEnabled={aiScheduleEnabled}
+        onModeChanged={(mode) => setIrrigationMode(mode)}
+        onScheduleChanged={loadZones}
+        onOpenSmartSettings={() => { setSettingsTab("schedule"); setIsSettingsPanelOpen(true); }}
+        onOpenProgramSettings={() => { setSettingsTab("programs"); setIsSettingsPanelOpen(true); }}
+      />
 
       <section className="history-window">
         <article className="history-window-card">
@@ -1439,9 +1400,6 @@ const App = () => {
               onClick={handleResetFilters}
               disabled={!filterActive}
             >
-              <span className="time-filter-reset-icon" aria-hidden="true">
-                ↺
-              </span>
               Reset
             </button>
             <div className="time-filter-field">
@@ -1525,72 +1483,33 @@ const App = () => {
               error={overviewError}
             />
           </div>
-          <div className="history-window-section" aria-label="Records">
-            <HistorySection
-              heartbeats={pagedHeartbeats}
-              totalCount={totalHeartbeatCount}
-              page={page}
-              totalPages={totalPages}
-              hasPreviousPage={hasPreviousPage}
-              hasNextPage={hasNextPage}
-              onPreviousPage={handlePreviousPage}
-              onNextPage={handleNextPage}
-              isLoading={isHistoryLoading}
-            />
-          </div>
         </article>
       </section>
+          </>
+        } />
+        <Route path="/records" element={<RecordsPage />} />
+      </Routes>
 
-
-
-      <aside
-        className={`device-panel-drawer${isDevicePanelOpen ? " device-panel-drawer--open" : ""}`}
-        aria-hidden={!isDevicePanelOpen}
-      >
-        <header className="device-panel-drawer__header">
-          <h2>Menu</h2>
-          <button
-            type="button"
-            className="device-panel-drawer__close"
-            onClick={toggleDevicePanel}
-            aria-label="Close device panel"
-          >
-            ×
-          </button>
-        </header>
-        <div className="device-panel-drawer__body">
-          <section className="device-panel-section" aria-label="IoT device">
-            <DeviceWidget
-              ip={latestIp}
-              tempF={latestTempF}
-              humidity={latestHumidity}
-              baselinePsi={latestBaselinePsi}
-              lastHeartbeat={lastHeartbeatText}
-              deviceConfig={deviceConfig}
-              isDeviceConfigLoading={deviceConfigLoading}
-              onSaveConfig={handleDeviceConfigSave}
-            />
-          </section>
-          <section className="device-panel-section" aria-label="App preferences">
-            <h3>Live updates</h3>
-            <label className="checkbox-label device-panel-preference">
-              <input
-                type="checkbox"
-                checked={isRealtimePreferenceEnabled}
-                onChange={(event) => handleRealtimePreferenceToggle(event.target.checked)}
-              />
-              <span>Enable while app is open</span>
-            </label>
-          </section>
-        </div>
-      </aside>
-      {isDevicePanelOpen ? (
-        <div
-          className="device-panel-backdrop"
-          onClick={toggleDevicePanel}
-          role="presentation"
-        />
-      ) : null}
+      <SettingsPanel
+        open={isSettingsPanelOpen}
+        onClose={() => setIsSettingsPanelOpen(false)}
+        initialTab={settingsTab}
+        zones={zones}
+        zoneStates={zoneStates}
+        zonesLoading={zonesLoading}
+        onZonesChanged={loadZones}
+        ip={latestIp}
+        tempF={latestTempF}
+        humidity={latestHumidity}
+        baselinePsi={latestBaselinePsi}
+        lastHeartbeat={lastHeartbeatText}
+        deviceConfig={deviceConfig}
+        isDeviceConfigLoading={deviceConfigLoading}
+        onSaveConfig={handleDeviceConfigSave}
+        isRealtimePreferenceEnabled={isRealtimePreferenceEnabled}
+        onRealtimePreferenceToggle={handleRealtimePreferenceToggle}
+        onAIScheduleConfigChanged={loadAIScheduleEnabled}
+      />
     </main>
   );
 };

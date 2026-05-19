@@ -131,7 +131,7 @@ export const IrrigationWidget = ({
                       </span>
                     )}
                     <span className="duration-value">
-                      {record.isActive || !record.end ? "" : "⏲ " + formatDurationLabel(record.durationMs)}
+                      {record.isActive || !record.end ? "" : formatDurationLabel(record.durationMs)}
                     </span>
                   </div>
                 </div>

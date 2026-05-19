@@ -1,14 +1,24 @@
 import type {
+  AIScheduleConfig,
   DeviceConfig,
+  ExternalControllerConfig,
   Heartbeat,
   HeartbeatListMeta,
   HeartbeatListResponse,
   HeartbeatOverviewStats,
   HeartbeatSeriesSample,
+  IrrigationCommand,
   IrrigationEvent,
   IrrigationListResponse,
+  IrrigationMode,
+  IrrigationProgram,
+  ScheduleEntry,
+  ScheduleRun,
   StatusPayload,
-  WeatherOverviewPayload
+  SystemConfig,
+  WeatherOverviewPayload,
+  Zone,
+  ZoneState
 } from "./types";
 
 const resolveApiBase = () => {
@@ -70,6 +80,11 @@ export interface HeartbeatQuery {
   end?: string;
   page?: number;
   pageSize?: number;
+  guard?: "true" | "false";
+  rain?: "true" | "false";
+  soil?: "true" | "false";
+  psiMin?: string;
+  psiMax?: string;
 }
 
 export interface IrrigationQuery {
@@ -87,7 +102,12 @@ export const fetchHeartbeats = async (
       start: query?.start,
       end: query?.end,
       page: query?.page ? query.page.toString() : undefined,
-      pageSize: query?.pageSize ? query.pageSize.toString() : undefined
+      pageSize: query?.pageSize ? query.pageSize.toString() : undefined,
+      guard: query?.guard,
+      rain: query?.rain,
+      soil: query?.soil,
+      psiMin: query?.psiMin,
+      psiMax: query?.psiMax
     })
   );
   if (!response.ok) {
@@ -213,6 +233,313 @@ export const updateDeviceConfig = async (config: Partial<DeviceConfig>) => {
 
   const json = await response.json();
   return json.data as DeviceConfig;
+};
+
+// --- Zone API ---
+
+export const fetchZones = async (): Promise<Zone[]> => {
+  const response = await fetch(buildUrl("/zones"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch zones (${response.status})`);
+  }
+  const json = (await response.json()) as { data: Zone[] };
+  return json.data;
+};
+
+export const createZone = async (zone: Omit<Zone, "_id" | "createdAt" | "updatedAt">): Promise<Zone> => {
+  const response = await fetch(buildUrl("/zones"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(zone)
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Failed to create zone (${response.status})`);
+  }
+  const json = (await response.json()) as { data: Zone };
+  return json.data;
+};
+
+export const updateZone = async (zoneId: string, updates: Partial<Zone>): Promise<Zone> => {
+  const response = await fetch(buildUrl(`/zones/${zoneId}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update zone (${response.status})`);
+  }
+  const json = (await response.json()) as { data: Zone };
+  return json.data;
+};
+
+export const deleteZone = async (zoneId: string): Promise<void> => {
+  const response = await fetch(buildUrl(`/zones/${zoneId}`), { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`Failed to delete zone (${response.status})`);
+  }
+};
+
+export const toggleZone = async (zoneId: string): Promise<Zone> => {
+  const response = await fetch(buildUrl(`/zones/${zoneId}/toggle`), { method: "PATCH" });
+  if (!response.ok) {
+    throw new Error(`Failed to toggle zone (${response.status})`);
+  }
+  const json = (await response.json()) as { data: Zone };
+  return json.data;
+};
+
+export const reorderZones = async (order: Array<{ zoneId: string; sortOrder: number }>): Promise<Zone[]> => {
+  const response = await fetch(buildUrl("/zones/reorder"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to reorder zones (${response.status})`);
+  }
+  const json = (await response.json()) as { data: Zone[] };
+  return json.data;
+};
+
+export const fetchZoneStates = async (): Promise<ZoneState[]> => {
+  const response = await fetch(buildUrl("/zones/states"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch zone states (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ZoneState[] };
+  return json.data;
+};
+
+export const sendZoneCommand = async (
+  zoneId: string,
+  command: { action: "on" | "off"; durationMinutes?: number }
+): Promise<IrrigationCommand> => {
+  const response = await fetch(buildUrl(`/zones/${zoneId}/command`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(command)
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Failed to send command (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationCommand };
+  return json.data;
+};
+
+// --- External Controller Config API ---
+
+export const fetchExternalControllerConfig = async (): Promise<ExternalControllerConfig | null> => {
+  const response = await fetch(buildUrl("/external-controller/config"));
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error(`Failed to fetch external controller config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ExternalControllerConfig };
+  return json.data;
+};
+
+export const updateExternalControllerConfig = async (
+  config: Partial<ExternalControllerConfig>
+): Promise<ExternalControllerConfig> => {
+  const response = await fetch(buildUrl("/external-controller/config"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update external controller config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ExternalControllerConfig };
+  return json.data;
+};
+
+export const testExternalController = async (): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(buildUrl("/external-controller/test"), { method: "POST" });
+  const json = (await response.json()) as { success: boolean; message: string };
+  return json;
+};
+
+// --- AI Schedule API ---
+
+export const fetchAIScheduleConfig = async (): Promise<AIScheduleConfig | null> => {
+  const response = await fetch(buildUrl("/ai-schedule/config"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch AI schedule config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: AIScheduleConfig | null };
+  return json.data;
+};
+
+export const updateAIScheduleConfig = async (
+  config: Partial<AIScheduleConfig>
+): Promise<AIScheduleConfig> => {
+  const response = await fetch(buildUrl("/ai-schedule/config"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Failed to update AI config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: AIScheduleConfig };
+  return json.data;
+};
+
+export const triggerAIScheduleRun = async (): Promise<{ runId: string; entriesCreated: number }> => {
+  const response = await fetch(buildUrl("/ai-schedule/run"), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Schedule run failed (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { runId: string; entriesCreated: number } };
+  return json.data;
+};
+
+export const fetchScheduleRuns = async (page = 1): Promise<{ data: ScheduleRun[]; meta: HeartbeatListMeta }> => {
+  const response = await fetch(buildUrl("/ai-schedule/runs", { page: page.toString() }));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch schedule runs (${response.status})`);
+  }
+  return (await response.json()) as { data: ScheduleRun[]; meta: HeartbeatListMeta };
+};
+
+export const fetchScheduleRun = async (runId: string): Promise<ScheduleRun & { entries: ScheduleEntry[] }> => {
+  const response = await fetch(buildUrl(`/ai-schedule/runs/${runId}`));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch schedule run (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ScheduleRun & { entries: ScheduleEntry[] } };
+  return json.data;
+};
+
+export const fetchUpcomingEntries = async (): Promise<ScheduleEntry[]> => {
+  const response = await fetch(buildUrl("/ai-schedule/entries/upcoming"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch upcoming entries (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ScheduleEntry[] };
+  return json.data;
+};
+
+export const cancelScheduleEntry = async (entryId: string): Promise<ScheduleEntry> => {
+  const response = await fetch(buildUrl(`/ai-schedule/entries/${entryId}/cancel`), { method: "PATCH" });
+  if (!response.ok) {
+    throw new Error(`Failed to cancel entry (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ScheduleEntry };
+  return json.data;
+};
+
+export const skipScheduleEntry = async (entryId: string, reason?: string): Promise<ScheduleEntry> => {
+  const response = await fetch(buildUrl(`/ai-schedule/entries/${entryId}/skip`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to skip entry (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ScheduleEntry };
+  return json.data;
+};
+
+// --- System Config API ---
+
+export const fetchSystemConfig = async (): Promise<SystemConfig> => {
+  const response = await fetch(buildUrl("/system-config"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch system config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: SystemConfig };
+  return json.data;
+};
+
+export const updateSystemConfig = async (irrigationMode: IrrigationMode): Promise<SystemConfig> => {
+  const response = await fetch(buildUrl("/system-config"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ irrigationMode })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update system config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: SystemConfig };
+  return json.data;
+};
+
+// --- Programs API ---
+
+export const fetchPrograms = async (): Promise<IrrigationProgram[]> => {
+  const response = await fetch(buildUrl("/programs"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch programs (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationProgram[] };
+  return json.data;
+};
+
+export const createProgram = async (
+  data: Omit<IrrigationProgram, "_id" | "programId" | "createdAt" | "updatedAt">
+): Promise<IrrigationProgram> => {
+  const response = await fetch(buildUrl("/programs"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Failed to create program (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationProgram };
+  return json.data;
+};
+
+export const updateProgram = async (
+  programId: string,
+  data: Partial<IrrigationProgram>
+): Promise<IrrigationProgram> => {
+  const response = await fetch(buildUrl(`/programs/${programId}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update program (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationProgram };
+  return json.data;
+};
+
+export const deleteProgram = async (programId: string): Promise<void> => {
+  const response = await fetch(buildUrl(`/programs/${programId}`), { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`Failed to delete program (${response.status})`);
+  }
+};
+
+export const runProgram = async (programId: string): Promise<{ programId: string; zonesTriggered: number }> => {
+  const response = await fetch(buildUrl(`/programs/${programId}/run`), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Failed to run program (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { programId: string; zonesTriggered: number } };
+  return json.data;
+};
+
+// --- Manual Run API ---
+
+export const triggerManualRun = async (): Promise<{ zoneId: string; commandId: string | null; error: string | null }[]> => {
+  const response = await fetch(buildUrl("/manual-run"), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Manual run failed (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { zoneId: string; commandId: string | null; error: string | null }[] };
+  return json.data;
 };
 
 export const buildRealtimeUrl = () => {

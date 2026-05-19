@@ -3,29 +3,57 @@ import IrrigationEvent from "../models/IrrigationEvent";
 import type { IrrigationEventInput } from "../schemas/irrigationEventSchema";
 import { emitRealtimeEvent } from "../services/realtimeService";
 import { refreshStatusCache } from "./statusController";
+import { acknowledgeCommand } from "../services/irrigationCommandService";
 import Heartbeat from "../models/Heartbeat";
+import Zone from "../models/Zone";
 
 const MAX_LIST_LIMIT = 500;
 
-const serializeEvent = (event: { _id?: unknown; zone: string; action: "on" | "off"; createdAt?: Date; waterPressure?: number | null }) => ({
+const resolveZoneId = async (input: string): Promise<string> => {
+  const byId = await Zone.findOne({ zoneId: input }).lean();
+  if (byId) return byId.zoneId;
+
+  const byName = await Zone.findOne({
+    name: { $regex: new RegExp(`^${input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }
+  }).lean();
+  if (byName) return byName.zoneId;
+
+  return input;
+};
+
+const serializeEvent = (event: {
+  _id?: unknown;
+  zone: string;
+  action: "on" | "off";
+  createdAt?: Date;
+  waterPressure?: number | null;
+  commandId?: unknown;
+  source?: string | null;
+}) => ({
   _id: (event as { _id?: unknown })._id ?? undefined,
   zone: event.zone,
   action: event.action,
   waterPressure: event.waterPressure ?? null,
+  commandId: event.commandId ?? null,
+  source: event.source ?? null,
   createdAt: event.createdAt ?? undefined
 });
 
 const persistEvent = async (zone: string, action: "on" | "off") => {
   const now = new Date();
-  const trimmedZone = zone.trim();
+  const zoneId = await resolveZoneId(zone.trim());
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
   const pressure = latestHeartbeat?.sensors?.waterPsi ?? null;
 
+  const acknowledgedCmd = await acknowledgeCommand(zoneId, action);
+
   const event = await IrrigationEvent.create({
-    zone: trimmedZone,
+    zone: zoneId,
     action,
     waterPressure: pressure,
+    commandId: acknowledgedCmd?._id ?? null,
+    source: acknowledgedCmd ? acknowledgedCmd.source : "external",
     createdAt: now
   });
 
@@ -171,7 +199,7 @@ export const listIrrigationEvents = async (req: Request, res: Response) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
-        .select({ zone: 1, action: 1, createdAt: 1, waterPressure: 1 })
+        .select({ zone: 1, action: 1, createdAt: 1, waterPressure: 1, commandId: 1, source: 1 })
         .lean()
     ]);
 

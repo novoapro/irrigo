@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 export const deviceConfigSchema = z.object({
-  // baselineDefault should allow zero (explicitly set to 0 to disable baseline)
+  deviceName: z.string().max(100).optional(),
+  deviceDescription: z.string().max(300).optional(),
   baselineDefault: z.number().nonnegative().optional(),
   sampleIntervalMs: z.number().int().positive().optional(),
   heartbeatIntervalMs: z.number().int().positive().optional(),

@@ -63,7 +63,7 @@ const OverviewSection = ({
       {loading ? (
         <p className="muted">Calculating statistics…</p>
       ) : error ? (
-        <p className="error-text">⚠️ {error}</p>
+        <p className="error-text">{error}</p>
       ) : cards.length > 0 ? (
         <div className="overview-grid">
           {pressureOverview ? (

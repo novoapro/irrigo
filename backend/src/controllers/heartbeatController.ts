@@ -124,6 +124,30 @@ export const listHeartbeats = async (req: Request, res: Response) => {
     filter.timestamp = timestampFilter;
   }
 
+  const { guard, rain, soil, psiMin, psiMax } = req.query;
+
+  if (guard === "true") filter.guard = true;
+  else if (guard === "false") filter.guard = false;
+
+  if (rain === "true") filter["sensors.rain"] = true;
+  else if (rain === "false") filter["sensors.rain"] = false;
+
+  if (soil === "true") filter["sensors.soil"] = true;
+  else if (soil === "false") filter["sensors.soil"] = false;
+
+  if (typeof psiMin === "string" && psiMin.length > 0) {
+    const val = Number.parseFloat(psiMin);
+    if (!Number.isNaN(val)) {
+      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $gte: val };
+    }
+  }
+  if (typeof psiMax === "string" && psiMax.length > 0) {
+    const val = Number.parseFloat(psiMax);
+    if (!Number.isNaN(val)) {
+      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $lte: val };
+    }
+  }
+
   const pageCandidate = Number.parseInt((req.query.page as string) ?? "", 10);
   const page = Number.isInteger(pageCandidate) && pageCandidate > 0 ? pageCandidate : 1;
 

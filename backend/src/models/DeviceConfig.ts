@@ -2,6 +2,8 @@ import { Schema, model } from "mongoose";
 
 export interface DeviceConfigAttributes {
   deviceIp: string;
+  deviceName?: string;
+  deviceDescription?: string;
   baselineDefault?: number;
   sampleIntervalMs?: number;
   heartbeatIntervalMs?: number;
@@ -15,6 +17,8 @@ export interface DeviceConfigAttributes {
 
 const deviceConfigSchema = new Schema<DeviceConfigAttributes>({
   deviceIp: { type: String, required: true, unique: true },
+  deviceName: { type: String, default: null },
+  deviceDescription: { type: String, default: null },
   baselineDefault: { type: Number, default: null },
   sampleIntervalMs: { type: Number, default: null },
   heartbeatIntervalMs: { type: Number, default: null },
