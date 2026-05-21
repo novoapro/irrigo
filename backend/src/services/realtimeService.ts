@@ -31,10 +31,10 @@ export type RealtimeEventType =
   | "program:updated"
   | "program:deleted"
   | "program:triggered"
-  | "manualRun:started"
-  | "manualRun:zoneProgress"
-  | "manualRun:completed"
-  | "manualRun:cancelled";
+  | "sequentialRun:started"
+  | "sequentialRun:zoneProgress"
+  | "sequentialRun:completed"
+  | "sequentialRun:cancelled";
 
 export interface RealtimeEvent<TPayload = unknown> {
   type: RealtimeEventType;

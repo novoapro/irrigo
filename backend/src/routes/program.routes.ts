@@ -5,7 +5,8 @@ import {
   createProgram,
   updateProgram,
   deleteProgram,
-  runProgram
+  runProgram,
+  handleCancelProgramRun
 } from "../controllers/programController";
 import { validateSchema } from "../middleware/validateSchema";
 import { createProgramSchema, updateProgramSchema } from "../schemas/irrigationProgramSchema";
@@ -14,6 +15,10 @@ const router = Router();
 
 router.get("/", (req, res) => {
   void listPrograms(req, res);
+});
+
+router.post("/cancel-run", (req, res) => {
+  void handleCancelProgramRun(req, res);
 });
 
 router.post("/", validateSchema(createProgramSchema), (req, res) => {

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import type { CreateProgramInput, UpdateProgramInput } from "../schemas/irrigationProgramSchema";
 import * as programService from "../services/programService";
-import { runProgramNow } from "../services/programSchedulerService";
+import { runProgramNow, cancelProgramRun } from "../services/programSchedulerService";
 
 export const listPrograms = async (_req: Request, res: Response) => {
   try {
@@ -79,5 +79,17 @@ export const runProgram = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Failed to run program:", error);
     res.status(400).json({ message: error?.message ?? "Unable to run program" });
+  }
+};
+
+export const handleCancelProgramRun = async (_req: Request, res: Response) => {
+  try {
+    const cancelled = await cancelProgramRun();
+    if (!cancelled) {
+      return res.status(404).json({ message: "No active program run to cancel" });
+    }
+    res.json({ data: { cancelled: true } });
+  } catch (error: any) {
+    res.status(500).json({ message: error?.message ?? "Failed to cancel program run" });
   }
 };

@@ -676,14 +676,22 @@ export const deleteProgram = async (programId: string): Promise<void> => {
   }
 };
 
-export const runProgram = async (programId: string): Promise<{ programId: string; zonesTriggered: number }> => {
+export const runProgram = async (programId: string): Promise<{ programId: string; zonesTriggered: number; runId: string }> => {
   const response = await fetch(buildUrl(`/programs/${programId}/run`), { method: "POST" });
   if (!response.ok) {
     const json = await response.json().catch(() => ({}));
     throw new Error((json as { message?: string }).message ?? `Failed to run program (${response.status})`);
   }
-  const json = (await response.json()) as { data: { programId: string; zonesTriggered: number } };
+  const json = (await response.json()) as { data: { programId: string; zonesTriggered: number; runId: string } };
   return json.data;
+};
+
+export const cancelProgramRun = async (): Promise<void> => {
+  const response = await fetch(buildUrl("/programs/cancel-run"), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Cancel failed (${response.status})`);
+  }
 };
 
 // --- Manual Run API ---
@@ -718,7 +726,7 @@ export const getManualRunStatus = async () => {
     const json = await response.json().catch(() => ({}));
     throw new Error((json as { message?: string }).message ?? `Status fetch failed (${response.status})`);
   }
-  const json = (await response.json()) as { data: import("./types").ManualRun | null };
+  const json = (await response.json()) as { data: import("./types").SequentialRun | null };
   return json.data;
 };
 

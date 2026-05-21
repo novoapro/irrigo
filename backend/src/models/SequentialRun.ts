@@ -1,28 +1,31 @@
 import { Schema, model } from "mongoose";
 
-export type ManualRunStatus = "running" | "completed" | "cancelled" | "failed";
-export type ManualRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
+export type SequentialRunSource = "manual" | "program" | "ai-schedule";
+export type SequentialRunStatus = "running" | "completed" | "cancelled" | "failed";
+export type SequentialRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
 
-export interface ManualRunZoneEntry {
+export interface SequentialRunZoneEntry {
   zoneId: string;
   name: string;
   durationMinutes: number;
-  status: ManualRunZoneStatus;
+  status: SequentialRunZoneStatus;
   commandId?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
   error?: string | null;
 }
 
-export interface ManualRunAttributes {
-  status: ManualRunStatus;
-  zones: ManualRunZoneEntry[];
+export interface SequentialRunAttributes {
+  source: SequentialRunSource;
+  programId?: string | null;
+  status: SequentialRunStatus;
+  zones: SequentialRunZoneEntry[];
   currentZoneIndex: number;
   startedAt: Date;
   completedAt?: Date | null;
 }
 
-const manualRunZoneSchema = new Schema<ManualRunZoneEntry>(
+const sequentialRunZoneSchema = new Schema<SequentialRunZoneEntry>(
   {
     zoneId: { type: String, required: true },
     name: { type: String, required: true },
@@ -40,19 +43,26 @@ const manualRunZoneSchema = new Schema<ManualRunZoneEntry>(
   { _id: false }
 );
 
-const manualRunSchema = new Schema<ManualRunAttributes>({
+const sequentialRunSchema = new Schema<SequentialRunAttributes>({
+  source: {
+    type: String,
+    enum: ["manual", "program", "ai-schedule"],
+    required: true,
+    index: true
+  },
+  programId: { type: String, default: null },
   status: {
     type: String,
     enum: ["running", "completed", "cancelled", "failed"],
     default: "running",
     index: true
   },
-  zones: { type: [manualRunZoneSchema], default: [] },
+  zones: { type: [sequentialRunZoneSchema], default: [] },
   currentZoneIndex: { type: Number, default: 0 },
   startedAt: { type: Date, default: () => new Date() },
   completedAt: { type: Date, default: null }
 });
 
-const ManualRun = model<ManualRunAttributes>("ManualRun", manualRunSchema);
+const SequentialRun = model<SequentialRunAttributes>("SequentialRun", sequentialRunSchema);
 
-export default ManualRun;
+export default SequentialRun;

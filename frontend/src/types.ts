@@ -250,27 +250,37 @@ export interface HeartbeatSeriesSample {
   psi: number;
 }
 
-export type ManualRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
+export type SequentialRunSource = "manual" | "program" | "ai-schedule";
+export type SequentialRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
 
-export interface ManualRunZoneEntry {
+export interface SequentialRunZoneEntry {
   zoneId: string;
   name: string;
   durationMinutes: number;
-  status: ManualRunZoneStatus;
+  status: SequentialRunZoneStatus;
   commandId?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   error?: string | null;
 }
 
-export interface ManualRun {
+export interface SequentialRun {
   _id: string;
+  source: SequentialRunSource;
+  programId?: string | null;
   status: "running" | "completed" | "cancelled" | "failed";
-  zones: ManualRunZoneEntry[];
+  zones: SequentialRunZoneEntry[];
   currentZoneIndex: number;
   startedAt: string;
   completedAt?: string | null;
 }
+
+/** @deprecated Use SequentialRun */
+export type ManualRun = SequentialRun;
+/** @deprecated Use SequentialRunZoneEntry */
+export type ManualRunZoneEntry = SequentialRunZoneEntry;
+/** @deprecated Use SequentialRunZoneStatus */
+export type ManualRunZoneStatus = SequentialRunZoneStatus;
 
 export type RealtimeEvent =
   | {
@@ -383,23 +393,23 @@ export type RealtimeEvent =
       at?: string;
     }
   | {
-      type: "manualRun:started";
-      payload?: ManualRun;
+      type: "sequentialRun:started";
+      payload?: SequentialRun;
       at?: string;
     }
   | {
-      type: "manualRun:zoneProgress";
-      payload?: ManualRun;
+      type: "sequentialRun:zoneProgress";
+      payload?: SequentialRun;
       at?: string;
     }
   | {
-      type: "manualRun:completed";
-      payload?: ManualRun;
+      type: "sequentialRun:completed";
+      payload?: SequentialRun;
       at?: string;
     }
   | {
-      type: "manualRun:cancelled";
-      payload?: ManualRun;
+      type: "sequentialRun:cancelled";
+      payload?: SequentialRun;
       at?: string;
     };
 

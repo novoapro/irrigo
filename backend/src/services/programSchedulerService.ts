@@ -1,6 +1,8 @@
 import IrrigationProgram from "../models/IrrigationProgram";
 import SystemConfig from "../models/SystemConfig";
-import { createCommand } from "./irrigationCommandService";
+import Zone from "../models/Zone";
+import { startSequentialRun, cancelRun } from "./sequentialRunService";
+import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
 
 const CHECK_INTERVAL_MS = 30_000;
@@ -37,13 +39,26 @@ const cronMatchesNow = (cron: string, now: Date): boolean => {
 const minuteKey = (now: Date): number =>
   now.getFullYear() * 1_000_000 + (now.getMonth() + 1) * 10_000 + now.getDate() * 100 + now.getHours() * 60 + now.getMinutes();
 
+const buildZoneInputs = async (
+  zoneEntries: { zoneId: string; durationMinutes: number }[]
+): Promise<StartRunZoneInput[]> => {
+  const zoneIds = zoneEntries.map((e) => e.zoneId);
+  const zones = await Zone.find({ zoneId: { $in: zoneIds } }).lean();
+  const nameMap = new Map(zones.map((z) => [z.zoneId, z.name]));
+
+  return zoneEntries.map((e) => ({
+    zoneId: e.zoneId,
+    name: nameMap.get(e.zoneId) ?? e.zoneId,
+    durationMinutes: e.durationMinutes
+  }));
+};
+
 const executeProgramZones = async (programId: string, zoneEntries: { zoneId: string; durationMinutes: number }[]) => {
-  for (const entry of zoneEntries) {
-    try {
-      await createCommand(entry.zoneId, "on", entry.durationMinutes, "program");
-    } catch (err) {
-      console.error(`[ProgramScheduler] Failed to run zone ${entry.zoneId} in program ${programId}:`, err);
-    }
+  try {
+    const inputs = await buildZoneInputs(zoneEntries);
+    await startSequentialRun(inputs, "program", programId);
+  } catch (err) {
+    console.error(`[ProgramScheduler] Failed to start sequential run for program ${programId}:`, err);
   }
 };
 
@@ -91,7 +106,11 @@ export const runProgramNow = async (programId: string) => {
   if (program.zoneEntries.length === 0) throw new Error("Program has no zone entries");
 
   emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
-  await executeProgramZones(program.programId, program.zoneEntries);
 
-  return { programId: program.programId, zonesTriggered: program.zoneEntries.length };
+  const inputs = await buildZoneInputs(program.zoneEntries);
+  const runId = await startSequentialRun(inputs, "program", program.programId);
+
+  return { programId: program.programId, zonesTriggered: program.zoneEntries.length, runId };
 };
+
+export const cancelProgramRun = cancelRun;

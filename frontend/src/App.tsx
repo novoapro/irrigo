@@ -40,7 +40,7 @@ import type {
   WeatherOverviewPayload,
   WeatherConditionsSnapshot,
   RealtimeEvent,
-  ManualRun,
+  SequentialRun,
   Zone,
   ZoneState
 } from "./types";
@@ -173,7 +173,7 @@ const App = () => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneStates, setZoneStates] = useState<Record<string, ZoneState>>({});
   const [zonesLoading, setZonesLoading] = useState(false);
-  const [manualRun, setManualRun] = useState<ManualRun | null>(null);
+  const [manualRun, setManualRun] = useState<SequentialRun | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "schedule" | "programs" | "integrations" | "preferences">("zones");
   const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
@@ -1228,14 +1228,14 @@ const App = () => {
           }
           break;
         }
-        case "manualRun:started":
-        case "manualRun:zoneProgress":
-        case "manualRun:completed":
-        case "manualRun:cancelled": {
+        case "sequentialRun:started":
+        case "sequentialRun:zoneProgress":
+        case "sequentialRun:completed":
+        case "sequentialRun:cancelled": {
           if (event.payload) {
-            setManualRun(event.payload as ManualRun);
+            setManualRun(event.payload as SequentialRun);
           }
-          if (event.type === "manualRun:completed" || event.type === "manualRun:cancelled") {
+          if (event.type === "sequentialRun:completed" || event.type === "sequentialRun:cancelled") {
             void loadZones();
           }
           break;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ManualRunZoneEntry, Zone, ZoneState } from "../types";
+import type { SequentialRunZoneEntry, Zone, ZoneState } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
 
 const MIN_DURATION = 1;
@@ -31,7 +31,7 @@ interface ZoneCardProps {
   baselinePsi?: number | null;
   locked?: boolean;
   manualRunActive?: boolean;
-  manualRunZoneEntry?: ManualRunZoneEntry | null;
+  manualRunZoneEntry?: SequentialRunZoneEntry | null;
   onToggleManualRunExclusion?: (zone: Zone) => void;
 }
 

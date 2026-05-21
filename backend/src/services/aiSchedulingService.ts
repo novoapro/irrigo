@@ -47,8 +47,18 @@ interface GatheredData {
   }>;
   recentIrrigationByZone: Record<string, Array<{
     action: string;
+    source: string;
     createdAt: string;
   }>>;
+  pendingEntries: Array<{
+    entryId: string;
+    zoneId: string;
+    plannedStartAt: string;
+    plannedDurationMinutes: number;
+    status: string;
+    aiReasoning: string;
+    userModified: boolean;
+  }>;
   locationName: string;
 }
 
@@ -96,15 +106,30 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     .sort({ createdAt: -1 })
     .lean();
 
-  const irrigationByZone: Record<string, Array<{ action: string; createdAt: string }>> = {};
+  const irrigationByZone: Record<string, Array<{ action: string; source: string; createdAt: string }>> = {};
   for (const event of recentEvents) {
     const key = event.zone;
     if (!irrigationByZone[key]) irrigationByZone[key] = [];
     irrigationByZone[key].push({
       action: event.action,
+      source: event.source ?? "unknown",
       createdAt: event.createdAt?.toISOString() ?? ""
     });
   }
+
+  const pendingDbEntries = await ScheduleEntry.find({
+    status: { $in: ["planned", "queued"] }
+  }).sort({ plannedStartAt: 1 }).lean();
+
+  const pendingEntries = pendingDbEntries.map((e) => ({
+    entryId: (e as any)._id.toString(),
+    zoneId: e.zoneId,
+    plannedStartAt: e.plannedStartAt.toISOString(),
+    plannedDurationMinutes: e.plannedDurationMinutes,
+    status: e.status,
+    aiReasoning: e.aiReasoning,
+    userModified: e.userModified ?? false
+  }));
 
   return {
     zones: zones.map((z) => ({
@@ -136,6 +161,7 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
       probability: p.probability
     })),
     recentIrrigationByZone: irrigationByZone,
+    pendingEntries,
     locationName: forecastSnapshot?.locationName ?? process.env.WEATHER_LOCATION_NAME ?? "Unknown"
   };
 };
@@ -147,11 +173,11 @@ const buildPrompt = (
 ): { system: string; user: string } => {
   const prefs = config.preferences;
 
-  const system = `You are an irrigation scheduling assistant for a residential lawn and garden system. Your job is to create an optimal irrigation schedule that conserves water while keeping the landscape healthy.
+  const system = `You are an irrigation scheduling assistant for a residential lawn and garden system. You manage the full irrigation schedule — creating new entries, modifying existing ones, or cancelling them as conditions change. Your goal is to conserve water while keeping the landscape healthy.
 
 You MUST respond with valid JSON only — no markdown, no explanation outside the JSON. Use this exact schema:
 {
-  "entries": [
+  "newEntries": [
     {
       "zoneId": "string",
       "plannedStartAt": "ISO 8601 datetime string",
@@ -159,6 +185,21 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
       "reasoning": "1-2 sentence explanation"
     }
   ],
+  "modifyEntries": [
+    {
+      "entryId": "string (from pending entries)",
+      "plannedStartAt": "ISO 8601 datetime string",
+      "plannedDurationMinutes": number,
+      "reasoning": "1-2 sentence explanation"
+    }
+  ],
+  "cancelEntries": [
+    {
+      "entryId": "string (from pending entries)",
+      "reasoning": "1-2 sentence explanation"
+    }
+  ],
+  "keepEntries": ["entryId1", "entryId2"],
   "skippedZones": [
     {
       "zoneId": "string",
@@ -196,11 +237,38 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
           .map(([k, v]) => `${k}: ${v}`)
           .join(", ")
       : "none";
-    const recentIrrigation = data.recentIrrigationByZone[z.zoneId];
-    const lastRun = recentIrrigation?.find((e) => e.action === "on");
-    const lastRunDesc = lastRun ? new Date(lastRun.createdAt).toLocaleString("en-US") : "none in last 7 days";
-    return `  - ${z.zoneId} ("${z.name}"): default ${z.defaultDurationMinutes}min, max ${z.maxDurationMinutes}min, metadata: [${meta}], last irrigation: ${lastRunDesc}`;
+    return `  - ${z.zoneId} ("${z.name}"): default ${z.defaultDurationMinutes}min, max ${z.maxDurationMinutes}min, metadata: [${meta}]`;
   }).join("\n");
+
+  const irrigationHistoryLines = data.zones.map((z) => {
+    const events = data.recentIrrigationByZone[z.zoneId];
+    if (!events || events.length === 0) return `  - ${z.zoneId} ("${z.name}"): no irrigation in last 7 days`;
+    const paired: string[] = [];
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i]!;
+      if (ev.action !== "on") continue;
+      const onTime = new Date(ev.createdAt);
+      const offEvent = events.slice(i + 1).find((e) => e.action === "off");
+      const fmtOn = onTime.toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+      if (offEvent) {
+        const offTime = new Date(offEvent.createdAt);
+        const durationMin = Math.round((offTime.getTime() - onTime.getTime()) / 60_000);
+        const fmtOff = offTime.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+        paired.push(`    ${fmtOn}: ON (${ev.source}) → OFF ${fmtOff} (~${durationMin}min)`);
+      } else {
+        paired.push(`    ${fmtOn}: ON (${ev.source})`);
+      }
+    }
+    return `  - ${z.zoneId} ("${z.name}"):\n${paired.join("\n")}`;
+  }).join("\n");
+
+  const pendingEntriesLines = data.pendingEntries.length > 0
+    ? data.pendingEntries.map((e) => {
+        const time = new Date(e.plannedStartAt).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+        const modified = e.userModified ? ", USER MODIFIED" : "";
+        return `  - [entryId: ${e.entryId}] ${e.zoneId}, planned ${time}, ${e.plannedDurationMinutes}min${modified} — "${e.aiReasoning}"`;
+      }).join("\n")
+    : "  No pending entries — create new entries as needed.";
 
   const user = `## System Context
 - Location: ${data.locationName}
@@ -211,13 +279,14 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
 ${zoneLines}
 
 ## Current Sensor Conditions
-- Baseline water pressure: ${data.currentConditions.baselinePsi?.toFixed(1) ?? "unknown"} PSI
+- Baseline water pressure: ${data.currentConditions.baselinePsi?.toFixed(1) ?? "unknown"} PSI (minimum system pressure required for proper sprinkler operation — avoid scheduling irrigation when pressure drops near or below this value)
 - Rain sensor: ${data.currentConditions.rainDetected === null ? "not connected" : data.currentConditions.rainDetected ? "RAIN DETECTED" : "no rain"}
 - Soil moisture: ${data.currentConditions.soilSaturated === null ? "not connected" : data.currentConditions.soilSaturated ? "SATURATED" : "dry"}
 - Temperature: ${data.currentConditions.temperatureF?.toFixed(1) ?? "unknown"}°F
 - Humidity: ${data.currentConditions.humidity?.toFixed(0) ?? "unknown"}%
 
 ## Historical Water Pressure (last 20 days)
+Use this data to detect pressure patterns throughout the day. Prefer scheduling irrigation during times when pressure is consistently well above the baseline minimum. Avoid hours when pressure regularly dips.
 ${historicalPsiLines || "  No historical pressure data available"}
 
 ## Weather Forecast (next ${config.evaluationWindowHours}h)
@@ -225,6 +294,16 @@ ${forecastLines || "  No forecast data available"}
 
 ## Recent Precipitation History (last ${prefs.recentRainWindowHours}h)
 ${recentPrecipLines || "  No precipitation data available"}
+
+## Irrigation History (last 7 days)
+All irrigation events with source (manual = user-triggered, schedule = AI-scheduled, external = triggered externally). Factor manual runs into your decisions — a zone watered manually today may not need its scheduled run.
+${irrigationHistoryLines}
+
+## Pending Scheduled Entries
+Entries currently in the schedule that have NOT yet executed. You have full control over these: keep, modify (change time/duration), or cancel any of them.
+Every pending entry MUST appear in exactly one of: keepEntries, modifyEntries, or cancelEntries. Do NOT create a new entry for a zone/time that already has a pending entry — modify it instead.
+Entries marked USER MODIFIED were adjusted by the user; consider their intent but you may still change them if conditions make them inappropriate.
+${pendingEntriesLines}
 
 ## User Preferences
 - Conservative watering: ${prefs.conservativeWatering ? "YES — skip irrigation if rain is expected" : "no"}
@@ -236,23 +315,44 @@ ${recentPrecipLines || "  No precipitation data available"}
 ${config.userContext ? `\n## Additional User Instructions\n${config.userContext}` : ""}
 
 ## Task
-Create an irrigation schedule for the planning window. For each zone:
-1. Decide if it needs watering based on the data above
-2. If yes, pick the optimal time within the preferred window and an appropriate duration
-3. If no, explain why (recent rain, upcoming rain, already irrigated recently, etc.)
+You manage the irrigation schedule. Review sensor data, weather forecast, irrigation history (including manual runs), and pending entries, then produce the optimal schedule for the planning window.
 
-Be conservative with water. Prefer irrigating during cooler hours (after sunset, before sunrise). If rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h, skip irrigation for zones that don't critically need it. Stagger zone start times so they don't overlap.${prefs.waterSavingMode === "moderate" ? " Use noticeably shorter run times per zone than the defaults." : prefs.waterSavingMode === "aggressive" ? " Aggressively minimize run times — use the shortest durations that keep plants alive. Skip any zone that isn't critically in need." : ""}`;
+1. Review each pending entry and decide:
+   - KEEP as-is → add its entryId to keepEntries
+   - MODIFY (change time/duration) → add to modifyEntries with new values
+   - CANCEL (no longer needed) → add to cancelEntries with reason
+   Every pending entry MUST appear in exactly one of these three.
+2. Identify gaps where zones need watering but have no pending entry — add to newEntries.
+3. Zones that need no watering at all → add to skippedZones with explanation.
+
+Decision factors:
+- A zone watered manually today may not need its scheduled run — cancel or defer it
+- Use historical water pressure patterns to prefer times when PSI is consistently well above the baseline minimum
+- Factor in temperature and precipitation — prefer cooler hours (after sunset, before sunrise), skip if rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h
+- Stagger zone start times so they don't overlap
+- Respect max daily irrigation minutes and minimum days between runs per zone${prefs.waterSavingMode === "moderate" ? "\n- Water saving mode is MODERATE: use noticeably shorter run times per zone than the defaults" : prefs.waterSavingMode === "aggressive" ? "\n- Water saving mode is AGGRESSIVE: minimize run times, use the shortest durations that keep plants alive, skip any zone that isn't critically in need" : ""}`;
 
   return { system, user };
 };
 
 interface AIScheduleResponse {
-  entries: Array<{
+  newEntries: Array<{
     zoneId: string;
     plannedStartAt: string;
     plannedDurationMinutes: number;
     reasoning: string;
   }>;
+  modifyEntries?: Array<{
+    entryId: string;
+    plannedStartAt: string;
+    plannedDurationMinutes: number;
+    reasoning: string;
+  }>;
+  cancelEntries?: Array<{
+    entryId: string;
+    reasoning: string;
+  }>;
+  keepEntries?: string[];
   skippedZones?: Array<{
     zoneId: string;
     reason: string;
@@ -268,17 +368,33 @@ const parseAIResponse = (text: string): AIScheduleResponse => {
 
   const parsed = JSON.parse(jsonMatch[0]) as AIScheduleResponse;
 
-  if (!Array.isArray(parsed.entries)) {
-    throw new Error("AI response missing 'entries' array");
+  if (!Array.isArray(parsed.newEntries)) {
+    throw new Error("AI response missing 'newEntries' array");
   }
 
-  for (const entry of parsed.entries) {
+  for (const entry of parsed.newEntries) {
     if (!entry.zoneId || !entry.plannedStartAt || !entry.plannedDurationMinutes) {
-      throw new Error(`Invalid entry: missing required fields for zone ${entry.zoneId ?? "unknown"}`);
+      throw new Error(`Invalid new entry: missing required fields for zone ${entry.zoneId ?? "unknown"}`);
     }
     const d = new Date(entry.plannedStartAt);
     if (Number.isNaN(d.getTime())) {
       throw new Error(`Invalid date for zone ${entry.zoneId}: ${entry.plannedStartAt}`);
+    }
+  }
+
+  for (const mod of parsed.modifyEntries ?? []) {
+    if (!mod.entryId || !mod.plannedStartAt || !mod.plannedDurationMinutes) {
+      throw new Error(`Invalid modify entry: missing required fields for entry ${mod.entryId ?? "unknown"}`);
+    }
+    const d = new Date(mod.plannedStartAt);
+    if (Number.isNaN(d.getTime())) {
+      throw new Error(`Invalid date for modified entry ${mod.entryId}: ${mod.plannedStartAt}`);
+    }
+  }
+
+  for (const cancel of parsed.cancelEntries ?? []) {
+    if (!cancel.entryId) {
+      throw new Error("Invalid cancel entry: missing entryId");
     }
   }
 
@@ -340,31 +456,45 @@ export const runScheduleEvaluation = async (
       recentRainDetected
     };
 
-    const userModifiedEntries = await ScheduleEntry.find({
-      status: "planned",
-      userModified: true,
-    }).lean();
-    const protectedZones = new Set(userModifiedEntries.map((e) => e.zoneId));
-
-    const entries = parsed.entries
-      .filter((e) => !protectedZones.has(e.zoneId))
-      .map((e) => ({
-        scheduleRunId,
-        zoneId: e.zoneId,
-        plannedStartAt: new Date(e.plannedStartAt),
-        plannedDurationMinutes: e.plannedDurationMinutes,
-        status: "planned" as const,
-        aiReasoning: e.reasoning,
-        weatherContext: weatherCtx
-      }));
-
-    if (entries.length > 0) {
-      await ScheduleEntry.insertMany(entries);
+    for (const cancel of parsed.cancelEntries ?? []) {
+      await ScheduleEntry.updateOne(
+        { _id: cancel.entryId, status: { $in: ["planned", "queued"] } },
+        { $set: { status: "cancelled", skipReason: cancel.reasoning } }
+      );
     }
+
+    for (const mod of parsed.modifyEntries ?? []) {
+      await ScheduleEntry.updateOne(
+        { _id: mod.entryId, status: { $in: ["planned", "queued"] } },
+        { $set: {
+          plannedStartAt: new Date(mod.plannedStartAt),
+          plannedDurationMinutes: mod.plannedDurationMinutes,
+          aiReasoning: mod.reasoning,
+          weatherContext: weatherCtx
+        }}
+      );
+    }
+
+    const newDbEntries = parsed.newEntries.map((e) => ({
+      scheduleRunId,
+      zoneId: e.zoneId,
+      plannedStartAt: new Date(e.plannedStartAt),
+      plannedDurationMinutes: e.plannedDurationMinutes,
+      status: "planned" as const,
+      aiReasoning: e.reasoning,
+      weatherContext: weatherCtx
+    }));
+
+    if (newDbEntries.length > 0) {
+      await ScheduleEntry.insertMany(newDbEntries);
+    }
+
+    const cancelCount = parsed.cancelEntries?.length ?? 0;
+    const modifyCount = parsed.modifyEntries?.length ?? 0;
 
     run.status = "completed";
     run.reasoning = parsed.summary;
-    run.entries = entries.length;
+    run.entries = newDbEntries.length;
     run.promptTokens = aiResult.promptTokens;
     run.completionTokens = aiResult.completionTokens;
     run.completedAt = new Date();
@@ -374,13 +504,13 @@ export const runScheduleEvaluation = async (
       $set: {
         lastRunAt: now,
         lastRunStatus: "success",
-        lastRunMessage: `Created ${entries.length} entries. ${parsed.summary}`
+        lastRunMessage: `+${newDbEntries.length} new, ~${modifyCount} modified, -${cancelCount} cancelled. ${parsed.summary}`
       }
     });
 
     emitRealtimeEvent({ type: "schedule:runCompleted", payload: run.toObject() });
 
-    return { runId: scheduleRunId, entriesCreated: entries.length };
+    return { runId: scheduleRunId, entriesCreated: newDbEntries.length };
   } catch (err: any) {
     run.status = "error";
     run.errorMessage = err?.message ?? "Unknown error";

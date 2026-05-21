@@ -4,6 +4,7 @@ import type { IrrigationSource } from "../models/IrrigationRecord";
 import { emitRealtimeEvent } from "./realtimeService";
 import { refreshStatusCache } from "../controllers/statusController";
 import { acknowledgeCommand } from "./irrigationCommandService";
+import { onZoneOff } from "./sequentialRunService";
 import Heartbeat from "../models/Heartbeat";
 import Zone from "../models/Zone";
 
@@ -85,6 +86,8 @@ export const persistEvent = async (zone: string, action: "on" | "off") => {
         runningRecord.status = "completed";
         await runningRecord.save();
       }
+
+      void onZoneOff(zoneId);
     }
   } catch (err) {
     console.error("Failed to update irrigation record:", err);

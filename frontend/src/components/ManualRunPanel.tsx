@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ManualRun, Zone, ZoneState } from "../types";
+import type { SequentialRun, Zone, ZoneState } from "../types";
 import { triggerManualRun, cancelManualRun, getManualRunStatus, updateZone } from "../api";
 
 interface ManualRunPanelProps {
   zones: Zone[];
   zoneStates: Record<string, ZoneState>;
   onZonesChanged: () => void;
-  manualRun: ManualRun | null;
+  manualRun: SequentialRun | null;
 }
 
 const ManualRunPanel = ({ zones, zoneStates, onZonesChanged, manualRun }: ManualRunPanelProps) => {
