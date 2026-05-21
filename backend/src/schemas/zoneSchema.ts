@@ -11,6 +11,24 @@ const metadataSchema = z
   .strict()
   .optional();
 
+const compAISchema = z
+  .object({
+    serviceId: z.string().trim().min(1, "serviceId is required"),
+    characteristics: z
+      .object({
+        active: z.string().trim().optional(),
+        setDuration: z.string().trim().optional(),
+        inUse: z.string().trim().optional(),
+        isConfigured: z.string().trim().optional(),
+        remainingDuration: z.string().trim().optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+  .optional()
+  .nullable();
+
 export const createZoneSchema = z
   .object({
     zoneId: z
@@ -25,7 +43,8 @@ export const createZoneSchema = z
     sortOrder: z.number().int().nonnegative().optional(),
     defaultDurationMinutes: z.number().int().positive("defaultDurationMinutes must be > 0"),
     maxDurationMinutes: z.number().int().positive().optional(),
-    metadata: metadataSchema
+    metadata: metadataSchema,
+    compAI: compAISchema
   })
   .strict();
 

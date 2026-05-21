@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { IrrigationEvent, Zone, ZoneState } from "../types";
+import type { IrrigationRecord, Zone, ZoneState } from "../types";
 import ZoneCard from "./ZoneCard";
 import type { ZoneIrrigationSummary } from "./ZoneCard";
 import ZoneFormModal from "./ZoneFormModal";
@@ -19,51 +19,27 @@ interface ZoneControlPanelProps {
   onZonesChanged: () => void;
   mode?: "control" | "manage";
   onOpenSettings?: () => void;
-  irrigationEvents?: IrrigationEvent[];
+  irrigationRecords?: IrrigationRecord[];
   baselinePsi?: number | null;
 }
 
-function buildZoneSummaries(events: IrrigationEvent[]): Record<string, ZoneIrrigationSummary> {
-  const now = Date.now();
-  const sorted = [...events].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
-
-  const openByZone = new Map<string, IrrigationEvent>();
-  const lastCycleByZone = new Map<string, { on: IrrigationEvent; off?: IrrigationEvent }>();
-
-  for (const event of sorted) {
-    if (event.action === "on") {
-      openByZone.set(event.zone, event);
-    } else {
-      const open = openByZone.get(event.zone);
-      if (open) {
-        lastCycleByZone.set(event.zone, { on: open, off: event });
-        openByZone.delete(event.zone);
-      }
-    }
-  }
-  openByZone.forEach((onEvent, zone) => {
-    lastCycleByZone.set(zone, { on: onEvent, off: undefined });
-  });
-
+function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrrigationSummary> {
   const result: Record<string, ZoneIrrigationSummary> = {};
-  lastCycleByZone.forEach(({ on, off }, zone) => {
-    const startTime = new Date(on.createdAt).getTime();
-    const endTime = off ? new Date(off.createdAt).getTime() : now;
-    result[zone] = {
-      start: on.createdAt,
-      end: off?.createdAt ?? null,
-      durationMs: Math.max(0, endTime - startTime),
-      isRunning: !off,
-      pressureStart: on.waterPressure ?? null,
-      pressureEnd: off?.waterPressure ?? null,
+  for (const r of records) {
+    if (result[r.zoneId]) continue;
+    result[r.zoneId] = {
+      start: r.startedAt,
+      end: r.endedAt ?? null,
+      durationMs: r.durationMs ?? 0,
+      isRunning: r.status === "running",
+      pressureStart: r.pressureStart ?? null,
+      pressureEnd: r.pressureEnd ?? null,
     };
-  });
+  }
   return result;
 }
 
-const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationEvents, baselinePsi }: ZoneControlPanelProps) => {
+const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
   const [saving, setSaving] = useState(false);
@@ -73,8 +49,8 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
 
   const isManage = mode === "manage";
   const zoneSummaries = useMemo(
-    () => (irrigationEvents ? buildZoneSummaries(irrigationEvents) : {}),
-    [irrigationEvents]
+    () => (irrigationRecords ? buildZoneSummaries(irrigationRecords) : {}),
+    [irrigationRecords]
   );
 
   const handleAddClick = useCallback(() => {

@@ -22,13 +22,17 @@ interface GatheredData {
     metadata?: Record<string, unknown>;
   }>;
   currentConditions: {
-    waterPsi: number | null;
     baselinePsi: number | null;
-    rainDetected: boolean;
-    soilSaturated: boolean;
+    rainDetected: boolean | null;
+    soilSaturated: boolean | null;
     temperatureF: number | null;
     humidity: number | null;
+    connectedSensors: Array<"PRESSURE" | "RAIN" | "SOIL">;
   };
+  historicalPsi: Array<{
+    timestamp: string;
+    psi: number;
+  }>;
   forecast: Array<{
     startTime: string;
     endTime: string;
@@ -52,6 +56,7 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
   const zones = await Zone.find({ enabled: true }).sort({ sortOrder: 1 }).lean();
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+  const connected = latestHeartbeat?.device?.connectedSensors ?? [];
 
   const forecastSnapshot = await WeatherForecastSnapshot.findOne()
     .sort({ fetchedAt: -1 })
@@ -69,6 +74,20 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     .sort({ periodStart: -1 })
     .limit(200)
     .lean();
+
+  const historicalPsiCutoff = new Date(now.getTime() - 20 * 24 * 3600_000);
+  const historicalHeartbeats = await Heartbeat.find({
+    timestamp: { $gte: historicalPsiCutoff },
+    "sensors.waterPsi": { $exists: true, $ne: null }
+  })
+    .sort({ timestamp: -1 })
+    .limit(200)
+    .lean();
+
+  const historicalPsi = historicalHeartbeats.map((h) => ({
+    timestamp: new Date(h.timestamp).toISOString(),
+    psi: h.sensors?.waterPsi as number
+  }));
 
   const irrigationCutoff = new Date(now.getTime() - 7 * 24 * 3600_000);
   const recentEvents = await IrrigationEvent.find({
@@ -96,13 +115,14 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
       metadata: z.metadata as Record<string, unknown> | undefined
     })),
     currentConditions: {
-      waterPsi: latestHeartbeat?.sensors?.waterPsi ?? null,
       baselinePsi: latestHeartbeat?.device?.baselinePsi ?? null,
-      rainDetected: latestHeartbeat?.sensors?.rain ?? false,
-      soilSaturated: latestHeartbeat?.sensors?.soil ?? false,
+      rainDetected: connected.includes("RAIN") ? (latestHeartbeat?.sensors?.rain ?? false) : null,
+      soilSaturated: connected.includes("SOIL") ? (latestHeartbeat?.sensors?.soil ?? false) : null,
       temperatureF: latestHeartbeat?.device?.tempF ?? null,
-      humidity: latestHeartbeat?.device?.humidity ?? null
+      humidity: latestHeartbeat?.device?.humidity ?? null,
+      connectedSensors: connected
     },
+    historicalPsi,
     forecast: futurePeriods.map((p) => ({
       startTime: new Date(p.startTime).toISOString(),
       endTime: new Date(p.endTime).toISOString(),
@@ -164,6 +184,11 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
     return `  ${time}: ${p.probability}% chance`;
   }).join("\n");
 
+  const historicalPsiLines = data.historicalPsi.slice(0, 40).map((h) => {
+    const time = new Date(h.timestamp).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", hour12: true });
+    return `  ${time}: ${h.psi.toFixed(1)} PSI`;
+  }).join("\n");
+
   const zoneLines = data.zones.map((z) => {
     const meta = z.metadata
       ? Object.entries(z.metadata)
@@ -186,11 +211,14 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
 ${zoneLines}
 
 ## Current Sensor Conditions
-- Water pressure: ${data.currentConditions.waterPsi?.toFixed(1) ?? "unknown"} PSI (baseline: ${data.currentConditions.baselinePsi?.toFixed(1) ?? "unknown"} PSI)
-- Rain sensor: ${data.currentConditions.rainDetected ? "RAIN DETECTED" : "no rain"}
-- Soil moisture: ${data.currentConditions.soilSaturated ? "SATURATED" : "dry"}
+- Baseline water pressure: ${data.currentConditions.baselinePsi?.toFixed(1) ?? "unknown"} PSI
+- Rain sensor: ${data.currentConditions.rainDetected === null ? "not connected" : data.currentConditions.rainDetected ? "RAIN DETECTED" : "no rain"}
+- Soil moisture: ${data.currentConditions.soilSaturated === null ? "not connected" : data.currentConditions.soilSaturated ? "SATURATED" : "dry"}
 - Temperature: ${data.currentConditions.temperatureF?.toFixed(1) ?? "unknown"}°F
 - Humidity: ${data.currentConditions.humidity?.toFixed(0) ?? "unknown"}%
+
+## Historical Water Pressure (last 20 days)
+${historicalPsiLines || "  No historical pressure data available"}
 
 ## Weather Forecast (next ${config.evaluationWindowHours}h)
 ${forecastLines || "  No forecast data available"}
@@ -204,6 +232,7 @@ ${recentPrecipLines || "  No precipitation data available"}
 - Preferred irrigation windows: ${timeWindowsDesc}
 - Max daily irrigation: ${prefs.maxDailyRunMinutes} minutes total
 - Minimum days between runs per zone: ${prefs.minDaysBetweenRuns}
+- Water saving mode: ${prefs.waterSavingMode ?? "normal"}${prefs.waterSavingMode === "moderate" ? " — reduce zone durations by ~25-40% from defaults, prefer shorter more frequent runs" : prefs.waterSavingMode === "aggressive" ? " — minimize water usage, reduce zone durations by ~40-60% from defaults, skip zones that are not critically dry" : ""}
 ${config.userContext ? `\n## Additional User Instructions\n${config.userContext}` : ""}
 
 ## Task
@@ -212,7 +241,7 @@ Create an irrigation schedule for the planning window. For each zone:
 2. If yes, pick the optimal time within the preferred window and an appropriate duration
 3. If no, explain why (recent rain, upcoming rain, already irrigated recently, etc.)
 
-Be conservative with water. Prefer irrigating during cooler hours (after sunset, before sunrise). If rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h, skip irrigation for zones that don't critically need it. Stagger zone start times so they don't overlap.`;
+Be conservative with water. Prefer irrigating during cooler hours (after sunset, before sunrise). If rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h, skip irrigation for zones that don't critically need it. Stagger zone start times so they don't overlap.${prefs.waterSavingMode === "moderate" ? " Use noticeably shorter run times per zone than the defaults." : prefs.waterSavingMode === "aggressive" ? " Aggressively minimize run times — use the shortest durations that keep plants alive. Skip any zone that isn't critically in need." : ""}`;
 
   return { system, user };
 };
@@ -303,7 +332,7 @@ export const runScheduleEvaluation = async (
     const forecastSnapshot = await WeatherForecastSnapshot.findOne().sort({ fetchedAt: -1 }).lean();
     const currentPrecipProb = forecastSnapshot?.precipitationProbability ?? null;
     const currentForecast = forecastSnapshot?.shortForecast ?? null;
-    const recentRainDetected = data.currentConditions.rainDetected;
+    const recentRainDetected = data.currentConditions.rainDetected ?? false;
 
     const weatherCtx: WeatherContext = {
       precipitationProbability: currentPrecipProb,
@@ -311,15 +340,23 @@ export const runScheduleEvaluation = async (
       recentRainDetected
     };
 
-    const entries = parsed.entries.map((e) => ({
-      scheduleRunId,
-      zoneId: e.zoneId,
-      plannedStartAt: new Date(e.plannedStartAt),
-      plannedDurationMinutes: e.plannedDurationMinutes,
-      status: "planned" as const,
-      aiReasoning: e.reasoning,
-      weatherContext: weatherCtx
-    }));
+    const userModifiedEntries = await ScheduleEntry.find({
+      status: "planned",
+      userModified: true,
+    }).lean();
+    const protectedZones = new Set(userModifiedEntries.map((e) => e.zoneId));
+
+    const entries = parsed.entries
+      .filter((e) => !protectedZones.has(e.zoneId))
+      .map((e) => ({
+        scheduleRunId,
+        zoneId: e.zoneId,
+        plannedStartAt: new Date(e.plannedStartAt),
+        plannedDurationMinutes: e.plannedDurationMinutes,
+        status: "planned" as const,
+        aiReasoning: e.reasoning,
+        weatherContext: weatherCtx
+      }));
 
     if (entries.length > 0) {
       await ScheduleEntry.insertMany(entries);

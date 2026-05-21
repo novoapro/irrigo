@@ -19,6 +19,7 @@ interface ExternalControllerSettingsProps {
 }
 
 const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) => {
+  const [collapsed, setCollapsed] = useState(true);
   const [config, setConfig] = useState<ExternalControllerConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,10 +121,24 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
   }
 
   return (
-    <div className="external-controller-settings">
-      <header className="settings-section-header">
+    <div className="external-controller-settings external-controller-settings--collapsible">
+      <button
+        type="button"
+        className="external-controller-settings__toggle"
+        onClick={() => setCollapsed((p) => !p)}
+        aria-expanded={!collapsed}
+      >
         <h3>External Controller</h3>
-      </header>
+        <span className="form-hint" style={{ marginLeft: "auto", marginTop: 0 }}>Legacy</span>
+        <svg
+          className={`compai-zone-item__chevron${!collapsed ? " compai-zone-item__chevron--open" : ""}`}
+          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {!collapsed && <>
       {error && <p className="zone-control-panel__error">{error}</p>}
 
       <form
@@ -277,6 +292,7 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
           </div>
         </div>
       </form>
+      </>}
     </div>
   );
 };

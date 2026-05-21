@@ -18,6 +18,8 @@ export interface ScheduleEntryAttributes {
   aiReasoning: string;
   weatherContext: WeatherContext;
   skipReason?: string | null;
+  userModified?: boolean;
+  programId?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -46,6 +48,8 @@ const scheduleEntrySchema = new Schema<ScheduleEntryAttributes>({
   aiReasoning: { type: String, default: "" },
   weatherContext: { type: weatherContextSchema, default: () => ({}) },
   skipReason: { type: String, default: null },
+  userModified: { type: Boolean, default: false },
+  programId: { type: String, default: null },
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() }
 });

@@ -4,7 +4,7 @@ import type { DeviceConfig, Zone, ZoneState } from "../types";
 import ZoneControlPanel from "./ZoneControlPanel";
 import DeviceWidget from "./DeviceWidget";
 import AIScheduleConfigModal from "./AIScheduleConfigModal";
-import ExternalControllerSettings from "./ExternalControllerSettings";
+import CompAISettings from "./CompAISettings";
 import ScheduledProgramsPanel from "./ScheduledProgramsPanel";
 
 type SettingsTab = "zones" | "device" | "schedule" | "programs" | "integrations" | "preferences";
@@ -28,6 +28,8 @@ interface SettingsPanelProps {
   isRealtimePreferenceEnabled: boolean;
   onRealtimePreferenceToggle: (enabled: boolean) => void;
   onAIScheduleConfigChanged?: () => void;
+  onControllerHealthChanged?: () => void;
+  aiRunRefreshKey?: number;
 }
 
 const TabIcon = ({ name }: { name: SettingsTab }) => {
@@ -70,6 +72,8 @@ const SettingsPanel = ({
   isRealtimePreferenceEnabled,
   onRealtimePreferenceToggle,
   onAIScheduleConfigChanged,
+  onControllerHealthChanged,
+  aiRunRefreshKey,
 }: SettingsPanelProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "zones");
 
@@ -159,6 +163,8 @@ const SettingsPanel = ({
                 inline={true}
                 onClose={() => {}}
                 onSaved={handleScheduleSaved}
+                zones={zones}
+                refreshKey={aiRunRefreshKey}
               />
             )}
 
@@ -170,7 +176,7 @@ const SettingsPanel = ({
             )}
 
             {activeTab === "integrations" && (
-              <ExternalControllerSettings zones={zones} />
+              <CompAISettings zones={zones} onZonesChanged={onZonesChanged} onHealthChanged={onControllerHealthChanged} />
             )}
 
             {activeTab === "preferences" && (

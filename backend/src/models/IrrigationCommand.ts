@@ -1,7 +1,7 @@
 import { Schema, model } from "mongoose";
 
 export type CommandStatus = "pending" | "sent" | "acknowledged" | "failed" | "timeout";
-export type CommandSource = "manual" | "schedule";
+export type CommandSource = "manual" | "schedule" | "program" | "ai-schedule";
 
 export interface IrrigationCommandAttributes {
   zoneId: string;
@@ -20,7 +20,7 @@ const irrigationCommandSchema = new Schema<IrrigationCommandAttributes>({
   zoneId: { type: String, required: true, trim: true, index: true },
   action: { type: String, enum: ["on", "off"], required: true },
   durationMinutes: { type: Number, default: null },
-  source: { type: String, enum: ["manual", "schedule"], default: "manual" },
+  source: { type: String, enum: ["manual", "schedule", "program", "ai-schedule"], default: "manual" },
   status: {
     type: String,
     enum: ["pending", "sent", "acknowledged", "failed", "timeout"],

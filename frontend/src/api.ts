@@ -2,6 +2,8 @@ import type {
   AIScheduleConfig,
   DeviceConfig,
   ExternalControllerConfig,
+  CompAIConfig,
+  CompAIDiscoveryResult,
   Heartbeat,
   HeartbeatListMeta,
   HeartbeatListResponse,
@@ -12,6 +14,8 @@ import type {
   IrrigationListResponse,
   IrrigationMode,
   IrrigationProgram,
+  IrrigationRecord,
+  IrrigationRecordListResponse,
   ScheduleEntry,
   ScheduleRun,
   StatusPayload,
@@ -135,6 +139,43 @@ export const fetchIrrigationEvents = async (
 
   const payload = (await response.json()) as { events: IrrigationEvent[]; meta: HeartbeatListMeta };
   return { events: payload.events, meta: payload.meta };
+};
+
+export interface IrrigationRecordQuery {
+  start?: string;
+  end?: string;
+  page?: number;
+  pageSize?: number;
+  zoneId?: string;
+  source?: string;
+}
+
+export const fetchIrrigationRecords = async (
+  query?: IrrigationRecordQuery
+): Promise<IrrigationRecordListResponse> => {
+  const response = await fetch(
+    buildUrl("/irrigation-records", {
+      start: query?.start,
+      end: query?.end,
+      page: query?.page ? query.page.toString() : undefined,
+      pageSize: query?.pageSize ? query.pageSize.toString() : undefined,
+      zoneId: query?.zoneId,
+      source: query?.source
+    })
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch irrigation records (${response.status})`);
+  }
+  return (await response.json()) as IrrigationRecordListResponse;
+};
+
+export const fetchLatestIrrigationPerZone = async (): Promise<IrrigationRecord[]> => {
+  const response = await fetch(buildUrl("/irrigation-records/latest-per-zone"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch latest irrigation records (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationRecord[] };
+  return json.data;
 };
 
 export interface HeartbeatSeriesQuery {
@@ -361,6 +402,49 @@ export const testExternalController = async (): Promise<{ success: boolean; mess
   return json;
 };
 
+// --- CompAI Config API ---
+
+export const fetchCompAIConfig = async (): Promise<CompAIConfig | null> => {
+  const response = await fetch(buildUrl("/compai/config"));
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error(`Failed to fetch CompAI config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: CompAIConfig | null };
+  return json.data;
+};
+
+export const updateCompAIConfig = async (
+  config: Partial<CompAIConfig>
+): Promise<CompAIConfig> => {
+  const response = await fetch(buildUrl("/compai/config"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update CompAI config (${response.status})`);
+  }
+  const json = (await response.json()) as { data: CompAIConfig };
+  return json.data;
+};
+
+export const testCompAIConnection = async (): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(buildUrl("/compai/test"), { method: "POST" });
+  const json = (await response.json()) as { success: boolean; message: string };
+  return json;
+};
+
+export const discoverCompAIServices = async (): Promise<CompAIDiscoveryResult> => {
+  const response = await fetch(buildUrl("/compai/services"));
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Discovery failed (${response.status})`);
+  }
+  const json = (await response.json()) as { data: CompAIDiscoveryResult };
+  return json.data;
+};
+
 // --- AI Schedule API ---
 
 export const fetchAIScheduleConfig = async (): Promise<AIScheduleConfig | null> => {
@@ -441,6 +525,39 @@ export const skipScheduleEntry = async (entryId: string, reason?: string): Promi
   });
   if (!response.ok) {
     throw new Error(`Failed to skip entry (${response.status})`);
+  }
+  const json = (await response.json()) as { data: ScheduleEntry };
+  return json.data;
+};
+
+export const fetchMaterializedProgramEntries = async (): Promise<ScheduleEntry[]> => {
+  const response = await fetch(buildUrl("/ai-schedule/entries/program"));
+  if (!response.ok) throw new Error(`Failed to fetch program entries (${response.status})`);
+  const json = (await response.json()) as { data: ScheduleEntry[] };
+  return json.data;
+};
+
+export const materializeProgramEntries = async (programId: string, scheduledAt: Date): Promise<{ entryIds: string[]; scheduleRunId: string }> => {
+  const response = await fetch(buildUrl("/ai-schedule/entries/materialize"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ programId, scheduledAt: scheduledAt.toISOString() })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to materialize entries (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { entryIds: string[]; scheduleRunId: string } };
+  return json.data;
+};
+
+export const deferScheduleEntry = async (entryId: string, plannedStartAt: Date): Promise<ScheduleEntry> => {
+  const response = await fetch(buildUrl(`/ai-schedule/entries/${entryId}/defer`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plannedStartAt: plannedStartAt.toISOString() })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to defer entry (${response.status})`);
   }
   const json = (await response.json()) as { data: ScheduleEntry };
   return json.data;

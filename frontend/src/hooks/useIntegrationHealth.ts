@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  fetchExternalControllerConfig,
-  testExternalController,
+  fetchCompAIConfig,
+  testCompAIConnection,
   fetchAIScheduleConfig
 } from "../api";
 
@@ -26,7 +26,7 @@ export const useIntegrationHealth = ({
   isRealtimeActive: boolean;
   forecastError: string | null;
   hasForecast: boolean;
-}): IntegrationHealth => {
+}): IntegrationHealth & { recheckController: () => void } => {
   const [controllerState, setControllerState] = useState<{ state: HealthState; label: string }>({
     state: "loading",
     label: "Checking..."
@@ -40,15 +40,15 @@ export const useIntegrationHealth = ({
 
   const checkHealth = useCallback(async () => {
     try {
-      const config = await fetchExternalControllerConfig();
+      const config = await fetchCompAIConfig();
       if (!mountedRef.current) return;
-      if (!config || !config.endpoint) {
+      if (!config || !config.endpoint || !config.deviceId) {
         setControllerState({ state: "off", label: "Not configured" });
       } else if (!config.enabled) {
         setControllerState({ state: "off", label: "Disabled" });
       } else {
         try {
-          const result = await testExternalController();
+          const result = await testCompAIConnection();
           if (!mountedRef.current) return;
           setControllerState(
             result.success
@@ -122,10 +122,15 @@ export const useIntegrationHealth = ({
     return { state: "ok" as const, label: "Active" };
   })();
 
+  const recheckController = useCallback(() => {
+    void checkHealth();
+  }, [checkHealth]);
+
   return {
     server: serverState,
     controller: controllerState,
     ai: aiState,
-    weather: weatherState
+    weather: weatherState,
+    recheckController
   };
 };

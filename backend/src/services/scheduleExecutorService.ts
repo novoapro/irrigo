@@ -62,7 +62,7 @@ const executeEntry = async (entryId: string) => {
       entry.zoneId,
       "on",
       entry.plannedDurationMinutes,
-      "schedule"
+      "ai-schedule"
     );
 
     entry.commandId = (command as any)._id?.toString() ?? null;

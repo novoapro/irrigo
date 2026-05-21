@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import ReactDatePicker from "react-datepicker";
 import { fetchHeartbeats, type HeartbeatQuery } from "../api";
 import type { Heartbeat, HeartbeatListMeta } from "../types";
 import HistorySection from "../components/HistorySection";
 import Dropdown from "../components/Dropdown";
+import DateTimeInput from "../components/DateTimeInput";
 import { toQueryDateTime } from "../utils/date";
-import "react-datepicker/dist/react-datepicker.css";
 
 const PAGE_SIZE = 25;
 
@@ -37,12 +36,22 @@ const RecordsPage = () => {
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<Filters>(defaultFilters);
 
   const mountedRef = useRef(true);
+  const psiDebounceRef = useRef<number | null>(null);
+  const [debouncedPsi, setDebouncedPsi] = useState({ psiMin: "", psiMax: "" });
+
+  useEffect(() => {
+    if (psiDebounceRef.current) clearTimeout(psiDebounceRef.current);
+    psiDebounceRef.current = window.setTimeout(() => {
+      setDebouncedPsi({ psiMin: filters.psiMin, psiMax: filters.psiMax });
+      setPage(1);
+    }, 400);
+    return () => { if (psiDebounceRef.current) clearTimeout(psiDebounceRef.current); };
+  }, [filters.psiMin, filters.psiMax]);
 
   const loadRecords = useCallback(
-    async (p: number, f: Filters, start: Date | null, end: Date | null) => {
+    async (p: number, f: Filters, psi: { psiMin: string; psiMax: string }, start: Date | null, end: Date | null) => {
       setLoading(true);
       setError(null);
       try {
@@ -55,8 +64,8 @@ const RecordsPage = () => {
         if (f.guard !== "all") query.guard = f.guard as "true" | "false";
         if (f.rain !== "all") query.rain = f.rain as "true" | "false";
         if (f.soil !== "all") query.soil = f.soil as "true" | "false";
-        if (f.psiMin.trim()) query.psiMin = f.psiMin.trim();
-        if (f.psiMax.trim()) query.psiMax = f.psiMax.trim();
+        if (psi.psiMin.trim()) query.psiMin = psi.psiMin.trim();
+        if (psi.psiMax.trim()) query.psiMax = psi.psiMax.trim();
 
         const result = await fetchHeartbeats(query);
         if (!mountedRef.current) return;
@@ -78,20 +87,15 @@ const RecordsPage = () => {
   }, []);
 
   useEffect(() => {
-    loadRecords(page, appliedFilters, startDate, endDate);
-  }, [page, appliedFilters, startDate, endDate, loadRecords]);
+    loadRecords(page, filters, debouncedPsi, startDate, endDate);
+  }, [page, filters.guard, filters.rain, filters.soil, debouncedPsi, startDate, endDate, loadRecords]);
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? heartbeats.length;
 
-  const handleApplyFilters = () => {
-    setPage(1);
-    setAppliedFilters({ ...filters });
-  };
-
   const handleResetFilters = () => {
     setFilters(defaultFilters);
-    setAppliedFilters(defaultFilters);
+    setDebouncedPsi({ psiMin: "", psiMax: "" });
     setStartDate(null);
     setEndDate(null);
     setPage(1);
@@ -106,14 +110,10 @@ const RecordsPage = () => {
     filters.psiMin !== "" ||
     filters.psiMax !== "";
 
-  const handleFilterKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleApplyFilters();
-  };
-
   return (
     <div className="records-page">
       <header className="records-page__header">
-        <h2>Records</h2>
+        <h2>Heartbeats</h2>
         <p className="muted">
           {totalCount} record{totalCount === 1 ? "" : "s"} found
         </p>
@@ -121,41 +121,27 @@ const RecordsPage = () => {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <div className="records-filters">
+      <div className="records-filters records-filters--no-border">
         <div className="records-filters__row">
           <div className="records-filter-group">
             <label>From</label>
-            <ReactDatePicker
-              selected={startDate}
-              onChange={(d: Date | null) => { setStartDate(d); setPage(1); }}
-              selectsStart
-              startDate={startDate}
-              endDate={endDate}
-              maxDate={endDate ?? new Date()}
-              showTimeSelect
-              timeIntervals={15}
-              placeholderText="Any"
-              className="date-input"
-              dateFormat="MMM d, yyyy h:mm aa"
-              isClearable
+            <DateTimeInput
+              value={startDate}
+              onChange={(d) => { setStartDate(d); setPage(1); }}
+              max={endDate ?? new Date()}
+              placeholder="Any"
+              clearable
             />
           </div>
           <div className="records-filter-group">
             <label>To</label>
-            <ReactDatePicker
-              selected={endDate}
-              onChange={(d: Date | null) => { setEndDate(d); setPage(1); }}
-              selectsEnd
-              startDate={startDate}
-              endDate={endDate}
-              minDate={startDate ?? undefined}
-              maxDate={new Date()}
-              showTimeSelect
-              timeIntervals={15}
-              placeholderText="Now"
-              className="date-input"
-              dateFormat="MMM d, yyyy h:mm aa"
-              isClearable
+            <DateTimeInput
+              value={endDate}
+              onChange={(d) => { setEndDate(d); setPage(1); }}
+              min={startDate ?? undefined}
+              max={new Date()}
+              placeholder="Now"
+              clearable
             />
           </div>
         </div>
@@ -170,7 +156,7 @@ const RecordsPage = () => {
                 { value: "true", label: "On" },
                 { value: "false", label: "Off" }
               ]}
-              onChange={(v) => setFilters((f) => ({ ...f, guard: v as BoolFilter }))}
+              onChange={(v) => { setFilters((f) => ({ ...f, guard: v as BoolFilter })); setPage(1); }}
             />
           </div>
           <div className="records-filter-group">
@@ -182,7 +168,7 @@ const RecordsPage = () => {
                 { value: "true", label: "Detected" },
                 { value: "false", label: "No rain" }
               ]}
-              onChange={(v) => setFilters((f) => ({ ...f, rain: v as BoolFilter }))}
+              onChange={(v) => { setFilters((f) => ({ ...f, rain: v as BoolFilter })); setPage(1); }}
             />
           </div>
           <div className="records-filter-group">
@@ -194,7 +180,7 @@ const RecordsPage = () => {
                 { value: "true", label: "Saturated" },
                 { value: "false", label: "Dry" }
               ]}
-              onChange={(v) => setFilters((f) => ({ ...f, soil: v as BoolFilter }))}
+              onChange={(v) => { setFilters((f) => ({ ...f, soil: v as BoolFilter })); setPage(1); }}
             />
           </div>
         </div>
@@ -207,7 +193,6 @@ const RecordsPage = () => {
               step="0.1"
               value={filters.psiMin}
               onChange={(e) => setFilters((f) => ({ ...f, psiMin: e.target.value }))}
-              onKeyDown={handleFilterKeyDown}
               placeholder="Any"
               className="records-filter-input"
             />
@@ -219,30 +204,26 @@ const RecordsPage = () => {
               step="0.1"
               value={filters.psiMax}
               onChange={(e) => setFilters((f) => ({ ...f, psiMax: e.target.value }))}
-              onKeyDown={handleFilterKeyDown}
               placeholder="Any"
               className="records-filter-input"
             />
           </div>
         </div>
 
-        <div className="records-filters__actions">
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleApplyFilters}
-          >
-            Apply filters
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={handleResetFilters}
-            disabled={!hasActiveFilters}
-          >
-            Reset
-          </button>
-        </div>
+        {hasActiveFilters && (
+          <div className="records-filters__actions">
+            <button
+              type="button"
+              className="filter-reset-icon"
+              onClick={handleResetFilters}
+              title="Reset filters"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       <HistorySection

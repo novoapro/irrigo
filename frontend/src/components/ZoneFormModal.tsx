@@ -130,7 +130,7 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
       defaultDurationMinutes: defaultDuration,
       maxDurationMinutes: maxDuration,
       enabled,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
   }, [zoneId, name, description, defaultDuration, maxDuration, enabled, plantType, sunExposure, soilType, area, notes, onSave]);
 

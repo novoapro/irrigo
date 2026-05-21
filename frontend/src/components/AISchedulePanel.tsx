@@ -231,16 +231,22 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
           )}
           <button
             type="button"
-            className="primary-button icon-btn"
+            className={`icon-btn ai-run-status-btn ai-run-status-btn--${running ? "running" : config?.lastRunStatus ?? "none"}`}
             onClick={handleRunNow}
             disabled={running || !config?.enabled}
-            title={running ? "Running..." : "Run now"}
+            title={running ? "Running..." : config?.lastRunAt ? `Last run: ${formatTime(config.lastRunAt)} (${config.lastRunStatus ?? "unknown"})` : "Run now"}
             aria-label={running ? "Running..." : "Run AI scheduler now"}
           >
             {running ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+            ) : config?.lastRunStatus === "success" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            ) : config?.lastRunStatus === "error" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+            ) : config?.lastRunStatus === "skipped" ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
             ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
             )}
           </button>
         </div>
@@ -250,16 +256,7 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
         {config?.enabled
           ? `${config.provider} / ${config.model}`
           : "Not configured"}
-        {config?.lastRunAt && (
-          <>
-            {" · Last: "}
-            {formatTime(config.lastRunAt)}
-            {" "}
-            <span className={`schedule-status-pill schedule-status-pill--${config.lastRunStatus ?? "unknown"}`}>
-              {config.lastRunStatus ?? "—"}
-            </span>
-          </>
-        )}
+        {config?.lastRunAt && ` · Last: ${formatTime(config.lastRunAt)}`}
       </p>
 
       {error && <p className="zone-control-panel__error">{error}</p>}

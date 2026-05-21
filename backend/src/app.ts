@@ -6,7 +6,9 @@ import requestLogger from "./middleware/requestLogger";
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req: any, _res, buf) => { req.rawBody = buf; }
+}));
 
 // Conditionally enable verbose request logging via environment variable
 const VERBOSE = (() => {

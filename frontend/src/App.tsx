@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, NavLink } from "react-router-dom";
+import { Routes, Route, NavLink, Link } from "react-router-dom";
 import { format } from "date-fns";
-import ReactDatePicker from "react-datepicker";
+import DateTimeInput from "./components/DateTimeInput";
 import RecordsPage from "./pages/RecordsPage";
+import IrrigationsPage from "./pages/IrrigationsPage";
 import {
   buildRealtimeUrl,
   fetchDeviceConfig,
@@ -11,9 +12,13 @@ import {
   fetchHeartbeats,
   fetchHeartbeatSeries,
   fetchIrrigationEvents,
+  fetchLatestIrrigationPerZone,
   fetchStatus,
   fetchAIScheduleConfig,
+  fetchScheduleRuns,
+  fetchScheduleRun,
   fetchSystemConfig,
+  triggerAIScheduleRun,
   fetchWeatherForecast,
   fetchZones,
   fetchZoneStates
@@ -26,6 +31,9 @@ import type {
   HeartbeatSeriesSample,
   IrrigationEvent,
   IrrigationMode,
+  IrrigationRecord,
+  ScheduleEntry,
+  ScheduleRun,
   StatusPayload,
   WeatherOverviewPayload,
   WeatherConditionsSnapshot,
@@ -33,7 +41,6 @@ import type {
   Zone,
   ZoneState
 } from "./types";
-import "react-datepicker/dist/react-datepicker.css";
 import "./modal.css";
 import WeatherWidget, { type PrecipitationPoint } from "./components/WeatherWidget";
 import ZoneControlPanel from "./components/ZoneControlPanel";
@@ -138,6 +145,7 @@ const App = () => {
   const [irrigationMeta, setIrrigationMeta] = useState<HeartbeatListMeta | null>(null);
   const [irrigationLoading, setIrrigationLoading] = useState<boolean>(false);
   const [irrigationError, setIrrigationError] = useState<string | null>(null);
+  const [irrigationRecords, setIrrigationRecords] = useState<IrrigationRecord[]>([]);
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -166,6 +174,11 @@ const App = () => {
   const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "schedule" | "programs" | "integrations" | "preferences">("zones");
   const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
   const [aiScheduleEnabled, setAiScheduleEnabled] = useState(false);
+  const [lastAIRun, setLastAIRun] = useState<ScheduleRun | null>(null);
+  const [lastAIRunEntries, setLastAIRunEntries] = useState<ScheduleEntry[]>([]);
+  const [aiRunExpanded, setAiRunExpanded] = useState(false);
+  const [aiRunRefreshKey, setAiRunRefreshKey] = useState(0);
+  const [dashboardRunningAI, setDashboardRunningAI] = useState(false);
 
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
@@ -183,10 +196,6 @@ const App = () => {
   }, [deviceConfig]);
 
   const historyFiltersRef = useRef<HTMLDivElement | null>(null);
-  const startPickerFieldRef = useRef<HTMLDivElement | null>(null);
-  const endPickerFieldRef = useRef<HTMLDivElement | null>(null);
-  const currentCalendarAnchorRef = useRef<HTMLElement | null>(null);
-  const calendarPortalRef = useRef<HTMLDivElement | null>(null);
   const realtimeEventHandlerRef = useRef<(event: RealtimeEvent) => void>(() => { });
 
   const loadStatus = useCallback(
@@ -324,6 +333,18 @@ const App = () => {
     [endDate, startDate]
   );
 
+  const loadIrrigationRecords = useCallback(
+    async () => {
+      try {
+        const records = await fetchLatestIrrigationPerZone();
+        setIrrigationRecords(records);
+      } catch (err) {
+        console.error("Failed to load irrigation records:", err);
+      }
+    },
+    []
+  );
+
   const loadForecastData = useCallback(
     async (showLoading: boolean, shouldAbort?: () => boolean) => {
       const shouldShowLoading = showLoading && !hasForecastRef.current;
@@ -405,6 +426,21 @@ const App = () => {
     }
   }, []);
 
+  const loadLastAIRun = useCallback(async () => {
+    try {
+      const runsResult = await fetchScheduleRuns(1);
+      const runs = runsResult?.data;
+      if (runs && runs.length > 0) {
+        const run = runs[0]!;
+        setLastAIRun(run);
+        try {
+          const detail = await fetchScheduleRun(run.scheduleRunId);
+          setLastAIRunEntries(Array.isArray(detail.entries) ? detail.entries : []);
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const realtimeUrl = useMemo(() => buildRealtimeUrl(), []);
 
   const {
@@ -427,27 +463,6 @@ const App = () => {
     forecastError,
     hasForecast: forecast !== null
   });
-
-  const updateCalendarPortalPosition = useCallback((anchor?: HTMLElement | null) => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const portal = calendarPortalRef.current;
-    const target =
-      anchor ??
-      currentCalendarAnchorRef.current ??
-      startPickerFieldRef.current ??
-      historyFiltersRef.current;
-    const container = historyFiltersRef.current ?? target;
-    if (!portal || !target || !container) {
-      return;
-    }
-    const targetRect = target.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    portal.style.top = `${targetRect.bottom + window.scrollY}px`;
-    portal.style.left = `${containerRect.left + window.scrollX}px`;
-    portal.style.width = `${containerRect.width}px`;
-  }, []);
 
   const forceHearbeat = useCallback(async () => {
     setDeviceConfigLoading(true);
@@ -512,7 +527,8 @@ const App = () => {
     const tick = async (showLoading: boolean) => {
       await Promise.all([
         loadHeartbeats(showLoading, () => cancelled),
-        loadIrrigationEvents(showLoading, () => cancelled)
+        loadIrrigationEvents(showLoading, () => cancelled),
+        loadIrrigationRecords()
       ]);
       if (!cancelled && !isRealtimeActive) {
         setNextHeartbeatRefreshAt(Date.now() + HEARTBEAT_REFRESH_MS);
@@ -537,7 +553,7 @@ const App = () => {
         window.clearInterval(refreshId);
       }
     };
-  }, [isRealtimeActive, loadHeartbeats, loadIrrigationEvents]);
+  }, [isRealtimeActive, loadHeartbeats, loadIrrigationEvents, loadIrrigationRecords]);
 
   useEffect(() => {
     let cancelled = false;
@@ -607,7 +623,8 @@ const App = () => {
   useEffect(() => {
     void loadSystemConfig();
     void loadAIScheduleEnabled();
-  }, [loadSystemConfig, loadAIScheduleEnabled]);
+    void loadLastAIRun();
+  }, [loadSystemConfig, loadAIScheduleEnabled, loadLastAIRun]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -618,46 +635,6 @@ const App = () => {
       window.clearInterval(intervalId);
     };
   }, []);
-
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-    let portal = document.getElementById("filter-calendar-portal") as HTMLDivElement | null;
-    let created = false;
-    if (!portal) {
-      portal = document.createElement("div");
-      portal.id = "filter-calendar-portal";
-      created = true;
-      document.body.appendChild(portal);
-    }
-    portal.classList.add("filter-calendar-portal");
-    calendarPortalRef.current = portal;
-    updateCalendarPortalPosition();
-    return () => {
-      if (portal) {
-        portal.classList.remove("filter-calendar-portal");
-        if (created && portal.parentElement) {
-          portal.parentElement.removeChild(portal);
-        }
-      }
-    };
-  }, [updateCalendarPortalPosition]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const handleReposition = () => {
-      updateCalendarPortalPosition();
-    };
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, { passive: true });
-    return () => {
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition);
-    };
-  }, [updateCalendarPortalPosition]);
 
   useEffect(() => {
     setPage(1);
@@ -1074,15 +1051,14 @@ const App = () => {
     setIsSettingsPanelOpen((prev) => !prev);
   }, []);
 
-  const handleCalendarOpen = useCallback(
-    (anchor?: HTMLElement | null) => {
-      if (anchor) {
-        currentCalendarAnchorRef.current = anchor;
-      }
-      updateCalendarPortalPosition(anchor);
-    },
-    [updateCalendarPortalPosition]
-  );
+  const handleDashboardRunAI = useCallback(async () => {
+    setDashboardRunningAI(true);
+    try {
+      await triggerAIScheduleRun();
+    } catch {
+      setDashboardRunningAI(false);
+    }
+  }, []);
 
   const handleForceRefresh = useCallback(async () => {
     if (isRefreshAnimating) {
@@ -1099,6 +1075,7 @@ const App = () => {
         loadStatus(),
         loadHeartbeats(true),
         loadIrrigationEvents(true),
+        loadIrrigationRecords(),
         loadForecastData(true),
         forceHearbeat()
       ]);
@@ -1118,6 +1095,7 @@ const App = () => {
     loadStatus,
     loadHeartbeats,
     loadIrrigationEvents,
+    loadIrrigationRecords,
     loadForecastData,
     forceHearbeat,
     scheduleRefreshMarkers,
@@ -1138,6 +1116,7 @@ const App = () => {
           loadStatus(),
           loadHeartbeats(false),
           loadIrrigationEvents(false),
+          loadIrrigationRecords(),
           loadForecastData(false)
         ]);
         if (shouldMarkRefresh) {
@@ -1156,6 +1135,7 @@ const App = () => {
       loadStatus,
       loadHeartbeats,
       loadIrrigationEvents,
+      loadIrrigationRecords,
       loadForecastData,
       markRefreshSuccess,
       markRefreshError,
@@ -1200,6 +1180,7 @@ const App = () => {
         }
         case "irrigation:updated": {
           void loadIrrigationEvents(false);
+          void loadIrrigationRecords();
           break;
         }
         case "deviceConfig:updated": {
@@ -1219,6 +1200,14 @@ const App = () => {
           void loadZones();
           break;
         }
+        case "schedule:runCompleted": {
+          void loadLastAIRun();
+          void loadAIScheduleEnabled();
+          void loadZones();
+          setAiRunRefreshKey((k) => k + 1);
+          setDashboardRunningAI(false);
+          break;
+        }
         case "systemConfig:updated": {
           if (event.payload && "irrigationMode" in event.payload) {
             setIrrigationMode(event.payload.irrigationMode as IrrigationMode);
@@ -1229,7 +1218,7 @@ const App = () => {
           break;
       }
   },
-  [loadDeviceConfig, loadIrrigationEvents, loadStatus, syncDataAfterHeartbeat, loadZones]
+  [loadDeviceConfig, loadIrrigationEvents, loadIrrigationRecords, loadStatus, syncDataAfterHeartbeat, loadZones, loadLastAIRun, loadAIScheduleEnabled]
   );
 
   useEffect(() => {
@@ -1279,11 +1268,13 @@ const App = () => {
   return (
     <main className="app">
       <header className="app-header">
-        <img
-          src="banner.png"
-          alt="Irrigo Logo"
-          className="app-logo"
-        />
+        <Link to="/">
+          <img
+            src="banner.png"
+            alt="Irrigo Logo"
+            className="app-logo"
+          />
+        </Link>
 
         <div className="app-header-actions">
           <div className="app-header-actions-row">
@@ -1328,8 +1319,11 @@ const App = () => {
         <NavLink to="/" end className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
           Dashboard
         </NavLink>
-        <NavLink to="/records" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          Records
+        <NavLink to="/heartbeats" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          Heartbeats
+        </NavLink>
+        <NavLink to="/irrigations" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          Irrigations
         </NavLink>
       </nav>
 
@@ -1370,7 +1364,7 @@ const App = () => {
         onZonesChanged={loadZones}
         mode="control"
         onOpenSettings={() => { setSettingsTab("zones"); setIsSettingsPanelOpen(true); }}
-        irrigationEvents={irrigationEvents}
+        irrigationRecords={irrigationRecords}
         baselinePsi={latestBaselinePsi}
       />
 
@@ -1378,11 +1372,83 @@ const App = () => {
         zones={zones}
         irrigationMode={irrigationMode}
         aiScheduleEnabled={aiScheduleEnabled}
+        refreshKey={aiRunRefreshKey}
         onModeChanged={(mode) => setIrrigationMode(mode)}
         onScheduleChanged={loadZones}
         onOpenSmartSettings={() => { setSettingsTab("schedule"); setIsSettingsPanelOpen(true); }}
         onOpenProgramSettings={() => { setSettingsTab("programs"); setIsSettingsPanelOpen(true); }}
       />
+
+      <section className="ai-run-summary">
+        <div className="ai-run-summary__top-row">
+          {lastAIRun && (
+            <button
+              type="button"
+              className="ai-run-summary__header"
+              onClick={() => setAiRunExpanded((v) => !v)}
+            >
+              <h3>Last AI Evaluation</h3>
+              <span className={`schedule-status-pill schedule-status-pill--${lastAIRun.status}`}>
+                {lastAIRun.status}
+              </span>
+              <span className="ai-run-summary__time">
+                {new Date(lastAIRun.startedAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true
+                })}
+              </span>
+              <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                {lastAIRun.triggeredBy === "cron" ? "auto" : "manual"}
+                {typeof lastAIRun.entries === "number" && lastAIRun.entries > 0
+                  ? ` · ${lastAIRun.entries} zone${lastAIRun.entries !== 1 ? "s" : ""}`
+                  : ""}
+              </span>
+            </button>
+          )}
+          {!lastAIRun && <h3 style={{ margin: 0 }}>AI Evaluation</h3>}
+          {aiScheduleEnabled && (
+            <button
+              type="button"
+              className={`icon-btn ai-run-status-btn ai-run-status-btn--${dashboardRunningAI ? "running" : lastAIRun?.status === "completed" ? "success" : lastAIRun?.status ?? "none"}`}
+              disabled={dashboardRunningAI}
+              onClick={handleDashboardRunAI}
+              title={dashboardRunningAI ? "Running..." : "Run AI evaluation"}
+              aria-label={dashboardRunningAI ? "Running..." : "Run AI evaluation"}
+            >
+              {dashboardRunningAI ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+              )}
+            </button>
+          )}
+        </div>
+        {lastAIRun && aiRunExpanded && (
+          <div className="ai-run-summary__body">
+            {lastAIRun.reasoning && (
+              <p className="ai-run-summary__reasoning">{lastAIRun.reasoning}</p>
+            )}
+            {lastAIRun.errorMessage && (
+              <p className="ai-run-summary__error">{lastAIRun.errorMessage}</p>
+            )}
+            {lastAIRunEntries.length > 0 && (
+              <div className="ai-run-summary__entries">
+                {lastAIRunEntries.map((entry) => {
+                  const zone = zones.find((z) => z.zoneId === entry.zoneId);
+                  return (
+                    <div className="ai-run-summary__entry" key={entry._id}>
+                      <span className="ai-run-summary__zone-name">{zone?.name ?? entry.zoneId}</span>
+                      <span className="ai-run-summary__zone-dur">{entry.plannedDurationMinutes} min</span>
+                      <span className="ai-run-summary__zone-time">
+                        {new Date(entry.plannedStartAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="history-window">
         <article className="history-window-card">
@@ -1393,84 +1459,41 @@ const App = () => {
             </div>
           </header>
           <div className="history-window-filters" ref={historyFiltersRef}>
-            <h3>Filter</h3>
-            <button
-              type="button"
-              className="time-filter-reset"
-              onClick={handleResetFilters}
-              disabled={!filterActive}
-            >
-              Reset
-            </button>
-            <div className="time-filter-field">
-              <label htmlFor="history-start">From</label>
-              <div
-                className="datepicker-anchor"
-                ref={startPickerFieldRef}
-              >
-                <ReactDatePicker
-                  id="history-start"
-                  selected={startDate}
-                  onChange={(value: Date | null) => {
-                    handleStartDateChange(value);
-                  }}
-                  selectsStart
-                  startDate={startDate}
-                  endDate={endDate}
-                  maxDate={endDate ?? new Date()}
-                  showTimeSelect
-                  timeIntervals={15}
-                  placeholderText="Beginning of time"
-                  className="date-input"
-                  calendarClassName="date-calendar"
-                  dateFormat="MMM d, yyyy h:mm aa"
-                  isClearable
-                  withPortal
-                  portalId="filter-calendar-portal"
-                  onCalendarOpen={() => {
-                    const anchor = (startPickerFieldRef.current
-                      ?.querySelector(".react-datepicker__input-container") as HTMLElement | null) ??
-                      startPickerFieldRef.current;
-                    handleCalendarOpen(anchor ?? undefined);
-                  }}
+            <div className="records-filters__row">
+              <div className="time-filter-field">
+                <label htmlFor="history-start">From</label>
+                <DateTimeInput
+                  value={startDate}
+                  onChange={handleStartDateChange}
+                  max={endDate ?? new Date()}
+                  placeholder="Beginning of time"
+                  clearable
+                />
+              </div>
+              <div className="time-filter-field">
+                <label htmlFor="history-end">To</label>
+                <DateTimeInput
+                  value={endDate}
+                  onChange={handleEndDateChange}
+                  min={startDate ?? undefined}
+                  max={new Date()}
+                  placeholder="Now"
+                  clearable
                 />
               </div>
             </div>
-            <div className="time-filter-field">
-              <label htmlFor="history-end">To</label>
-              <div
-                className="datepicker-anchor"
-                ref={endPickerFieldRef}
+            {filterActive && (
+              <button
+                type="button"
+                className="history-filter-reset"
+                onClick={handleResetFilters}
+                title="Reset filters"
               >
-                <ReactDatePicker
-                  id="history-end"
-                  selected={endDate}
-                  onChange={(value: Date | null) => {
-                    handleEndDateChange(value);
-                  }}
-                  selectsEnd
-                  startDate={startDate}
-                  endDate={endDate}
-                  minDate={startDate ?? undefined}
-                  maxDate={new Date()}
-                  showTimeSelect
-                  timeIntervals={15}
-                  placeholderText="Now"
-                  className="date-input"
-                  calendarClassName="date-calendar"
-                  dateFormat="MMM d, yyyy h:mm aa"
-                  isClearable
-                  withPortal
-                  portalId="filter-calendar-portal"
-                  onCalendarOpen={() => {
-                    const anchor = (endPickerFieldRef.current
-                      ?.querySelector(".react-datepicker__input-container") as HTMLElement | null) ??
-                      endPickerFieldRef.current;
-                    handleCalendarOpen(anchor ?? undefined);
-                  }}
-                />
-              </div>
-            </div>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            )}
           </div>
           <div className="history-window-section" aria-label="Analytics">
             <OverviewSection
@@ -1487,7 +1510,8 @@ const App = () => {
       </section>
           </>
         } />
-        <Route path="/records" element={<RecordsPage />} />
+        <Route path="/heartbeats" element={<RecordsPage />} />
+        <Route path="/irrigations" element={<IrrigationsPage />} />
       </Routes>
 
       <SettingsPanel
@@ -1509,6 +1533,8 @@ const App = () => {
         isRealtimePreferenceEnabled={isRealtimePreferenceEnabled}
         onRealtimePreferenceToggle={handleRealtimePreferenceToggle}
         onAIScheduleConfigChanged={loadAIScheduleEnabled}
+        onControllerHealthChanged={integrationHealth.recheckController}
+        aiRunRefreshKey={aiRunRefreshKey}
       />
     </main>
   );

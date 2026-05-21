@@ -1,36 +1,52 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AIScheduleConfig, IrrigationMode, IrrigationProgram, ScheduleEntry, ScheduleRun, Zone } from "../types";
+import { createPortal } from "react-dom";
+import type { AIScheduleConfig, IrrigationMode, IrrigationProgram, ScheduleEntry, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
   fetchUpcomingEntries,
-  fetchScheduleRuns,
-  fetchScheduleRun,
-  cancelScheduleEntry,
+  fetchMaterializedProgramEntries,
   skipScheduleEntry,
+  deferScheduleEntry,
+  materializeProgramEntries,
   fetchPrograms,
-  runProgram,
   updateSystemConfig
 } from "../api";
+import DateTimeInput from "./DateTimeInput";
 
 interface IrrigationQueuePanelProps {
   zones: Zone[];
   irrigationMode: IrrigationMode;
   aiScheduleEnabled: boolean;
+  refreshKey?: number;
   onModeChanged: (mode: IrrigationMode) => void;
   onScheduleChanged: () => void;
   onOpenSmartSettings: () => void;
   onOpenProgramSettings: () => void;
 }
 
-const formatTime = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleString("en-US", {
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true
-  });
-};
+// ── Shared types ──
+
+interface QueueZoneStep {
+  zoneId: string;
+  zoneName: string;
+  durationMinutes: number;
+}
+
+interface QueueSequence {
+  id: string;
+  scheduledAt: string;
+  status: "pending" | "running" | "completed" | "skipped" | "failed";
+  source: "program" | "ai-schedule";
+  sourceLabel: string;
+  zones: QueueZoneStep[];
+  totalMinutes: number;
+  aiReasoning?: string;
+  entryIds?: string[];
+  programId?: string;
+  userModified?: boolean;
+}
+
+// ── Helpers ──
 
 const formatDate = (iso: string) => {
   const d = new Date(iso);
@@ -43,38 +59,12 @@ const formatDate = (iso: string) => {
   });
 };
 
-const extractErrorMessage = (run: ScheduleRun): string => {
-  if (!run.errorMessage) return "Unknown error";
-  try {
-    const parsed = JSON.parse(run.errorMessage);
-    if (typeof parsed === "object" && parsed !== null) {
-      return parsed.message ?? parsed.error ?? parsed.msg ?? run.errorMessage;
-    }
-  } catch {
-    // not JSON
-  }
-  return run.errorMessage;
-};
-
-const formatSchedule = (cron: string): string => {
-  const parts = cron.trim().split(/\s+/);
-  const hour = parseInt(parts[1] ?? "0", 10);
-  const timeStr = `${hour.toString().padStart(2, "0")}:00`;
-  const dayOfMonth = parts[2] ?? "*";
-  const dayOfWeek = parts[4] ?? "*";
-  if (dayOfWeek !== "*") return `Weekly Mon ${timeStr}`;
-  if (dayOfMonth === "*/3") return `Every 3d ${timeStr}`;
-  if (dayOfMonth === "*/2") return `Every 2d ${timeStr}`;
-  return `Daily ${timeStr}`;
-};
-
 const nextCronRun = (cron: string): Date | null => {
   const parts = cron.trim().split(/\s+/);
   if (parts.length < 5) return null;
   const minute = parseInt(parts[0]!, 10);
   const hour = parseInt(parts[1]!, 10);
   if (isNaN(minute) || isNaN(hour)) return null;
-
   const now = new Date();
   const candidate = new Date(now);
   candidate.setHours(hour, minute, 0, 0);
@@ -82,136 +72,271 @@ const nextCronRun = (cron: string): Date | null => {
   return candidate;
 };
 
-const EntryCard = ({
-  entry,
-  zoneName,
-  onSkip,
-  onCancel,
-  compact
-}: {
-  entry: ScheduleEntry;
-  zoneName: string;
-  onSkip?: (id: string) => void;
-  onCancel?: (id: string) => void;
-  compact?: boolean;
-}) => (
-  <div className={`schedule-entry-card${compact ? " schedule-entry-card--compact" : ""}`}>
-    <div className="schedule-entry-card__top">
-      <span className={`schedule-status-pill schedule-status-pill--${entry.status}`}>
-        {entry.status}
-      </span>
-      <span className="schedule-entry-card__zone">{zoneName}</span>
-      <span className="schedule-entry-card__duration">{entry.plannedDurationMinutes} min</span>
-    </div>
-    <div className="schedule-entry-card__time">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-      <span>{formatDate(entry.plannedStartAt)}</span>
-    </div>
-    {entry.aiReasoning && (
-      <p className="schedule-entry-card__reasoning">{entry.aiReasoning}</p>
-    )}
-    {entry.weatherContext && (entry.weatherContext.precipitationProbability != null || entry.weatherContext.forecastSummary) && (
-      <div className="schedule-entry-card__weather">
-        {entry.weatherContext.precipitationProbability != null && (
-          <span className="schedule-entry-card__weather-tag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" /></svg>
-            {entry.weatherContext.precipitationProbability}%
-          </span>
-        )}
-        {entry.weatherContext.forecastSummary && (
-          <span className="schedule-entry-card__weather-text muted">{entry.weatherContext.forecastSummary}</span>
-        )}
-        {entry.weatherContext.recentRainDetected && (
-          <span className="schedule-entry-card__weather-tag schedule-entry-card__weather-tag--rain">Rain detected</span>
-        )}
-      </div>
-    )}
-    {entry.status === "skipped" && entry.skipReason && (
-      <p className="schedule-entry-card__skip muted">{entry.skipReason}</p>
-    )}
-    {entry.status === "planned" && onSkip && onCancel && (
-      <div className="schedule-entry-card__actions">
-        <button
-          type="button"
-          className="ghost-button icon-btn"
-          onClick={() => onSkip(entry._id)}
-          title="Skip"
-          aria-label="Skip entry"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4" /><line x1="19" y1="5" x2="19" y2="19" /></svg>
-        </button>
-        <button
-          type="button"
-          className="ghost-button icon-btn danger-text"
-          onClick={() => onCancel(entry._id)}
-          title="Cancel"
-          aria-label="Cancel entry"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-        </button>
-      </div>
-    )}
-  </div>
-);
+// ── Build unified queue sequences ──
 
-const ProgramQueueCard = ({
-  program,
-  zoneNames,
-  nextRun,
-  onRun,
-  running
+const buildProgramSequences = (
+  programs: IrrigationProgram[],
+  getZoneName: (id: string) => string
+): QueueSequence[] =>
+  programs
+    .filter((p) => p.enabled)
+    .map((program) => {
+      const baseTime = nextCronRun(program.scheduleCron);
+      return {
+        id: program.programId,
+        scheduledAt: baseTime?.toISOString() ?? new Date().toISOString(),
+        status: "pending" as const,
+        source: "program" as const,
+        sourceLabel: program.name,
+        programId: program.programId,
+        zones: program.zoneEntries.map((ze) => ({
+          zoneId: ze.zoneId,
+          zoneName: getZoneName(ze.zoneId),
+          durationMinutes: ze.durationMinutes,
+        })),
+        totalMinutes: program.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
+      };
+    })
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+const buildSmartSequences = (
+  entries: ScheduleEntry[],
+  getZoneName: (id: string) => string
+): QueueSequence[] => {
+  const byRun = new Map<string, ScheduleEntry[]>();
+  for (const e of entries) {
+    const key = e.scheduleRunId;
+    if (!byRun.has(key)) byRun.set(key, []);
+    byRun.get(key)!.push(e);
+  }
+
+  return Array.from(byRun.entries()).map(([runId, runEntries]) => {
+    const sorted = [...runEntries].sort(
+      (a, b) => new Date(a.plannedStartAt).getTime() - new Date(b.plannedStartAt).getTime()
+    );
+    const first = sorted[0]!;
+    const allCompleted = sorted.every((e) => e.status === "completed");
+    const anyExecuting = sorted.some((e) => e.status === "executing" || e.status === "queued");
+    const anyFailed = sorted.some((e) => e.status === "skipped" && e.skipReason?.toLowerCase().includes("error"));
+    const allSkipped = sorted.every((e) => e.status === "skipped" || e.status === "cancelled");
+
+    let status: QueueSequence["status"] = "pending";
+    if (allCompleted) status = "completed";
+    else if (anyFailed) status = "failed";
+    else if (allSkipped) status = "skipped";
+    else if (anyExecuting) status = "running";
+
+    const reasoning = sorted
+      .map((e) => e.aiReasoning)
+      .filter(Boolean)
+      .join(" ");
+
+    return {
+      id: runId,
+      scheduledAt: first.plannedStartAt,
+      status,
+      source: "ai-schedule" as const,
+      sourceLabel: "AI Schedule",
+      zones: sorted.map((e) => ({
+        zoneId: e.zoneId,
+        zoneName: getZoneName(e.zoneId),
+        durationMinutes: e.plannedDurationMinutes,
+      })),
+      totalMinutes: sorted.reduce((s, e) => s + e.plannedDurationMinutes, 0),
+      aiReasoning: reasoning || undefined,
+      entryIds: sorted.map((e) => e._id),
+      userModified: sorted.some((e) => e.userModified),
+    };
+  }).sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+};
+
+// ── Queue card (unified for both modes) ──
+
+const QueueSequenceCard = ({
+  seq,
+  onSkip,
+  onDefer,
 }: {
-  program: IrrigationProgram;
-  zoneNames: string[];
-  nextRun: Date | null;
-  onRun: (id: string) => void;
-  running: boolean;
-}) => (
-  <div className="schedule-entry-card">
-    <div className="schedule-entry-card__top">
-      <span className="schedule-status-pill schedule-status-pill--planned">
-        {program.enabled ? "active" : "paused"}
-      </span>
-      <span className="schedule-entry-card__zone">{program.name}</span>
-      <span className="schedule-entry-card__duration">
-        {program.zoneEntries.reduce((sum, e) => sum + e.durationMinutes, 0)} min
-      </span>
-    </div>
-    <div className="schedule-entry-card__time">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-      <span>{nextRun ? formatDate(nextRun.toISOString()) : formatSchedule(program.scheduleCron)}</span>
-    </div>
-    <div className="program-queue-zones">
-      {zoneNames.map((name, i) => (
-        <span className="program-card__zone-tag" key={i}>
-          {name}
-          <span className="program-card__zone-duration">{program.zoneEntries[i]!.durationMinutes}m</span>
-        </span>
-      ))}
-    </div>
-    <div className="schedule-entry-card__actions">
-      <button
-        type="button"
-        className="ghost-button icon-btn"
-        onClick={() => onRun(program.programId)}
-        disabled={running}
-        title="Run now"
-        aria-label={`Run ${program.name} now`}
-      >
-        {running ? (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-        ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+  seq: QueueSequence;
+  onSkip: (seq: QueueSequence) => void;
+  onDefer: (seq: QueueSequence, newDate: Date) => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const [deferring, setDeferring] = useState(false);
+  const [deferValue, setDeferValue] = useState<Date | null>(null);
+  const [confirmSkip, setConfirmSkip] = useState(false);
+
+  const isPending = seq.status === "pending";
+
+  const openDefer = () => {
+    setDeferValue(new Date(seq.scheduledAt));
+    setDeferring(true);
+  };
+
+  const handleDeferConfirm = () => {
+    if (!deferValue) return;
+    onDefer(seq, deferValue);
+    setDeferring(false);
+  };
+
+  return (
+    <div className="queue-card">
+      <div className="queue-card__top">
+        <button
+          type="button"
+          className="queue-card__summary"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span className={`schedule-status-pill schedule-status-pill--${seq.status === "pending" ? "planned" : seq.status}`}>
+            {seq.status}
+          </span>
+          {seq.userModified && (
+            <span className="schedule-status-pill schedule-status-pill--modified" title="Modified by user">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+            </span>
+          )}
+          <span className="queue-card__time">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+            {formatDate(seq.scheduledAt)}
+          </span>
+          <span className="queue-card__total muted">
+            {seq.zones.length} zone{seq.zones.length !== 1 ? "s" : ""} · {seq.totalMinutes} min
+          </span>
+        </button>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className={`queue-card__expand-icon${expanded ? " queue-card__chevron--open" : ""}`} onClick={() => setExpanded((v) => !v)}>
+          <path d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
+        </svg>
+        {isPending && (
+          <div className="queue-card__actions">
+            {deferring && (
+              <div className="queue-card__defer">
+                <DateTimeInput
+                  value={deferValue}
+                  onChange={setDeferValue}
+                  min={new Date()}
+                />
+              </div>
+            )}
+            {deferring ? (
+              <>
+                <button
+                  type="button"
+                  className="ghost-button icon-btn"
+                  onClick={handleDeferConfirm}
+                  title="Confirm"
+                  aria-label="Confirm defer"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button icon-btn"
+                  onClick={() => setDeferring(false)}
+                  title="Cancel"
+                  aria-label="Cancel defer"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="ghost-button icon-btn"
+                  onClick={() => setConfirmSkip(true)}
+                  title="Skip"
+                  aria-label="Skip sequence"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4" /><line x1="19" y1="5" x2="19" y2="19" /></svg>
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button icon-btn"
+                  onClick={openDefer}
+                  title="Defer"
+                  aria-label="Defer to a different time"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M14 14l3 3" /><path d="M17 14l-3 3" /></svg>
+                </button>
+              </>
+            )}
+          </div>
         )}
-      </button>
+      </div>
+
+      {expanded && (
+        <div className="queue-card__body">
+          <div className="queue-card__zones">
+            {seq.zones.map((z, i) => (
+              <div className="queue-card__zone-row" key={`${z.zoneId}-${i}`}>
+                <span className="queue-card__zone-name">{z.zoneName}</span>
+                <span className="queue-card__zone-dur">{z.durationMinutes} min</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="queue-card__source muted">{seq.sourceLabel}</div>
+
+          {seq.aiReasoning && (
+            <button
+              type="button"
+              className="queue-card__notes-toggle muted"
+              onClick={() => setNotesExpanded((v) => !v)}
+            >
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" className={notesExpanded ? "queue-card__chevron--open" : ""}>
+                <path d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
+              </svg>
+              AI Notes
+            </button>
+          )}
+          {seq.aiReasoning && notesExpanded && (
+            <p className="queue-card__notes">{seq.aiReasoning}</p>
+          )}
+        </div>
+      )}
+
+      {confirmSkip && createPortal(
+        <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
+          <div className="confirm-dialog">
+            <div className="confirm-dialog__icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4" /><line x1="19" y1="5" x2="19" y2="19" /></svg>
+            </div>
+            <h3 className="confirm-dialog__title">Skip irrigation</h3>
+            <p className="confirm-dialog__message">
+              Skip this scheduled irrigation? It will not run.
+            </p>
+            <div className="confirm-dialog__actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setConfirmSkip(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => { setConfirmSkip(false); onSkip(seq); }}
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
-  </div>
-);
+  );
+};
+
+// ── Main panel ──
 
 const IrrigationQueuePanel = ({
   zones,
   irrigationMode,
   aiScheduleEnabled,
+  refreshKey,
   onModeChanged,
   onScheduleChanged,
   onOpenSmartSettings,
@@ -219,29 +344,27 @@ const IrrigationQueuePanel = ({
 }: IrrigationQueuePanelProps) => {
   const [config, setConfig] = useState<AIScheduleConfig | null>(null);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
-  const [recentRuns, setRecentRuns] = useState<ScheduleRun[]>([]);
   const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
   const [loading, setLoading] = useState(true);
-  const [runningProgramId, setRunningProgramId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [expandedRun, setExpandedRun] = useState<string | null>(null);
-  const [runEntries, setRunEntries] = useState<Record<string, ScheduleEntry[]>>({});
-  const [loadingRun, setLoadingRun] = useState<string | null>(null);
   const [modeChanging, setModeChanging] = useState(false);
 
   const canToggleMode = aiScheduleEnabled;
   const activeMode = !canToggleMode ? "scheduled" : (irrigationMode === "scheduled" ? "scheduled" : "smart");
 
+  const getZoneName = useCallback((zoneId: string) => {
+    const zone = zones.find((z) => z.zoneId === zoneId);
+    return zone?.name ?? zoneId;
+  }, [zones]);
+
   const loadSmartData = useCallback(async () => {
     try {
-      const [cfg, upcoming, runs] = await Promise.all([
+      const [cfg, upcoming] = await Promise.all([
         fetchAIScheduleConfig(),
         fetchUpcomingEntries(),
-        fetchScheduleRuns(1)
       ]);
       setConfig(cfg);
       setEntries(upcoming);
-      setRecentRuns(runs.data);
     } catch (err) {
       console.error("Failed to load AI schedule data:", err);
     } finally {
@@ -249,10 +372,16 @@ const IrrigationQueuePanel = ({
     }
   }, []);
 
+  const [programEntries, setProgramEntries] = useState<ScheduleEntry[]>([]);
+
   const loadScheduledData = useCallback(async () => {
     try {
-      const data = await fetchPrograms();
+      const [data, matEntries] = await Promise.all([
+        fetchPrograms(),
+        fetchMaterializedProgramEntries(),
+      ]);
       setPrograms(data);
+      setProgramEntries(matEntries);
     } catch (err) {
       console.error("Failed to load programs:", err);
     } finally {
@@ -267,7 +396,7 @@ const IrrigationQueuePanel = ({
     } else {
       void loadScheduledData();
     }
-  }, [activeMode, loadSmartData, loadScheduledData]);
+  }, [activeMode, loadSmartData, loadScheduledData, refreshKey]);
 
   const handleModeToggle = useCallback(async (mode: "smart" | "scheduled") => {
     if (mode === activeMode) return;
@@ -282,64 +411,67 @@ const IrrigationQueuePanel = ({
     }
   }, [activeMode, onModeChanged]);
 
-  const handleCancel = useCallback(async (entryId: string) => {
+  const materializeIfNeeded = useCallback(async (seq: QueueSequence): Promise<string[]> => {
+    if (seq.entryIds && seq.entryIds.length > 0) return seq.entryIds;
+    if (seq.source === "program" && seq.programId) {
+      const result = await materializeProgramEntries(seq.programId, new Date(seq.scheduledAt));
+      return result.entryIds;
+    }
+    return [];
+  }, []);
+
+  const handleSkipSequence = useCallback(async (seq: QueueSequence) => {
     try {
-      await cancelScheduleEntry(entryId);
-      void loadSmartData();
+      const ids = await materializeIfNeeded(seq);
+      await Promise.all(ids.map((id) => skipScheduleEntry(id, "Manually skipped")));
+      if (activeMode === "smart") void loadSmartData();
+      else void loadScheduledData();
     } catch (err) {
-      console.error("Failed to cancel entry:", err);
+      console.error("Failed to skip entries:", err);
     }
-  }, [loadSmartData]);
+  }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
 
-  const handleSkip = useCallback(async (entryId: string) => {
+  const handleDeferSequence = useCallback(async (seq: QueueSequence, newDate: Date) => {
     try {
-      await skipScheduleEntry(entryId, "Manually skipped");
-      void loadSmartData();
+      const ids = await materializeIfNeeded(seq);
+      await Promise.all(ids.map((id) => deferScheduleEntry(id, newDate)));
+      if (activeMode === "smart") void loadSmartData();
+      else void loadScheduledData();
     } catch (err) {
-      console.error("Failed to skip entry:", err);
+      console.error("Failed to defer entries:", err);
     }
-  }, [loadSmartData]);
-
-  const handleRunProgram = useCallback(async (programId: string) => {
-    setRunningProgramId(programId);
-    try {
-      await runProgram(programId);
-      onScheduleChanged();
-    } catch (err) {
-      console.error("Failed to run program:", err);
-    } finally {
-      setRunningProgramId(null);
-    }
-  }, [onScheduleChanged]);
-
-  const handleToggleRun = useCallback(async (runId: string) => {
-    if (expandedRun === runId) {
-      setExpandedRun(null);
-      return;
-    }
-    setExpandedRun(runId);
-    if (!runEntries[runId]) {
-      setLoadingRun(runId);
-      try {
-        const detail = await fetchScheduleRun(runId);
-        setRunEntries((prev) => ({
-          ...prev,
-          [runId]: Array.isArray(detail.entries) ? detail.entries : []
-        }));
-      } catch {
-        setRunEntries((prev) => ({ ...prev, [runId]: [] }));
-      } finally {
-        setLoadingRun(null);
-      }
-    }
-  }, [expandedRun, runEntries]);
-
-  const getZoneName = (zoneId: string) => {
-    const zone = zones.find((z) => z.zoneId === zoneId);
-    return zone?.name ?? zoneId;
-  };
+  }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
 
   const enabledPrograms = programs.filter((p) => p.enabled);
+
+  const queueSequences = (() => {
+    if (activeMode === "smart") return buildSmartSequences(entries, getZoneName);
+
+    const programSeqs = buildProgramSequences(programs, getZoneName);
+    if (programEntries.length === 0) return programSeqs;
+
+    const handledProgramIds = new Set(
+      programEntries.filter((e) => e.programId).map((e) => e.programId!)
+    );
+    const remainingPrograms = programSeqs.filter((ps) => !handledProgramIds.has(ps.programId!));
+
+    const plannedEntries = programEntries.filter((e) => e.status === "planned");
+    const materializedSeqs = buildSmartSequences(plannedEntries, getZoneName);
+    materializedSeqs.forEach((s) => {
+      const entry = plannedEntries.find((e) => e.scheduleRunId === s.id);
+      if (entry?.programId) {
+        const prog = programs.find((p) => p.programId === entry.programId);
+        if (prog) s.sourceLabel = prog.name;
+        s.programId = entry.programId;
+      }
+    });
+
+    return [...materializedSeqs, ...remainingPrograms]
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  })();
+
+  const pendingSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running");
+  const hasQueue = pendingSequences.length > 0;
 
   return (
     <section className="irrigation-queue-panel">
@@ -391,22 +523,19 @@ const IrrigationQueuePanel = ({
         </div>
       </header>
 
-      {activeMode === "smart" && config && (
-        <p className="irrigation-queue-panel__subtitle muted">
-          {config.enabled
-            ? `${config.provider} / ${config.model}`
-            : "Not configured"}
-          {config.lastRunAt && (
-            <>
-              {" · Last: "}
-              {formatTime(config.lastRunAt)}
-              {" "}
-              <span className={`schedule-status-pill schedule-status-pill--${config.lastRunStatus ?? "unknown"}`}>
-                {config.lastRunStatus ?? "—"}
-              </span>
-            </>
-          )}
-        </p>
+      {activeMode === "smart" && config && config.lastRunAt && (
+        <button
+          type="button"
+          className="irrigation-queue-panel__subtitle irrigation-queue-panel__subtitle--link muted"
+          onClick={onOpenSmartSettings}
+        >
+          {formatDate(config.lastRunAt)}
+          {" "}
+          <span className={`schedule-status-pill schedule-status-pill--${config.lastRunStatus ?? "unknown"}`}>
+            {config.lastRunStatus ?? "—"}
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="subtitle-link-icon"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+        </button>
       )}
 
       {activeMode === "scheduled" && (
@@ -421,130 +550,34 @@ const IrrigationQueuePanel = ({
 
       {loading ? (
         <p className="muted">Loading...</p>
-      ) : activeMode === "smart" ? (
-        <>
-          {entries.length === 0 && recentRuns.length === 0 ? (
-            <div className="irrigation-queue-empty">
-              <p className="muted">
-                {config?.enabled
-                  ? "No scheduled entries yet. The AI scheduler will run automatically."
-                  : "Enable AI scheduling in settings to get started."}
-              </p>
-            </div>
-          ) : (
-            <>
-              {entries.length > 0 && (
-                <div className="schedule-entries-list">
-                  <h4>Queue</h4>
-                  <div className="schedule-entries-grid">
-                    {entries.map((entry) => (
-                      <EntryCard
-                        key={entry._id}
-                        entry={entry}
-                        zoneName={getZoneName(entry.zoneId)}
-                        onSkip={handleSkip}
-                        onCancel={handleCancel}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {recentRuns.length > 0 && (
-                <div className="schedule-runs-list">
-                  <h4>Run History</h4>
-                  {recentRuns.slice(0, 5).map((run) => {
-                    const isExpanded = expandedRun === run.scheduleRunId;
-                    const isLoading = loadingRun === run.scheduleRunId;
-                    const entriesForRun = runEntries[run.scheduleRunId];
-                    return (
-                      <div
-                        className={`schedule-run${isExpanded ? " schedule-run--expanded" : ""}`}
-                        key={run.scheduleRunId}
-                      >
-                        <button
-                          type="button"
-                          className="schedule-run__header"
-                          onClick={() => void handleToggleRun(run.scheduleRunId)}
-                        >
-                          <span className={`schedule-run__chevron${isExpanded ? " schedule-run__chevron--open" : ""}`}>
-                            <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-                              <path d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
-                            </svg>
-                          </span>
-                          <span className={`schedule-status-pill schedule-status-pill--${run.status}`}>
-                            {run.status}
-                          </span>
-                          <span className="schedule-run__time">{formatDate(run.startedAt)}</span>
-                          <span className="schedule-run__meta muted">
-                            {run.triggeredBy === "cron" ? "auto" : "manual"}
-                            {typeof run.entries === "number" && run.entries > 0 ? ` · ${run.entries} zone${run.entries !== 1 ? "s" : ""}` : ""}
-                          </span>
-                        </button>
-                        {isExpanded && (
-                          <div className="schedule-run__body">
-                            {run.status === "error" && (
-                              <div className="schedule-run__error">
-                                {extractErrorMessage(run)}
-                              </div>
-                            )}
-                            {run.reasoning && run.status !== "error" && (
-                              <p className="schedule-run__reasoning">{run.reasoning}</p>
-                            )}
-                            {isLoading ? (
-                              <p className="muted">Loading entries...</p>
-                            ) : entriesForRun && entriesForRun.length > 0 ? (
-                              <div className="schedule-run__entries">
-                                {entriesForRun.map((entry) => (
-                                  <EntryCard
-                                    key={entry._id}
-                                    entry={entry}
-                                    zoneName={getZoneName(entry.zoneId)}
-                                    compact
-                                  />
-                                ))}
-                              </div>
-                            ) : entriesForRun && entriesForRun.length === 0 && run.status !== "error" ? (
-                              <p className="muted">No entries were created for this run.</p>
-                            ) : null}
-                            {run.promptTokens != null && (
-                              <p className="schedule-run__tokens muted">
-                                {run.promptTokens.toLocaleString()} prompt + {(run.completionTokens ?? 0).toLocaleString()} completion tokens
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
-        </>
+      ) : !hasQueue ? (
+        <div className="irrigation-queue-empty">
+          <p className="muted">
+            {activeMode === "smart"
+              ? config?.enabled
+                ? "No scheduled entries yet. The AI scheduler will run automatically."
+                : "Enable AI scheduling in settings to get started."
+              : "No active programs. Add and enable programs in Settings."}
+          </p>
+        </div>
       ) : (
         <>
-          {enabledPrograms.length === 0 ? (
-            <div className="irrigation-queue-empty">
-              <p className="muted">No active programs. Add and enable programs in Settings.</p>
-            </div>
-          ) : (
+          {hasQueue && (
             <div className="schedule-entries-list">
               <h4>Queue</h4>
               <div className="schedule-entries-grid">
-                {enabledPrograms.map((program) => (
-                  <ProgramQueueCard
-                    key={program.programId}
-                    program={program}
-                    zoneNames={program.zoneEntries.map((e) => getZoneName(e.zoneId))}
-                    nextRun={nextCronRun(program.scheduleCron)}
-                    onRun={handleRunProgram}
-                    running={runningProgramId === program.programId}
+                {pendingSequences.map((seq) => (
+                  <QueueSequenceCard
+                    key={seq.id}
+                    seq={seq}
+                    onSkip={handleSkipSequence}
+                    onDefer={handleDeferSequence}
                   />
                 ))}
               </div>
             </div>
           )}
+
         </>
       )}
     </section>

@@ -12,6 +12,7 @@ export interface AISchedulePreferences {
   preferredTimeWindows: PreferredTimeWindow[];
   maxDailyRunMinutes: number;
   minDaysBetweenRuns: number;
+  waterSavingMode: "normal" | "moderate" | "aggressive";
 }
 
 export interface AIScheduleConfigAttributes {
@@ -44,7 +45,8 @@ const preferencesSchema = new Schema(
     recentRainWindowHours: { type: Number, default: 48, min: 1 },
     preferredTimeWindows: { type: [preferredTimeWindowSchema], default: [{ startHour: 20, endHour: 6 }] },
     maxDailyRunMinutes: { type: Number, default: 120, min: 1 },
-    minDaysBetweenRuns: { type: Number, default: 1, min: 0 }
+    minDaysBetweenRuns: { type: Number, default: 1, min: 0 },
+    waterSavingMode: { type: String, enum: ["normal", "moderate", "aggressive"], default: "normal" }
   },
   { _id: false }
 );

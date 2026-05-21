@@ -8,6 +8,19 @@ export interface ZoneMetadata {
   notes?: string;
 }
 
+export interface CompAICharacteristics {
+  active?: string;
+  setDuration?: string;
+  inUse?: string;
+  isConfigured?: string;
+  remainingDuration?: string;
+}
+
+export interface CompAIZoneConfig {
+  serviceId: string;
+  characteristics?: CompAICharacteristics;
+}
+
 export interface ZoneAttributes {
   zoneId: string;
   name: string;
@@ -17,6 +30,7 @@ export interface ZoneAttributes {
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
   metadata?: ZoneMetadata;
+  compAI?: CompAIZoneConfig | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -42,9 +56,33 @@ const zoneSchema = new Schema<ZoneAttributes>({
     ),
     default: undefined
   },
+  compAI: {
+    type: new Schema(
+      {
+        serviceId: { type: String, required: true, trim: true },
+        characteristics: {
+          type: new Schema(
+            {
+              active: { type: String, default: null, trim: true },
+              setDuration: { type: String, default: null, trim: true },
+              inUse: { type: String, default: null, trim: true },
+              isConfigured: { type: String, default: null, trim: true },
+              remainingDuration: { type: String, default: null, trim: true }
+            },
+            { _id: false }
+          ),
+          default: undefined
+        }
+      },
+      { _id: false }
+    ),
+    default: null
+  },
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() }
 });
+
+zoneSchema.index({ "compAI.serviceId": 1 }, { unique: true, sparse: true });
 
 const Zone = model<ZoneAttributes>("Zone", zoneSchema);
 

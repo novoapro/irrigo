@@ -4,6 +4,7 @@ import Zone from "../models/Zone";
 import IrrigationEvent from "../models/IrrigationEvent";
 import { emitRealtimeEvent } from "./realtimeService";
 import * as externalController from "./externalControllerService";
+import * as compAI from "./compAIService";
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const autoOffTimers = new Map<string, NodeJS.Timeout>();
@@ -50,7 +51,10 @@ export const createCommand = async (
 
   emitRealtimeEvent({ type: "command:created", payload: serializeCommand(command.toObject()) });
 
-  const result = await externalController.sendCommand(zoneId, action, durationMinutes);
+  const compAIConfigured = await compAI.isConfigured();
+  const result = compAIConfigured
+    ? await compAI.sendCommand(zoneId, action, durationMinutes)
+    : await externalController.sendCommand(zoneId, action, durationMinutes);
 
   if (result.success) {
     command.status = "sent";

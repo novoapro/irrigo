@@ -1,7 +1,9 @@
 import { Request, Response } from "express";
+import { randomUUID } from "node:crypto";
 import AIScheduleConfig from "../models/AIScheduleConfig";
 import ScheduleRun from "../models/ScheduleRun";
 import ScheduleEntry from "../models/ScheduleEntry";
+import IrrigationProgram from "../models/IrrigationProgram";
 import type { AIScheduleConfigInput } from "../schemas/aiScheduleConfigSchema";
 import { runScheduleEvaluation } from "../services/aiSchedulingService";
 import { emitRealtimeEvent } from "../services/realtimeService";
@@ -149,6 +151,21 @@ export const getUpcomingEntries = async (_req: Request, res: Response) => {
   }
 };
 
+export const getMaterializedProgramEntries = async (_req: Request, res: Response) => {
+  try {
+    const entries = await ScheduleEntry.find({
+      programId: { $ne: null },
+      plannedStartAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    })
+      .sort({ plannedStartAt: 1 })
+      .lean();
+    res.json({ data: entries });
+  } catch (err) {
+    console.error("Failed to fetch materialized entries:", err);
+    res.status(500).json({ message: "Unable to fetch materialized entries" });
+  }
+};
+
 export const cancelEntry = async (req: Request, res: Response) => {
   try {
     const entry = await ScheduleEntry.findById(req.params.id);
@@ -166,6 +183,75 @@ export const cancelEntry = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Failed to cancel entry:", err);
     res.status(500).json({ message: "Unable to cancel entry" });
+  }
+};
+
+export const deferEntry = async (req: Request, res: Response) => {
+  try {
+    const entry = await ScheduleEntry.findById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ message: "Entry not found" });
+    }
+    if (entry.status !== "planned") {
+      return res.status(400).json({ message: `Cannot defer entry with status '${entry.status}'` });
+    }
+    const { plannedStartAt } = req.body as { plannedStartAt?: string };
+    if (!plannedStartAt) {
+      return res.status(400).json({ message: "plannedStartAt is required" });
+    }
+    const newDate = new Date(plannedStartAt);
+    if (isNaN(newDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date" });
+    }
+    entry.plannedStartAt = newDate;
+    entry.userModified = true;
+    entry.updatedAt = new Date();
+    await entry.save();
+    emitRealtimeEvent({ type: "schedule:entryUpdated", payload: entry.toObject() });
+    res.json({ data: entry });
+  } catch (err) {
+    console.error("Failed to defer entry:", err);
+    res.status(500).json({ message: "Unable to defer entry" });
+  }
+};
+
+export const materializeProgramEntries = async (req: Request, res: Response) => {
+  try {
+    const { programId, scheduledAt } = req.body as { programId?: string; scheduledAt?: string };
+    if (!programId || !scheduledAt) {
+      return res.status(400).json({ message: "programId and scheduledAt are required" });
+    }
+    const program = await IrrigationProgram.findOne({ programId }).lean();
+    if (!program) {
+      return res.status(404).json({ message: "Program not found" });
+    }
+    const baseTime = new Date(scheduledAt);
+    if (isNaN(baseTime.getTime())) {
+      return res.status(400).json({ message: "Invalid scheduledAt date" });
+    }
+
+    const scheduleRunId = randomUUID();
+    let offsetMs = 0;
+    const entries = program.zoneEntries.map((ze) => {
+      const start = new Date(baseTime.getTime() + offsetMs);
+      offsetMs += ze.durationMinutes * 60 * 1000;
+      return {
+        scheduleRunId,
+        zoneId: ze.zoneId,
+        plannedStartAt: start,
+        plannedDurationMinutes: ze.durationMinutes,
+        status: "planned" as const,
+        aiReasoning: "",
+        programId,
+      };
+    });
+
+    const docs = await ScheduleEntry.insertMany(entries);
+    const ids = docs.map((d) => d._id.toString());
+    res.json({ data: { entryIds: ids, scheduleRunId } });
+  } catch (err) {
+    console.error("Failed to materialize program entries:", err);
+    res.status(500).json({ message: "Unable to create entries" });
   }
 };
 

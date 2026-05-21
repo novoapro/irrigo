@@ -21,8 +21,8 @@ const HealthIndicator = ({
   label: string;
 }) => (
   <span className="health-indicator" title={`${name}: ${label}`}>
-    <span className={`health-dot ${stateClass(state)}`} />
     <span className="health-name">{name}</span>
+    <span className={`health-dot ${stateClass(state)}`} />
   </span>
 );
 
@@ -30,7 +30,7 @@ const HeaderHealthBar = ({ health }: { health: IntegrationHealth }) => (
   <div className="header-health-bar">
     <HealthIndicator name="Server" state={health.server.state} label={health.server.label} />
     {health.controller.state !== "off" ? (
-      <HealthIndicator name="Controller" state={health.controller.state} label={health.controller.label} />
+      <HealthIndicator name="CompAI" state={health.controller.state} label={health.controller.label} />
     ) : null}
     {health.ai.state !== "off" ? (
       <HealthIndicator name="AI" state={health.ai.state} label={health.ai.label} />

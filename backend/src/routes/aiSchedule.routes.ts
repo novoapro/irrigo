@@ -8,6 +8,9 @@ import {
   listScheduleEntries,
   getUpcomingEntries,
   cancelEntry,
+  deferEntry,
+  materializeProgramEntries,
+  getMaterializedProgramEntries,
   skipEntry
 } from "../controllers/aiScheduleController";
 import { validateSchema } from "../middleware/validateSchema";
@@ -45,6 +48,18 @@ router.get("/entries/upcoming", (req, res) => {
 
 router.patch("/entries/:id/cancel", (req, res) => {
   void cancelEntry(req, res);
+});
+
+router.get("/entries/program", (req, res) => {
+  void getMaterializedProgramEntries(req, res);
+});
+
+router.post("/entries/materialize", (req, res) => {
+  void materializeProgramEntries(req, res);
+});
+
+router.patch("/entries/:id/defer", (req, res) => {
+  void deferEntry(req, res);
 });
 
 router.patch("/entries/:id/skip", (req, res) => {

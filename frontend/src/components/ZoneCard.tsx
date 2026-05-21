@@ -168,23 +168,16 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
 
       {lastIrrigation && (
         <div className="zone-card__irrigation">
-          <div className="zone-card__irrigation-header">
+          <div className="zone-card__irrigation-row">
             <span className="zone-card__irrigation-label">Last run</span>
-            <span className="zone-card__irrigation-elapsed muted">
-              {lastIrrigation.isRunning ? "Running now" : formatElapsedSince(lastIrrigation.end ?? lastIrrigation.start)}
+            <span className="zone-card__irrigation-elapsed">
+              {lastIrrigation.isRunning
+                ? "Running now"
+                : formatTimestampShort(lastIrrigation.start)}
             </span>
           </div>
-          <div className="zone-card__irrigation-meta">
-            <span className="zone-card__irrigation-time">{formatTimestampShort(lastIrrigation.start)}</span>
-            {lastIrrigation.end && !lastIrrigation.isRunning && (
-              <>
-                <span className="zone-card__irrigation-arrow">→</span>
-                <span className="zone-card__irrigation-time">{formatTimestampShort(lastIrrigation.end)}</span>
-              </>
-            )}
-          </div>
           <div className="zone-card__irrigation-stats">
-            {(lastIrrigation.durationMs > 0 && !lastIrrigation.isRunning) && (
+            {lastIrrigation.durationMs > 0 && !lastIrrigation.isRunning && (
               <span className="zone-card__irrigation-duration">{formatDurationLabel(lastIrrigation.durationMs)}</span>
             )}
             {lastIrrigation.pressureStart !== null && (
@@ -193,9 +186,12 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
               </span>
             )}
             {lastIrrigation.pressureEnd !== null && !lastIrrigation.isRunning && (
-              <span className={`zone-card__irrigation-psi${baselinePsi != null && lastIrrigation.pressureEnd < baselinePsi ? " zone-card__irrigation-psi--low" : ""}`}>
-                → {lastIrrigation.pressureEnd.toFixed(1)} psi
-              </span>
+              <>
+                <span className="zone-card__irrigation-arrow">→</span>
+                <span className={`zone-card__irrigation-psi${baselinePsi != null && lastIrrigation.pressureEnd < baselinePsi ? " zone-card__irrigation-psi--low" : ""}`}>
+                  {lastIrrigation.pressureEnd.toFixed(1)} psi
+                </span>
+              </>
             )}
           </div>
         </div>

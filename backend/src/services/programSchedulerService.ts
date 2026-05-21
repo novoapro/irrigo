@@ -40,7 +40,7 @@ const minuteKey = (now: Date): number =>
 const executeProgramZones = async (programId: string, zoneEntries: { zoneId: string; durationMinutes: number }[]) => {
   for (const entry of zoneEntries) {
     try {
-      await createCommand(entry.zoneId, "on", entry.durationMinutes, "schedule");
+      await createCommand(entry.zoneId, "on", entry.durationMinutes, "program");
     } catch (err) {
       console.error(`[ProgramScheduler] Failed to run zone ${entry.zoneId} in program ${programId}:`, err);
     }

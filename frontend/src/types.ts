@@ -54,6 +54,19 @@ export interface ZoneMetadata {
   notes?: string;
 }
 
+export interface CompAICharacteristics {
+  active?: string;
+  setDuration?: string;
+  inUse?: string;
+  isConfigured?: string;
+  remainingDuration?: string;
+}
+
+export interface CompAIZoneConfig {
+  serviceId: string;
+  characteristics?: CompAICharacteristics;
+}
+
 export interface Zone {
   _id?: string;
   zoneId: string;
@@ -64,6 +77,7 @@ export interface Zone {
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
   metadata?: ZoneMetadata;
+  compAI?: CompAIZoneConfig | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -171,6 +185,30 @@ export interface HeartbeatListMeta {
 
 export interface IrrigationListResponse {
   events: IrrigationEvent[];
+  meta: HeartbeatListMeta;
+}
+
+export type IrrigationSource = "manual" | "program" | "ai-schedule";
+export type IrrigationRecordStatus = "running" | "completed" | "failed";
+
+export interface IrrigationRecord {
+  _id: string;
+  zoneId: string;
+  source: IrrigationSource;
+  status: IrrigationRecordStatus;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs?: number | null;
+  pressureStart?: number | null;
+  pressureEnd?: number | null;
+  commandId?: string | null;
+  programId?: string | null;
+  scheduleEntryId?: string | null;
+  createdAt: string;
+}
+
+export interface IrrigationRecordListResponse {
+  data: IrrigationRecord[];
   meta: HeartbeatListMeta;
 }
 
@@ -323,6 +361,33 @@ export type RealtimeEvent =
       at?: string;
     };
 
+export interface CompAIConfig {
+  _id?: string;
+  enabled: boolean;
+  deviceId: string;
+  endpoint?: string | null;
+  authType?: "none" | "bearer" | "apikey" | "basic";
+  authToken?: string | null;
+  timeoutMs?: number;
+  webhookSecret?: string | null;
+  lastWebhookAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface CompAIDiscoveredService {
+  id: string;
+  name: string;
+  type: string;
+  characteristics: Record<string, string>;
+}
+
+export interface CompAIDiscoveryResult {
+  deviceId: string;
+  deviceName: string;
+  isReachable: boolean;
+  services: CompAIDiscoveredService[];
+}
+
 export type IrrigationMode = "smart" | "manual" | "scheduled";
 
 export interface SystemConfig {
@@ -358,6 +423,7 @@ export interface AISchedulePreferences {
   preferredTimeWindows: PreferredTimeWindow[];
   maxDailyRunMinutes: number;
   minDaysBetweenRuns: number;
+  waterSavingMode: "normal" | "moderate" | "aggressive";
 }
 
 export interface AIScheduleConfig {
@@ -409,6 +475,8 @@ export interface ScheduleEntry {
   aiReasoning: string;
   weatherContext: WeatherContext;
   skipReason?: string | null;
+  userModified?: boolean;
+  programId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
