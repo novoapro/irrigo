@@ -53,6 +53,13 @@ export const formatRelativeTime = (value: string | null) => {
   return formatDistanceToNowStrict(date, { addSuffix: true });
 };
 
+export const formatElapsedDuration = (value: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!isValid(date)) return "—";
+  return formatDistanceToNowStrict(date);
+};
+
 // Returns a compact elapsed label (e.g., "5m", "3h", "2d") for an ISO timestamp.
 export const formatElapsedSince = (iso: string | null | undefined) => {
   if (!iso) return "";

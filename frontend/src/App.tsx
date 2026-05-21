@@ -1181,6 +1181,8 @@ const App = () => {
         case "irrigation:updated": {
           void loadIrrigationEvents(false);
           void loadIrrigationRecords();
+          void loadZones();
+          void loadStatus();
           break;
         }
         case "deviceConfig:updated": {
@@ -1345,6 +1347,7 @@ const App = () => {
         guard={guardActive}
         irrigation={statusIrrigation}
         lastIrrigationChange={lastIrrigationChange}
+        zones={zones}
         pressureStatus={waterPressureMeta.status}
         pressureTone={waterPressureMeta.tone}
         pressureDetail={waterPressureMeta.detail}

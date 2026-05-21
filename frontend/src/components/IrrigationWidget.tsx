@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { IrrigationEvent } from "../types";
+import type { IrrigationEvent, Zone } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
 import IrrigationIcon from "./IrrigationIcon";
 
@@ -8,13 +8,15 @@ export const IrrigationWidget = ({
   isLoading,
   totalCount,
   error,
-  baselinePsi
+  baselinePsi,
+  zones
 }: {
   events: IrrigationEvent[];
   isLoading: boolean;
   totalCount: number;
   error?: string | null;
   baselinePsi?: number | null;
+  zones?: Zone[];
 }) => {
   const zoneSummaries = useMemo(() => {
     const now = Date.now();
@@ -103,9 +105,13 @@ export const IrrigationWidget = ({
               className={`irrigation-zone-row${record.isActive ? " irrigation-zone-row--active" : ""}`}
             >
               <div className="irrigation-zone-row__main">
-                <span className="irrigation-zone-row__zone">{record.zone}</span>
+                <span className="irrigation-zone-row__zone">
+                  {zones?.find((z) => z.zoneId === record.zone)?.name ?? record.zone}
+                </span>
                 <span className="irrigation-zone-row__duration">
-                  {formatElapsedSince(record.end) ?? ""}
+                  {record.isActive
+                    ? formatDurationLabel(record.durationMs)
+                    : formatElapsedSince(record.end) ?? ""}
                 </span>
               </div>
               <div className="irrigation-zone-row__meta">

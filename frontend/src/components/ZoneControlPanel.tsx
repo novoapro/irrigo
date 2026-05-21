@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IrrigationRecord, Zone, ZoneState } from "../types";
 import ZoneCard from "./ZoneCard";
 import type { ZoneIrrigationSummary } from "./ZoneCard";
@@ -39,11 +39,15 @@ function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrr
   return result;
 }
 
+const COMMAND_CONFIRM_TIMEOUT_MS = 15_000;
+
 const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, { expectedActive: boolean; durationMinutes?: number }>>({});
+  const confirmTimersRef = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [runningAll, setRunningAll] = useState(false);
 
@@ -121,6 +125,35 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [onZonesChanged]
   );
 
+  const clearConfirmation = useCallback((zoneId: string) => {
+    setAwaitingConfirmation((prev) => {
+      const next = { ...prev };
+      delete next[zoneId];
+      return next;
+    });
+    if (confirmTimersRef.current[zoneId]) {
+      window.clearTimeout(confirmTimersRef.current[zoneId]);
+      delete confirmTimersRef.current[zoneId];
+    }
+  }, []);
+
+  useEffect(() => {
+    const awaiting = Object.entries(awaitingConfirmation);
+    for (const [zoneId, { expectedActive }] of awaiting) {
+      const currentActive = zoneStates[zoneId]?.isActive ?? false;
+      if (currentActive === expectedActive) {
+        clearConfirmation(zoneId);
+      }
+    }
+  }, [zoneStates, awaitingConfirmation, clearConfirmation]);
+
+  useEffect(() => {
+    const timers = confirmTimersRef.current;
+    return () => {
+      for (const id of Object.values(timers)) window.clearTimeout(id);
+    };
+  }, []);
+
   const handleCommand = useCallback(
     async (zoneId: string, action: "on" | "off", durationMinutes?: number) => {
       setPendingCommands((prev) => new Set(prev).add(zoneId));
@@ -128,9 +161,24 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
       try {
         await sendZoneCommand(zoneId, { action, durationMinutes });
         onZonesChanged();
+
+        setPendingCommands((prev) => {
+          const next = new Set(prev);
+          next.delete(zoneId);
+          return next;
+        });
+
+        const expectedActive = action === "on";
+        setAwaitingConfirmation((prev) => ({ ...prev, [zoneId]: { expectedActive, durationMinutes } }));
+
+        if (confirmTimersRef.current[zoneId]) {
+          window.clearTimeout(confirmTimersRef.current[zoneId]);
+        }
+        confirmTimersRef.current[zoneId] = window.setTimeout(() => {
+          clearConfirmation(zoneId);
+        }, COMMAND_CONFIRM_TIMEOUT_MS);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Command failed");
-      } finally {
         setPendingCommands((prev) => {
           const next = new Set(prev);
           next.delete(zoneId);
@@ -138,7 +186,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
         });
       }
     },
-    [onZonesChanged]
+    [onZonesChanged, clearConfirmation]
   );
 
   const handleRunAll = useCallback(async () => {
@@ -218,6 +266,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
               onToggleEnabled={handleToggleEnabled}
               onCommand={handleCommand}
               commandPending={pendingCommands.has(zone.zoneId)}
+              awaitingConfirmation={awaitingConfirmation[zone.zoneId] ?? null}
               lastIrrigation={zoneSummaries[zone.zoneId] ?? null}
               baselinePsi={baselinePsi}
             />

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import type { Zone } from "../../types";
 import type { StatusTone } from "./SensorWidgets";
-import { formatRelativeTime } from "../../utils/date";
+import { formatElapsedDuration, formatRelativeTime } from "../../utils/date";
 import { getSensorIcon } from "../../utils/sensors";
 import SystemStatusIcon from "../SystemStatusIcon";
 
@@ -23,6 +24,7 @@ interface StatusPanelProps {
   soilStatus: string;
   soilTone: StatusTone;
   soilActive: boolean;
+  zones?: Zone[];
 }
 
 const toneColorClass = (tone: StatusTone) => `status-tile--${tone}`;
@@ -70,11 +72,21 @@ export const StatusPanel = ({
   rainActive,
   soilStatus,
   soilTone,
-  soilActive
+  soilActive,
+  zones
 }: StatusPanelProps) => {
   const isIrrigating = irrigation?.action === "on";
+
+  const resolveZoneName = (zoneId: string | null | undefined): string => {
+    if (!zoneId) return "";
+    const match = zones?.find((z) => z.zoneId === zoneId);
+    return match?.name ?? zoneId;
+  };
+
+  const zoneName = resolveZoneName(irrigation?.zone);
+
   const systemState = isIrrigating
-    ? `Irrigating ${irrigation?.zone ?? ""}`
+    ? `Irrigating ${zoneName}`
     : guard
       ? "Holding irrigation"
       : "Ready to irrigate";
@@ -92,11 +104,11 @@ export const StatusPanel = ({
       : "status-panel--ready";
 
   const irrigationValue = isIrrigating
-    ? `${irrigation?.zone ?? "—"} ON`
+    ? `${zoneName || "—"} ON`
     : "Idle";
 
   const irrigationDetail = lastIrrigationChange
-    ? formatRelativeTime(lastIrrigationChange)
+    ? (isIrrigating ? `Running for ${formatElapsedDuration(lastIrrigationChange)}` : formatRelativeTime(lastIrrigationChange))
     : "No activity";
 
   return (
@@ -122,6 +134,12 @@ export const StatusPanel = ({
 
       <div className="status-panel__grid">
         <StatusTile
+          label="Irrigation"
+          value={irrigationValue}
+          tone={isIrrigating ? "alert" : "neutral"}
+          detail={irrigationDetail}
+        />
+        <StatusTile
           label="Pressure"
           icon={getSensorIcon("pressure", "sensor-icon--pressure")}
           value={pressureStatus}
@@ -142,12 +160,6 @@ export const StatusPanel = ({
           value={soilStatus}
           tone={soilTone}
           active={soilActive}
-        />
-        <StatusTile
-          label="Irrigation"
-          value={irrigationValue}
-          tone={isIrrigating ? "alert" : "neutral"}
-          detail={irrigationDetail}
         />
       </div>
     </section>
