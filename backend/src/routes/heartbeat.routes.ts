@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createHeartbeat,
+  deleteHeartbeats,
   getHeartbeatOverview,
   listHeartbeatSeries,
   listHeartbeats
@@ -21,6 +22,9 @@ router.get("/", (req, res) => {
 });
 router.post("/", validateSchema(heartbeatSchema), (req, res) => {
   void createHeartbeat(req, res);
+});
+router.delete("/", (req, res) => {
+  void deleteHeartbeats(req, res);
 });
 
 export default router;

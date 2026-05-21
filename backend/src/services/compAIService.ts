@@ -125,6 +125,7 @@ export interface SendCommandResult {
   statusCode?: number;
   responseBody?: string;
   error?: string;
+  url?: string;
 }
 
 const setCharacteristic = async (
@@ -158,13 +159,14 @@ const setCharacteristic = async (
         success: false,
         statusCode: response.status,
         responseBody,
-        error: `CompAI responded with ${response.status}`
+        error: `CompAI responded with ${response.status}`,
+        url
       };
     }
-    return { success: true, statusCode: response.status, responseBody };
+    return { success: true, statusCode: response.status, responseBody, url };
   } catch (err: any) {
-    if (err?.name === "AbortError") return { success: false, error: "Request timed out" };
-    return { success: false, error: err?.message ?? "Unknown error" };
+    if (err?.name === "AbortError") return { success: false, error: "Request timed out", url };
+    return { success: false, error: err?.message ?? "Unknown error", url };
   } finally {
     clearTimeout(timer);
   }

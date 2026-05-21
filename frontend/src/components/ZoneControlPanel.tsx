@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { IrrigationRecord, Zone, ZoneState } from "../types";
+import type { IrrigationRecord, ManualRun, Zone, ZoneState } from "../types";
 import ZoneCard from "./ZoneCard";
 import type { ZoneIrrigationSummary } from "./ZoneCard";
+import { getPersistedDuration } from "./ZoneCard";
 import ZoneFormModal from "./ZoneFormModal";
 import {
   createZone as apiCreateZone,
@@ -9,7 +10,8 @@ import {
   deleteZone as apiDeleteZone,
   toggleZone as apiToggleZone,
   sendZoneCommand,
-  triggerManualRun
+  triggerManualRun,
+  cancelManualRun
 } from "../api";
 
 interface ZoneControlPanelProps {
@@ -21,6 +23,7 @@ interface ZoneControlPanelProps {
   onOpenSettings?: () => void;
   irrigationRecords?: IrrigationRecord[];
   baselinePsi?: number | null;
+  manualRun?: ManualRun | null;
 }
 
 function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrrigationSummary> {
@@ -41,7 +44,7 @@ function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrr
 
 const COMMAND_CONFIRM_TIMEOUT_MS = 15_000;
 
-const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi }: ZoneControlPanelProps) => {
+const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi, manualRun }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
   const [saving, setSaving] = useState(false);
@@ -50,6 +53,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   const confirmTimersRef = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [runningAll, setRunningAll] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const isManage = mode === "manage";
   const zoneSummaries = useMemo(
@@ -189,25 +193,72 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [onZonesChanged, clearConfirmation]
   );
 
+  const isManualRunActive = manualRun?.status === "running";
+  const manualRunZoneIds = useMemo(
+    () => manualRun?.zones.map((z) => z.zoneId) ?? [],
+    [manualRun]
+  );
+  const anyManualRunZoneActive = manualRunZoneIds.some((id) => zoneStates[id]?.isActive);
+
+  useEffect(() => {
+    if (runningAll && anyManualRunZoneActive) setRunningAll(false);
+  }, [runningAll, anyManualRunZoneActive]);
+
+  useEffect(() => {
+    if (cancelling && !anyManualRunZoneActive) setCancelling(false);
+  }, [cancelling, anyManualRunZoneActive]);
+
+  const enabledZones = zones.filter((z) => z.enabled);
+  const eligibleZones = enabledZones.filter((z) => !z.excludeFromManualRun);
+
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     setError(null);
     try {
-      await triggerManualRun();
-      onZonesChanged();
+      const overrides = eligibleZones.map((z) => ({
+        zoneId: z.zoneId,
+        durationMinutes: getPersistedDuration(z.zoneId, z.defaultDurationMinutes)
+      }));
+      await triggerManualRun(overrides);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run failed");
-    } finally {
       setRunningAll(false);
+    }
+  }, [eligibleZones]);
+
+  const handleCancelRun = useCallback(async () => {
+    setCancelling(true);
+    setError(null);
+    try {
+      await cancelManualRun();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+      setCancelling(false);
+    }
+  }, []);
+
+  const handleToggleManualRunExclusion = useCallback(async (zone: Zone) => {
+    try {
+      await apiUpdateZone(zone.zoneId, { excludeFromManualRun: !zone.excludeFromManualRun });
+      onZonesChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Toggle failed");
     }
   }, [onZonesChanged]);
 
-  const enabledZones = zones.filter((z) => z.enabled);
+  const manualRunZoneMap = useMemo(() => {
+    if (!manualRun) return {};
+    const map: Record<string, (typeof manualRun.zones)[number]> = {};
+    for (const entry of manualRun.zones) {
+      map[entry.zoneId] = entry;
+    }
+    return map;
+  }, [manualRun]);
 
   return (
     <section className={`zone-control-panel${isManage ? " zone-control-panel--manage" : ""}`}>
       <header className="zone-control-panel__header">
-        <h3>Zones{!isManage && ` (${zones.length})`}</h3>
+        <h3>Zones{!isManage && ` (${enabledZones.length})`}</h3>
         {isManage ? (
           <button type="button" className="primary-button icon-btn" onClick={handleAddClick} title="Add zone" aria-label="Add zone">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
@@ -216,16 +267,24 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
           <div className="zone-control-panel__actions">
             <button
               type="button"
-              className="primary-button icon-btn"
-              onClick={handleRunAll}
-              disabled={runningAll || enabledZones.length === 0}
-              title={runningAll ? "Running..." : "Run all zones"}
-              aria-label={runningAll ? "Running all zones" : "Run all zones"}
+              className={`zone-control-panel__run-btn${isManualRunActive ? " zone-control-panel__run-btn--active" : ""}`}
+              onClick={isManualRunActive ? handleCancelRun : handleRunAll}
+              disabled={cancelling || runningAll || (!isManualRunActive && eligibleZones.length === 0)}
+              title={cancelling ? "Stopping..." : runningAll ? "Starting..." : isManualRunActive ? "Stop manual program" : "Run manual program"}
+              aria-label={cancelling ? "Stopping..." : runningAll ? "Starting..." : isManualRunActive ? "Stop manual program" : "Run manual program"}
             >
-              {runningAll ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+              {cancelling || runningAll ? (
+                <svg className="icon-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+              ) : isManualRunActive ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
               ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
               )}
             </button>
             {onOpenSettings && (
@@ -247,7 +306,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
 
       {loading && zones.length === 0 ? (
         <p className="muted">Loading zones...</p>
-      ) : zones.length === 0 ? (
+      ) : (isManage ? zones : enabledZones).length === 0 ? (
         <div className="zone-empty-state">
           <p className="muted">
             {isManage
@@ -257,7 +316,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
         </div>
       ) : (
         <div className="zone-grid">
-          {zones.map((zone) => (
+          {(isManage ? zones : enabledZones).map((zone) => (
             <ZoneCard
               key={zone.zoneId}
               zone={zone}
@@ -269,6 +328,10 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
               awaitingConfirmation={awaitingConfirmation[zone.zoneId] ?? null}
               lastIrrigation={zoneSummaries[zone.zoneId] ?? null}
               baselinePsi={baselinePsi}
+              locked={runningAll}
+              manualRunActive={isManualRunActive || cancelling}
+              manualRunZoneEntry={manualRunZoneMap[zone.zoneId] ?? null}
+              onToggleManualRunExclusion={isManage ? undefined : handleToggleManualRunExclusion}
             />
           ))}
         </div>

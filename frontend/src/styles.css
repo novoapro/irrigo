@@ -291,7 +291,8 @@ select {
 
 .records-page__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
@@ -301,6 +302,26 @@ select {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   color: var(--color-text);
+}
+
+.records-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+
+.records-delete-btn:hover {
+  background: rgba(220, 38, 38, 0.18);
 }
 
 .records-filters {
@@ -503,6 +524,62 @@ select {
 }
 
 .irrigation-status--failed {
+  color: var(--color-danger-text);
+}
+
+.command-status {
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-full);
+  text-transform: capitalize;
+}
+
+.command-status--pending {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.command-status--sent {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.command-status--acknowledged {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.command-status--failed {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.command-status--timeout {
+  background: var(--color-warning-bg);
+  color: var(--color-danger-text);
+}
+
+.command-action {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.command-action--on {
+  color: var(--color-success-text);
+}
+
+.command-action--off {
+  color: var(--color-text-secondary);
+}
+
+.source-chip--schedule {
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
+}
+
+.text-danger {
   color: var(--color-danger-text);
 }
 
@@ -3849,6 +3926,83 @@ tbody tr:hover {
   border: 1px solid var(--color-danger-border);
 }
 
+.manual-run-panel {
+  background: var(--color-surface-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+}
+
+.manual-run-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.manual-run-panel__header h3 {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.manual-run-panel__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.manual-run-panel__subtitle {
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
+
+.manual-run-panel__active-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-warning-text);
+  margin: 0 0 var(--space-3);
+}
+
+.manual-run-panel__zones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.manual-run-zone {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.manual-run-zone--excluded {
+  opacity: 0.55;
+}
+
+.manual-run-zone__toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary-600);
+}
+
+.manual-run-zone__name {
+  flex: 1;
+  font-weight: var(--weight-medium);
+}
+
+.manual-run-zone__duration {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .zone-add-btn {
   font-size: var(--text-sm);
   padding: var(--space-2) var(--space-4);
@@ -3902,6 +4056,10 @@ tbody tr:hover {
 .zone-card--disabled {
   opacity: 0.5;
   border-left-color: var(--color-gray-200);
+}
+
+.zone-card--excluded {
+  opacity: 0.55;
 }
 
 .zone-card__header {
@@ -3983,6 +4141,57 @@ tbody tr:hover {
   flex-shrink: 0;
 }
 
+.zone-card__run-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.zone-card__run-toggle--locked {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.zone-card__run-toggle input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.zone-card__run-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--color-gray-300);
+  transition: background 0.2s ease;
+}
+
+.zone-card__run-toggle--on .zone-card__run-toggle-track {
+  background: var(--color-primary-500);
+}
+
+.zone-card__run-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease;
+}
+
+.zone-card__run-toggle--on .zone-card__run-toggle-thumb {
+  transform: translateX(14px);
+}
+
 /* ── Toggle button (play / stop, same position) ── */
 
 .zone-toggle-btn {
@@ -4059,12 +4268,99 @@ tbody tr:hover {
   transform: translateY(4px);
 }
 
-.zone-card__panel-duration .dropdown__trigger {
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
-  border-width: 1px;
+/* ── Duration slider (mirrors active bar shape) ── */
+
+.zone-duration-slider {
+  position: relative;
   height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--color-gray-100);
+  overflow: clip;
+  display: flex;
+  align-items: center;
   box-sizing: border-box;
+}
+
+.zone-duration-slider__fill {
+  position: absolute;
+  inset: 0;
+  right: auto;
+  pointer-events: none;
+}
+
+.zone-duration-slider__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  z-index: 1;
+  touch-action: none;
+}
+
+.zone-duration-slider__input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.zone-duration-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-500);
+  border: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  cursor: grab;
+}
+
+.zone-duration-slider__input::-moz-range-thumb {
+  width: 20px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-500);
+  border: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  cursor: grab;
+}
+
+.zone-duration-slider__input::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.zone-duration-slider__input::-moz-range-track {
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+
+.zone-duration-slider__input:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  background: var(--color-primary-600);
+}
+
+.zone-duration-slider__input:active::-moz-range-thumb {
+  cursor: grabbing;
+  background: var(--color-primary-600);
+}
+
+.zone-duration-slider__label {
+  position: absolute;
+  right: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary-700);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 0;
 }
 
 /* ── Active bar (progress fill + countdown) ── */
@@ -5585,4 +5881,34 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.zone-control-panel__run-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  transition: color 0.2s ease;
+}
+
+.zone-control-panel__run-btn:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.zone-control-panel__run-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.zone-control-panel__run-btn--active {
+  color: #dc2626;
+}
+
+.zone-control-panel__run-btn--active:hover:not(:disabled) {
+  color: #b91c1c;
 }

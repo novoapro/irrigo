@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { sendCommand, listCommands, getCommand } from "../controllers/zoneControlController";
+import { sendCommand, listCommands, getCommand, deleteCommands } from "../controllers/zoneControlController";
 import { validateSchema } from "../middleware/validateSchema";
 import { createCommandSchema } from "../schemas/irrigationCommandSchema";
 
@@ -11,6 +11,10 @@ router.post("/:zoneId/command", validateSchema(createCommandSchema), (req, res) 
 
 router.get("/commands", (req, res) => {
   void listCommands(req, res);
+});
+
+router.delete("/commands", (req, res) => {
+  void deleteCommands(req, res);
 });
 
 router.get("/commands/:commandId", (req, res) => {

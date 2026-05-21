@@ -52,9 +52,15 @@ export const createCommand = async (
   emitRealtimeEvent({ type: "command:created", payload: serializeCommand(command.toObject()) });
 
   const compAIConfigured = await compAI.isConfigured();
+  const controllerMethod = compAIConfigured ? "compai" : "external";
   const result = compAIConfigured
     ? await compAI.sendCommand(zoneId, action, durationMinutes)
     : await externalController.sendCommand(zoneId, action, durationMinutes);
+
+  command.controllerMethod = controllerMethod;
+  command.controllerUrl = result.url ?? null;
+  command.controllerResponseStatus = result.statusCode ?? null;
+  command.controllerResponseBody = result.responseBody?.slice(0, 2048) ?? null;
 
   if (result.success) {
     command.status = "sent";
@@ -143,15 +149,34 @@ export const acknowledgeCommand = async (zoneId: string, action: "on" | "off") =
   return cmd;
 };
 
-export const listCommands = async (query: {
+export interface CommandListQuery {
   zoneId?: string;
   status?: string;
+  source?: string;
+  action?: string;
+  start?: string;
+  end?: string;
   page?: number;
   pageSize?: number;
-}) => {
+}
+
+const buildCommandFilter = (query: Omit<CommandListQuery, "page" | "pageSize">) => {
   const filter: Record<string, unknown> = {};
   if (query.zoneId) filter.zoneId = query.zoneId;
   if (query.status) filter.status = query.status;
+  if (query.source) filter.source = query.source;
+  if (query.action) filter.action = query.action;
+  if (query.start || query.end) {
+    const dateFilter: Record<string, Date> = {};
+    if (query.start) dateFilter.$gte = new Date(query.start);
+    if (query.end) dateFilter.$lte = new Date(query.end);
+    filter.createdAt = dateFilter;
+  }
+  return filter;
+};
+
+export const listCommands = async (query: CommandListQuery) => {
+  const filter = buildCommandFilter(query);
 
   const page = query.page && query.page > 0 ? query.page : 1;
   const pageSize = Math.min(query.pageSize ?? 50, 500);
@@ -179,6 +204,12 @@ export const listCommands = async (query: {
       hasPreviousPage: page > 1
     }
   };
+};
+
+export const deleteCommands = async (query: Omit<CommandListQuery, "page" | "pageSize">) => {
+  const filter = buildCommandFilter(query);
+  const result = await IrrigationCommand.deleteMany(filter);
+  return { deletedCount: result.deletedCount ?? 0 };
 };
 
 export const getCommand = async (commandId: string) => {

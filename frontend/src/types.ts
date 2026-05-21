@@ -73,6 +73,7 @@ export interface Zone {
   name: string;
   description?: string;
   enabled: boolean;
+  excludeFromManualRun?: boolean;
   sortOrder: number;
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
@@ -97,10 +98,14 @@ export interface IrrigationCommand {
   zoneId: string;
   action: "on" | "off";
   durationMinutes?: number | null;
-  source: "manual" | "schedule";
+  source: "manual" | "schedule" | "program" | "ai-schedule";
   status: "pending" | "sent" | "acknowledged" | "failed" | "timeout";
   externalRequestId?: string | null;
   errorMessage?: string | null;
+  controllerMethod?: "compai" | "external" | null;
+  controllerUrl?: string | null;
+  controllerResponseStatus?: number | null;
+  controllerResponseBody?: string | null;
   sentAt?: string | null;
   acknowledgedAt?: string | null;
   createdAt: string;
@@ -245,6 +250,28 @@ export interface HeartbeatSeriesSample {
   psi: number;
 }
 
+export type ManualRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
+
+export interface ManualRunZoneEntry {
+  zoneId: string;
+  name: string;
+  durationMinutes: number;
+  status: ManualRunZoneStatus;
+  commandId?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  error?: string | null;
+}
+
+export interface ManualRun {
+  _id: string;
+  status: "running" | "completed" | "cancelled" | "failed";
+  zones: ManualRunZoneEntry[];
+  currentZoneIndex: number;
+  startedAt: string;
+  completedAt?: string | null;
+}
+
 export type RealtimeEvent =
   | {
       type: "connection:ready";
@@ -356,8 +383,23 @@ export type RealtimeEvent =
       at?: string;
     }
   | {
+      type: "manualRun:started";
+      payload?: ManualRun;
+      at?: string;
+    }
+  | {
+      type: "manualRun:zoneProgress";
+      payload?: ManualRun;
+      at?: string;
+    }
+  | {
       type: "manualRun:completed";
-      payload?: { results: { zoneId: string; commandId: string | null; error: string | null }[] };
+      payload?: ManualRun;
+      at?: string;
+    }
+  | {
+      type: "manualRun:cancelled";
+      payload?: ManualRun;
       at?: string;
     };
 

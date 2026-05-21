@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchHeartbeats, type HeartbeatQuery } from "../api";
+import { createPortal } from "react-dom";
+import { deleteHeartbeats, fetchHeartbeats, type HeartbeatQuery } from "../api";
 import type { Heartbeat, HeartbeatListMeta } from "../types";
 import HistorySection from "../components/HistorySection";
 import Dropdown from "../components/Dropdown";
@@ -101,6 +102,9 @@ const RecordsPage = () => {
     setPage(1);
   };
 
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const hasActiveFilters =
     startDate !== null ||
     endDate !== null ||
@@ -110,13 +114,52 @@ const RecordsPage = () => {
     filters.psiMin !== "" ||
     filters.psiMax !== "";
 
+  const handleDelete = useCallback(async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      const query: Omit<HeartbeatQuery, "page" | "pageSize"> = {};
+      if (startDate) query.start = toQueryDateTime(startDate);
+      if (endDate) query.end = toQueryDateTime(endDate);
+      if (filters.guard !== "all") query.guard = filters.guard as "true" | "false";
+      if (filters.rain !== "all") query.rain = filters.rain as "true" | "false";
+      if (filters.soil !== "all") query.soil = filters.soil as "true" | "false";
+      if (debouncedPsi.psiMin.trim()) query.psiMin = debouncedPsi.psiMin.trim();
+      if (debouncedPsi.psiMax.trim()) query.psiMax = debouncedPsi.psiMax.trim();
+      await deleteHeartbeats(query);
+      setConfirmDelete(false);
+      setPage(1);
+      loadRecords(1, filters, debouncedPsi, startDate, endDate);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete records");
+    } finally {
+      setDeleting(false);
+    }
+  }, [startDate, endDate, filters, debouncedPsi, loadRecords]);
+
   return (
     <div className="records-page">
       <header className="records-page__header">
-        <h2>Heartbeats</h2>
-        <p className="muted">
-          {totalCount} record{totalCount === 1 ? "" : "s"} found
-        </p>
+        <div>
+          <h2>Heartbeats</h2>
+          <p className="muted">
+            {totalCount} record{totalCount === 1 ? "" : "s"} found
+          </p>
+        </div>
+        {totalCount > 0 && (
+          <button
+            type="button"
+            className="records-delete-btn"
+            onClick={() => setConfirmDelete(true)}
+            title={hasActiveFilters ? "Delete filtered records" : "Delete all records"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+              <path d="M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+            </svg>
+          </button>
+        )}
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -237,6 +280,32 @@ const RecordsPage = () => {
         onNextPage={() => setPage((p) => p + 1)}
         isLoading={loading}
       />
+
+      {confirmDelete && createPortal(
+        <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
+          <div className="confirm-dialog">
+            <div className="confirm-dialog__icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" /></svg>
+            </div>
+            <h3 className="confirm-dialog__title">Delete heartbeat records</h3>
+            <p className="confirm-dialog__message">
+              {hasActiveFilters
+                ? <>This will permanently delete all <strong>{totalCount}</strong> heartbeat records matching your current filters.</>
+                : <>This will permanently delete <strong>all {totalCount}</strong> heartbeat records.</>
+              } This action cannot be undone.
+            </p>
+            <div className="confirm-dialog__actions">
+              <button type="button" className="ghost-button" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+                Cancel
+              </button>
+              <button type="button" className="danger-button" onClick={handleDelete} disabled={deleting}>
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

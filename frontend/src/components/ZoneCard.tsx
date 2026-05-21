@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Zone, ZoneState } from "../types";
+import type { ManualRunZoneEntry, Zone, ZoneState } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
-import Dropdown from "./Dropdown";
 
-const DURATION_OPTS = [5, 10, 15, 20, 30, 45, 60];
+const MIN_DURATION = 1;
+const MAX_DURATION = 60;
 
 export interface ZoneIrrigationSummary {
   start: string;
@@ -29,6 +29,10 @@ interface ZoneCardProps {
   awaitingConfirmation: AwaitingConfirmation | null;
   lastIrrigation: ZoneIrrigationSummary | null;
   baselinePsi?: number | null;
+  locked?: boolean;
+  manualRunActive?: boolean;
+  manualRunZoneEntry?: ManualRunZoneEntry | null;
+  onToggleManualRunExclusion?: (zone: Zone) => void;
 }
 
 const formatCountdown = (seconds: number) => {
@@ -37,15 +41,49 @@ const formatCountdown = (seconds: number) => {
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
-const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPending, awaitingConfirmation, lastIrrigation, baselinePsi }: ZoneCardProps) => {
+export const DURATION_STORAGE_KEY = "irrigo:zone-duration:";
+
+export const getPersistedDuration = (zoneId: string, fallback: number): number => {
+  try {
+    const v = localStorage.getItem(DURATION_STORAGE_KEY + zoneId);
+    if (v !== null) {
+      const n = Number(v);
+      if (n >= MIN_DURATION && n <= MAX_DURATION) return n;
+    }
+  } catch { /* ignore */ }
+  return fallback;
+};
+
+const RUN_STATUS_LABELS: Record<string, string> = {
+  queued: "Queued",
+  activating: "Activating",
+  running: "Running",
+  completed: "Done",
+  skipped: "Skipped",
+  failed: "Failed"
+};
+
+const RUN_STATUS_CLASS: Record<string, string> = {
+  queued: "planned",
+  activating: "queued",
+  running: "executing",
+  completed: "completed",
+  skipped: "skipped",
+  failed: "error"
+};
+
+const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPending, awaitingConfirmation, lastIrrigation, baselinePsi, locked, manualRunActive, manualRunZoneEntry, onToggleManualRunExclusion }: ZoneCardProps) => {
   const isActive = state?.isActive ?? false;
-  const [selectedDuration, setSelectedDuration] = useState(zone.defaultDurationMinutes);
+  const [selectedDuration, setSelectedDuration] = useState(() =>
+    getPersistedDuration(zone.zoneId, zone.defaultDurationMinutes)
+  );
   const [countdown, setCountdown] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    setSelectedDuration(zone.defaultDurationMinutes);
-  }, [zone.defaultDurationMinutes]);
+  const handleDurationChange = useCallback((value: number) => {
+    setSelectedDuration(value);
+    try { localStorage.setItem(DURATION_STORAGE_KEY + zone.zoneId, String(value)); } catch { /* ignore */ }
+  }, [zone.zoneId]);
 
   const activeDuration = state?.activeDurationMinutes
     ?? awaitingConfirmation?.durationMinutes
@@ -99,17 +137,22 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
     ? 1 - (countdown / totalSeconds)
     : 0;
 
+  const isExcluded = zone.excludeFromManualRun === true;
+
   const cardClass = [
     "zone-card",
     isActive ? "zone-card--active" : "",
     zone.enabled && !isActive ? "zone-card--enabled" : "",
-    !zone.enabled ? "zone-card--disabled" : ""
+    !zone.enabled ? "zone-card--disabled" : "",
+    !onEdit && isExcluded && !manualRunActive ? "zone-card--excluded" : ""
   ]
     .filter(Boolean)
     .join(" ");
 
   const isWaiting = !!awaitingConfirmation;
-  const isBusy = commandPending || isWaiting;
+  const runZoneActivating = manualRunZoneEntry?.status === "activating";
+  const runZoneRunning = manualRunZoneEntry?.status === "running";
+  const isBusy = commandPending || isWaiting || runZoneActivating;
 
   return (
     <article className={cardClass}>
@@ -123,10 +166,15 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
             {isActive && (
               <span className="zone-badge zone-badge--active">Active</span>
             )}
+            {!onEdit && manualRunZoneEntry && (
+              <span className={`schedule-status-pill schedule-status-pill--${RUN_STATUS_CLASS[manualRunZoneEntry.status] ?? manualRunZoneEntry.status}`}>
+                {RUN_STATUS_LABELS[manualRunZoneEntry.status] ?? manualRunZoneEntry.status}
+              </span>
+            )}
           </div>
         </div>
         <div className="zone-card__header-actions">
-          {isWaiting && (
+          {(isWaiting || runZoneActivating) && (
             <span className="zone-command-pending" title="Waiting for controller confirmation">
               <svg className="zone-command-pending__spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d="M21 12a9 9 0 11-6.219-8.56" />
@@ -146,6 +194,22 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
               </svg>
             </button>
           )}
+          {!onEdit && onToggleManualRunExclusion && zone.enabled && (
+            <label
+              className={`zone-card__run-toggle${!isExcluded ? " zone-card__run-toggle--on" : ""}${manualRunActive ? " zone-card__run-toggle--locked" : ""}`}
+              title={isExcluded ? "Include in manual run" : "Exclude from manual run"}
+            >
+              <input
+                type="checkbox"
+                checked={!isExcluded}
+                onChange={() => onToggleManualRunExclusion(zone)}
+                disabled={!!manualRunActive}
+              />
+              <span className="zone-card__run-toggle-track">
+                <span className="zone-card__run-toggle-thumb" />
+              </span>
+            </label>
+          )}
         </div>
       </header>
 
@@ -153,55 +217,69 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
         <p className="zone-card__description muted">{zone.description}</p>
       )}
 
-      <div className="zone-card__controls">
-        <button
-          type="button"
-          className={`zone-toggle-btn ${isActive ? "zone-toggle-btn--on" : "zone-toggle-btn--off"}`}
-          onClick={handleToggle}
-          disabled={!zone.enabled || (isActive ? commandPending : isBusy)}
-          title={isActive ? "Stop irrigation" : "Start irrigation"}
-          aria-label={isActive ? `Stop ${zone.name}` : `Start ${zone.name}`}
-        >
-          {commandPending ? (
-            <svg className="icon-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M21 12a9 9 0 11-6.219-8.56" />
-            </svg>
-          ) : isActive ? (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="4" y="4" width="16" height="16" rx="2" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="6 3 20 12 6 21 6 3" />
-            </svg>
-          )}
-        </button>
-
-        <div className="zone-card__panel-slot">
-          <div className={`zone-card__panel-duration${isActive ? " zone-card__panel--hidden" : ""}`}>
-            {zone.enabled && (
-              <Dropdown
-                value={String(selectedDuration)}
-                options={DURATION_OPTS.map((d) => ({
-                  value: String(d),
-                  label: `${d} min${d === zone.defaultDurationMinutes ? " (default)" : ""}`
-                }))}
-                onChange={(v) => setSelectedDuration(parseInt(v, 10))}
-              />
+      {!onEdit && (
+        <div className="zone-card__controls">
+          <button
+            type="button"
+            className={`zone-toggle-btn ${isActive || runZoneRunning ? "zone-toggle-btn--on" : "zone-toggle-btn--off"}`}
+            onClick={handleToggle}
+            disabled={!zone.enabled || isBusy || !!manualRunActive}
+            title={isActive ? "Stop irrigation" : "Start irrigation"}
+            aria-label={isActive ? `Stop ${zone.name}` : `Start ${zone.name}`}
+          >
+            {commandPending || runZoneActivating ? (
+              <svg className="icon-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M21 12a9 9 0 11-6.219-8.56" />
+              </svg>
+            ) : isActive || runZoneRunning ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="6 3 20 12 6 21 6 3" />
+              </svg>
             )}
-          </div>
-          <div className={`zone-card__panel-progress${isActive ? "" : " zone-card__panel--hidden"}`}>
-            <div className="zone-card__active-bar">
-              <div className="zone-card__active-bar-fill" style={{ width: `${Math.min(progress * 100, 100)}%` }} />
-              <span className="zone-card__countdown">
-                {countdown != null && countdown > 0 ? formatCountdown(countdown) : "0:00"}
-              </span>
+          </button>
+
+          <div className="zone-card__panel-slot">
+            <div className={`zone-card__panel-duration${isActive ? " zone-card__panel--hidden" : ""}`}>
+              {zone.enabled && (
+                <div className="zone-duration-slider">
+                  <div
+                    className="zone-duration-slider__fill"
+                    style={{
+                      width: `${((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 100}%`,
+                      background: `rgba(37, 99, 235, ${0.06 + ((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 0.18})`
+                    }}
+                  />
+                  <input
+                    type="range"
+                    className="zone-duration-slider__input"
+                    min={MIN_DURATION}
+                    max={MAX_DURATION}
+                    step={1}
+                    value={selectedDuration}
+                    onChange={(e) => handleDurationChange(Number(e.target.value))}
+                    disabled={locked || isActive || !!manualRunActive}
+                  />
+                  <span className="zone-duration-slider__label">{selectedDuration} min</span>
+                </div>
+              )}
+            </div>
+            <div className={`zone-card__panel-progress${isActive ? "" : " zone-card__panel--hidden"}`}>
+              <div className="zone-card__active-bar">
+                <div className="zone-card__active-bar-fill" style={{ width: `${Math.min(progress * 100, 100)}%` }} />
+                <span className="zone-card__countdown">
+                  {countdown != null && countdown > 0 ? formatCountdown(countdown) : "0:00"}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {lastIrrigation && !lastIrrigation.isRunning && (
+      {!onEdit && lastIrrigation && !lastIrrigation.isRunning && (
         <div className="zone-card__irrigation">
           <div className="zone-card__irrigation-row">
             <span className="zone-card__irrigation-label">Last run</span>
@@ -231,7 +309,7 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
       )}
 
       <footer className="zone-card__footer">
-        {!lastIrrigation && state?.lastEventAt && !isActive && (
+        {!onEdit && !lastIrrigation && state?.lastEventAt && !isActive && (
           <span className="zone-card__last-activity muted">
             Last: {formatElapsedSince(state.lastEventAt) ?? "—"}
           </span>

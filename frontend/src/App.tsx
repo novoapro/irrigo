@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import DateTimeInput from "./components/DateTimeInput";
 import RecordsPage from "./pages/RecordsPage";
 import IrrigationsPage from "./pages/IrrigationsPage";
+import LogsPage from "./pages/LogsPage";
 import {
   buildRealtimeUrl,
   fetchDeviceConfig,
@@ -21,7 +22,8 @@ import {
   triggerAIScheduleRun,
   fetchWeatherForecast,
   fetchZones,
-  fetchZoneStates
+  fetchZoneStates,
+  getManualRunStatus
 } from "./api";
 import type {
   DeviceConfig,
@@ -38,6 +40,7 @@ import type {
   WeatherOverviewPayload,
   WeatherConditionsSnapshot,
   RealtimeEvent,
+  ManualRun,
   Zone,
   ZoneState
 } from "./types";
@@ -170,6 +173,7 @@ const App = () => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneStates, setZoneStates] = useState<Record<string, ZoneState>>({});
   const [zonesLoading, setZonesLoading] = useState(false);
+  const [manualRun, setManualRun] = useState<ManualRun | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "schedule" | "programs" | "integrations" | "preferences">("zones");
   const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
@@ -408,6 +412,13 @@ const App = () => {
     }
   }, []);
 
+  const loadManualRunStatus = useCallback(async () => {
+    try {
+      const status = await getManualRunStatus();
+      setManualRun(status);
+    } catch { /* ignore */ }
+  }, []);
+
   const loadSystemConfig = useCallback(async () => {
     try {
       const config = await fetchSystemConfig();
@@ -618,7 +629,8 @@ const App = () => {
 
   useEffect(() => {
     void loadZones();
-  }, [loadZones]);
+    void loadManualRunStatus();
+  }, [loadZones, loadManualRunStatus]);
 
   useEffect(() => {
     void loadSystemConfig();
@@ -1216,6 +1228,18 @@ const App = () => {
           }
           break;
         }
+        case "manualRun:started":
+        case "manualRun:zoneProgress":
+        case "manualRun:completed":
+        case "manualRun:cancelled": {
+          if (event.payload) {
+            setManualRun(event.payload as ManualRun);
+          }
+          if (event.type === "manualRun:completed" || event.type === "manualRun:cancelled") {
+            void loadZones();
+          }
+          break;
+        }
         default:
           break;
       }
@@ -1327,6 +1351,9 @@ const App = () => {
         <NavLink to="/irrigations" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
           Irrigations
         </NavLink>
+        <NavLink to="/logs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          Logs
+        </NavLink>
       </nav>
 
       <Routes>
@@ -1369,6 +1396,7 @@ const App = () => {
         onOpenSettings={() => { setSettingsTab("zones"); setIsSettingsPanelOpen(true); }}
         irrigationRecords={irrigationRecords}
         baselinePsi={latestBaselinePsi}
+        manualRun={manualRun}
       />
 
       <IrrigationQueuePanel
@@ -1515,6 +1543,7 @@ const App = () => {
         } />
         <Route path="/heartbeats" element={<RecordsPage />} />
         <Route path="/irrigations" element={<IrrigationsPage />} />
+        <Route path="/logs" element={<LogsPage />} />
       </Routes>
 
       <SettingsPanel

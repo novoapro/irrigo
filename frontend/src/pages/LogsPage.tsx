@@ -1,36 +1,47 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { deleteIrrigationRecords, fetchIrrigationRecords, fetchZones, type IrrigationRecordQuery } from "../api";
-import type { IrrigationRecord, IrrigationSource, Zone } from "../types";
-import type { HeartbeatListMeta } from "../types";
+import { deleteControllerLogs, fetchControllerLogs, fetchZones, type ControllerLogQuery } from "../api";
+import type { IrrigationCommand, Zone } from "../types";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
-import { formatTimestamp, formatDurationLabel, toQueryDateTime } from "../utils/date";
+import { formatTimestamp, toQueryDateTime } from "../utils/date";
 
 const PAGE_SIZE = 25;
 
-const SOURCE_OPTIONS: { value: string; label: string }[] = [
+const SOURCE_OPTIONS = [
   { value: "all", label: "All" },
   { value: "manual", label: "Manual" },
   { value: "program", label: "Program" },
-  { value: "ai-schedule", label: "AI Schedule" }
+  { value: "ai-schedule", label: "AI Schedule" },
+  { value: "schedule", label: "Schedule" }
 ];
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
+const ACTION_OPTIONS = [
   { value: "all", label: "All" },
-  { value: "running", label: "Running" },
-  { value: "completed", label: "Completed" },
-  { value: "failed", label: "Failed" }
+  { value: "on", label: "On" },
+  { value: "off", label: "Off" }
 ];
 
-const sourceLabel = (source: IrrigationSource) => {
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "sent", label: "Sent" },
+  { value: "acknowledged", label: "Acknowledged" },
+  { value: "failed", label: "Failed" },
+  { value: "timeout", label: "Timeout" }
+];
+
+const sourceLabel = (source: string) => {
   if (source === "ai-schedule") return "AI Schedule";
   return source.charAt(0).toUpperCase() + source.slice(1);
 };
 
-const IrrigationsPage = () => {
-  const [records, setRecords] = useState<IrrigationRecord[]>([]);
-  const [meta, setMeta] = useState<HeartbeatListMeta | null>(null);
+const formatDuration = (minutes: number | null | undefined) =>
+  minutes != null ? `${minutes} min` : "—";
+
+const LogsPage = () => {
+  const [logs, setLogs] = useState<IrrigationCommand[]>([]);
+  const [meta, setMeta] = useState<{ page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean } | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -40,6 +51,8 @@ const IrrigationsPage = () => {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [zoneFilter, setZoneFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const mountedRef = useRef(true);
 
@@ -49,12 +62,12 @@ const IrrigationsPage = () => {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const loadRecords = useCallback(
-    async (p: number, start: Date | null, end: Date | null, zone: string, source: string) => {
+  const loadLogs = useCallback(
+    async (p: number, start: Date | null, end: Date | null, zone: string, source: string, action: string, status: string) => {
       setLoading(true);
       setError(null);
       try {
-        const query: IrrigationRecordQuery = {
+        const query: ControllerLogQuery = {
           page: p,
           pageSize: PAGE_SIZE,
           start: start ? toQueryDateTime(start) : undefined,
@@ -62,14 +75,16 @@ const IrrigationsPage = () => {
         };
         if (zone !== "all") query.zoneId = zone;
         if (source !== "all") query.source = source;
+        if (action !== "all") query.action = action;
+        if (status !== "all") query.status = status;
 
-        const result = await fetchIrrigationRecords(query);
+        const result = await fetchControllerLogs(query);
         if (!mountedRef.current) return;
-        setRecords(result.data);
+        setLogs(result.commands);
         setMeta(result.meta);
       } catch (err) {
         if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load records");
+        setError(err instanceof Error ? err.message : "Failed to load logs");
       } finally {
         if (mountedRef.current) setLoading(false);
       }
@@ -78,11 +93,11 @@ const IrrigationsPage = () => {
   );
 
   useEffect(() => {
-    loadRecords(page, startDate, endDate, zoneFilter, sourceFilter);
-  }, [page, startDate, endDate, zoneFilter, sourceFilter, loadRecords]);
+    loadLogs(page, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter);
+  }, [page, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter, loadLogs]);
 
   const totalPages = meta?.totalPages ?? 1;
-  const totalCount = meta?.totalCount ?? records.length;
+  const totalCount = meta?.totalCount ?? logs.length;
 
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -91,33 +106,39 @@ const IrrigationsPage = () => {
     startDate !== null ||
     endDate !== null ||
     zoneFilter !== "all" ||
-    sourceFilter !== "all";
+    sourceFilter !== "all" ||
+    actionFilter !== "all" ||
+    statusFilter !== "all";
 
   const handleDelete = useCallback(async () => {
     setDeleting(true);
     setError(null);
     try {
-      const query: Omit<IrrigationRecordQuery, "page" | "pageSize"> = {};
+      const query: Omit<ControllerLogQuery, "page" | "pageSize"> = {};
       if (startDate) query.start = toQueryDateTime(startDate);
       if (endDate) query.end = toQueryDateTime(endDate);
       if (zoneFilter !== "all") query.zoneId = zoneFilter;
       if (sourceFilter !== "all") query.source = sourceFilter;
-      await deleteIrrigationRecords(query);
+      if (actionFilter !== "all") query.action = actionFilter;
+      if (statusFilter !== "all") query.status = statusFilter;
+      await deleteControllerLogs(query);
       setConfirmDelete(false);
       setPage(1);
-      loadRecords(1, startDate, endDate, zoneFilter, sourceFilter);
+      loadLogs(1, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete records");
+      setError(err instanceof Error ? err.message : "Failed to delete logs");
     } finally {
       setDeleting(false);
     }
-  }, [startDate, endDate, zoneFilter, sourceFilter, loadRecords]);
+  }, [startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter, loadLogs]);
 
   const handleReset = () => {
     setStartDate(null);
     setEndDate(null);
     setZoneFilter("all");
     setSourceFilter("all");
+    setActionFilter("all");
+    setStatusFilter("all");
     setPage(1);
   };
 
@@ -131,16 +152,13 @@ const IrrigationsPage = () => {
     return z?.name ?? zoneId;
   };
 
-  const formatPsi = (val: number | null | undefined) =>
-    val != null ? `${val.toFixed(1)} psi` : "—";
-
   return (
     <div className="records-page">
       <header className="records-page__header">
         <div>
-          <h2>Irrigations</h2>
+          <h2>Controller Logs</h2>
           <p className="muted">
-            {totalCount} record{totalCount === 1 ? "" : "s"} found
+            {totalCount} log{totalCount === 1 ? "" : "s"} found
           </p>
         </div>
         {totalCount > 0 && (
@@ -148,7 +166,7 @@ const IrrigationsPage = () => {
             type="button"
             className="records-delete-btn"
             onClick={() => setConfirmDelete(true)}
-            title={hasActiveFilters ? "Delete filtered records" : "Delete all records"}
+            title={hasActiveFilters ? "Delete filtered logs" : "Delete all logs"}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6" />
@@ -203,6 +221,22 @@ const IrrigationsPage = () => {
               onChange={(v) => { setSourceFilter(v); setPage(1); }}
             />
           </div>
+          <div className="records-filter-group">
+            <label>Action</label>
+            <Dropdown
+              value={actionFilter}
+              options={ACTION_OPTIONS}
+              onChange={(v) => { setActionFilter(v); setPage(1); }}
+            />
+          </div>
+          <div className="records-filter-group">
+            <label>Status</label>
+            <Dropdown
+              value={statusFilter}
+              options={STATUS_OPTIONS}
+              onChange={(v) => { setStatusFilter(v); setPage(1); }}
+            />
+          </div>
         </div>
 
         {hasActiveFilters && (
@@ -223,48 +257,54 @@ const IrrigationsPage = () => {
 
       <section className="history-panel">
         <header className="history-header">
-          <h3>Records</h3>
+          <h3>Logs</h3>
           <span className="history-header-subtitle muted">
-            Showing {records.length} of {totalCount} record
+            Showing {logs.length} of {totalCount} log
             {totalCount === 1 ? "" : "s"} &bull; Page {page} of {totalPages}
           </span>
         </header>
 
         {totalCount === 0 ? (
-          <p className="muted">No irrigation records available for this range.</p>
+          <p className="muted">No controller logs available for this range.</p>
         ) : (
           <div className={`history-content${loading ? " history-content--loading" : ""}`}>
             <div className="table-wrapper history-table-wrapper">
               <table className="history-table">
                 <thead>
                   <tr>
-                    <th>Started</th>
+                    <th>Timestamp</th>
                     <th>Zone</th>
-                    <th>Source</th>
+                    <th>Action</th>
                     <th>Duration</th>
-                    <th>PSI Start</th>
-                    <th>PSI End</th>
+                    <th>Source</th>
                     <th>Status</th>
+                    <th>Controller</th>
+                    <th>Response</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((r) => (
-                    <tr key={r._id}>
-                      <td>{formatTimestamp(r.startedAt)}</td>
-                      <td>{zoneName(r.zoneId)}</td>
+                  {logs.map((log) => (
+                    <tr key={log._id}>
+                      <td>{formatTimestamp(log.createdAt)}</td>
+                      <td>{zoneName(log.zoneId)}</td>
                       <td>
-                        <span className={`source-chip source-chip--${r.source}`}>
-                          {sourceLabel(r.source)}
+                        <span className={`command-action command-action--${log.action}`}>
+                          {log.action.toUpperCase()}
                         </span>
                       </td>
-                      <td>{r.durationMs != null ? formatDurationLabel(r.durationMs) : "—"}</td>
-                      <td>{formatPsi(r.pressureStart)}</td>
-                      <td>{formatPsi(r.pressureEnd)}</td>
+                      <td>{formatDuration(log.durationMinutes)}</td>
                       <td>
-                        <span className={`irrigation-status irrigation-status--${r.status}`}>
-                          {r.status}
+                        <span className={`source-chip source-chip--${log.source}`}>
+                          {sourceLabel(log.source)}
                         </span>
                       </td>
+                      <td>
+                        <span className={`command-status command-status--${log.status}`}>
+                          {log.status}
+                        </span>
+                      </td>
+                      <td>{log.controllerMethod ?? "—"}</td>
+                      <td>{log.controllerResponseStatus ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -272,38 +312,56 @@ const IrrigationsPage = () => {
             </div>
 
             <div className="history-cards">
-              {records.map((r) => (
-                <article key={`card-${r._id}`} className="history-card">
+              {logs.map((log) => (
+                <article key={`card-${log._id}`} className="history-card">
                   <header className="history-card-header">
                     <div>
-                      <span className="history-card-label">Started</span>
-                      <span className="history-card-timestamp">{formatTimestamp(r.startedAt)}</span>
+                      <span className="history-card-label">Timestamp</span>
+                      <span className="history-card-timestamp">{formatTimestamp(log.createdAt)}</span>
                     </div>
-                    <span className={`irrigation-status irrigation-status--${r.status}`}>
-                      {r.status}
+                    <span className={`command-status command-status--${log.status}`}>
+                      {log.status}
                     </span>
                   </header>
                   <dl className="history-card-metrics">
                     <div>
                       <dt>Zone</dt>
-                      <dd>{zoneName(r.zoneId)}</dd>
+                      <dd>{zoneName(log.zoneId)}</dd>
                     </div>
                     <div>
-                      <dt>Source</dt>
+                      <dt>Action</dt>
                       <dd>
-                        <span className={`source-chip source-chip--${r.source}`}>
-                          {sourceLabel(r.source)}
+                        <span className={`command-action command-action--${log.action}`}>
+                          {log.action.toUpperCase()}
                         </span>
                       </dd>
                     </div>
                     <div>
                       <dt>Duration</dt>
-                      <dd>{r.durationMs != null ? formatDurationLabel(r.durationMs) : "—"}</dd>
+                      <dd>{formatDuration(log.durationMinutes)}</dd>
                     </div>
                     <div>
-                      <dt>PSI</dt>
-                      <dd>{formatPsi(r.pressureStart)}{r.pressureEnd != null ? ` → ${formatPsi(r.pressureEnd)}` : ""}</dd>
+                      <dt>Source</dt>
+                      <dd>
+                        <span className={`source-chip source-chip--${log.source}`}>
+                          {sourceLabel(log.source)}
+                        </span>
+                      </dd>
                     </div>
+                    <div>
+                      <dt>Controller</dt>
+                      <dd>{log.controllerMethod ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Response</dt>
+                      <dd>{log.controllerResponseStatus ?? "—"}</dd>
+                    </div>
+                    {log.errorMessage && (
+                      <div>
+                        <dt>Error</dt>
+                        <dd className="text-danger">{log.errorMessage}</dd>
+                      </div>
+                    )}
                   </dl>
                 </article>
               ))}
@@ -340,11 +398,11 @@ const IrrigationsPage = () => {
             <div className="confirm-dialog__icon">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" /></svg>
             </div>
-            <h3 className="confirm-dialog__title">Delete irrigation records</h3>
+            <h3 className="confirm-dialog__title">Delete controller logs</h3>
             <p className="confirm-dialog__message">
               {hasActiveFilters
-                ? <>This will permanently delete all <strong>{totalCount}</strong> irrigation records matching your current filters.</>
-                : <>This will permanently delete <strong>all {totalCount}</strong> irrigation records.</>
+                ? <>This will permanently delete all <strong>{totalCount}</strong> controller logs matching your current filters.</>
+                : <>This will permanently delete <strong>all {totalCount}</strong> controller logs.</>
               } This action cannot be undone.
             </p>
             <div className="confirm-dialog__actions">
@@ -363,4 +421,4 @@ const IrrigationsPage = () => {
   );
 };
 
-export default IrrigationsPage;
+export default LogsPage;

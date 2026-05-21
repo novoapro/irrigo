@@ -40,6 +40,7 @@ export const createZoneSchema = z
     name: z.string().trim().min(1, "name is required").max(128),
     description: z.string().trim().max(512).optional(),
     enabled: z.boolean().optional(),
+    excludeFromManualRun: z.boolean().optional(),
     sortOrder: z.number().int().nonnegative().optional(),
     defaultDurationMinutes: z.number().int().positive("defaultDurationMinutes must be > 0"),
     maxDurationMinutes: z.number().int().positive().optional(),

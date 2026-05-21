@@ -169,6 +169,45 @@ export const fetchIrrigationRecords = async (
   return (await response.json()) as IrrigationRecordListResponse;
 };
 
+export const deleteHeartbeats = async (
+  query?: Omit<HeartbeatQuery, "page" | "pageSize">
+): Promise<{ deletedCount: number }> => {
+  const response = await fetch(
+    buildUrl("/heartbeats", {
+      start: query?.start,
+      end: query?.end,
+      guard: query?.guard,
+      rain: query?.rain,
+      soil: query?.soil,
+      psiMin: query?.psiMin,
+      psiMax: query?.psiMax
+    }),
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to delete heartbeats (${response.status})`);
+  }
+  return (await response.json()) as { deletedCount: number };
+};
+
+export const deleteIrrigationRecords = async (
+  query?: Omit<IrrigationRecordQuery, "page" | "pageSize">
+): Promise<{ deletedCount: number }> => {
+  const response = await fetch(
+    buildUrl("/irrigation-records", {
+      start: query?.start,
+      end: query?.end,
+      zoneId: query?.zoneId,
+      source: query?.source
+    }),
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to delete irrigation records (${response.status})`);
+  }
+  return (await response.json()) as { deletedCount: number };
+};
+
 export const fetchLatestIrrigationPerZone = async (): Promise<IrrigationRecord[]> => {
   const response = await fetch(buildUrl("/irrigation-records/latest-per-zone"));
   if (!response.ok) {
@@ -649,14 +688,86 @@ export const runProgram = async (programId: string): Promise<{ programId: string
 
 // --- Manual Run API ---
 
-export const triggerManualRun = async (): Promise<{ zoneId: string; commandId: string | null; error: string | null }[]> => {
-  const response = await fetch(buildUrl("/manual-run"), { method: "POST" });
+export const triggerManualRun = async (
+  zoneOverrides?: { zoneId: string; durationMinutes: number }[]
+): Promise<{ started: boolean; runId: string }> => {
+  const response = await fetch(buildUrl("/manual-run"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ zoneOverrides })
+  });
   if (!response.ok) {
     const json = await response.json().catch(() => ({}));
     throw new Error((json as { message?: string }).message ?? `Manual run failed (${response.status})`);
   }
-  const json = (await response.json()) as { data: { zoneId: string; commandId: string | null; error: string | null }[] };
+  const json = (await response.json()) as { data: { started: boolean; runId: string } };
   return json.data;
+};
+
+export const cancelManualRun = async (): Promise<void> => {
+  const response = await fetch(buildUrl("/manual-run"), { method: "DELETE" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Cancel failed (${response.status})`);
+  }
+};
+
+export const getManualRunStatus = async () => {
+  const response = await fetch(buildUrl("/manual-run/status"));
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? `Status fetch failed (${response.status})`);
+  }
+  const json = (await response.json()) as { data: import("./types").ManualRun | null };
+  return json.data;
+};
+
+// --- Controller Logs API ---
+
+export interface ControllerLogQuery {
+  start?: string;
+  end?: string;
+  page?: number;
+  pageSize?: number;
+  zoneId?: string;
+  source?: string;
+  action?: string;
+  status?: string;
+}
+
+export const fetchControllerLogs = async (query?: ControllerLogQuery) => {
+  const params = new URLSearchParams();
+  if (query?.start) params.set("start", query.start);
+  if (query?.end) params.set("end", query.end);
+  if (query?.page) params.set("page", String(query.page));
+  if (query?.pageSize) params.set("pageSize", String(query.pageSize));
+  if (query?.zoneId) params.set("zoneId", query.zoneId);
+  if (query?.source) params.set("source", query.source);
+  if (query?.action) params.set("action", query.action);
+  if (query?.status) params.set("status", query.status);
+
+  const qs = params.toString();
+  const response = await fetch(buildUrl(`/zones/commands${qs ? `?${qs}` : ""}`));
+  if (!response.ok) throw new Error(`Failed to fetch logs (${response.status})`);
+  const json = (await response.json()) as {
+    commands: import("./types").IrrigationCommand[];
+    meta: { page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean };
+  };
+  return json;
+};
+
+export const deleteControllerLogs = async (query?: Omit<ControllerLogQuery, "page" | "pageSize">) => {
+  const params = new URLSearchParams();
+  if (query?.start) params.set("start", query.start);
+  if (query?.end) params.set("end", query.end);
+  if (query?.zoneId) params.set("zoneId", query.zoneId);
+  if (query?.source) params.set("source", query.source);
+  if (query?.action) params.set("action", query.action);
+  if (query?.status) params.set("status", query.status);
+
+  const qs = params.toString();
+  const response = await fetch(buildUrl(`/zones/commands${qs ? `?${qs}` : ""}`), { method: "DELETE" });
+  if (!response.ok) throw new Error(`Failed to delete logs (${response.status})`);
 };
 
 export const buildRealtimeUrl = () => {

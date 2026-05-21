@@ -1,5 +1,8 @@
 import type { Request, Response } from "express";
+import IrrigationEvent from "../models/IrrigationEvent";
 import IrrigationRecord from "../models/IrrigationRecord";
+import { statusCache } from "./statusController";
+import { emitRealtimeEvent } from "../services/realtimeService";
 
 const MAX_PAGE_SIZE = 500;
 
@@ -19,6 +22,62 @@ export const latestPerZone = async (_req: Request, res: Response) => {
   } catch (error) {
     console.error("Failed to fetch latest irrigation records per zone:", error);
     res.status(500).json({ message: "Unable to fetch latest records" });
+  }
+};
+
+export const deleteIrrigationRecords = async (req: Request, res: Response) => {
+  const filter: Record<string, unknown> = {};
+
+  const { start, end, zoneId, source } = req.query;
+
+  if (typeof start === "string" && start.length > 0) {
+    const parsed = new Date(start);
+    if (Number.isNaN(parsed.valueOf())) {
+      return res.status(400).json({ message: "start must be a valid date string" });
+    }
+    filter.startedAt = { ...((filter.startedAt as Record<string, Date>) ?? {}), $gte: parsed };
+  }
+
+  if (typeof end === "string" && end.length > 0) {
+    const parsed = new Date(end);
+    if (Number.isNaN(parsed.valueOf())) {
+      return res.status(400).json({ message: "end must be a valid date string" });
+    }
+    filter.startedAt = { ...((filter.startedAt as Record<string, Date>) ?? {}), $lte: parsed };
+  }
+
+  if (typeof zoneId === "string" && zoneId.length > 0) {
+    filter.zoneId = zoneId;
+  }
+
+  if (typeof source === "string" && ["manual", "program", "ai-schedule"].includes(source)) {
+    filter.source = source;
+  }
+
+  const eventFilter: Record<string, unknown> = {};
+  if (filter.startedAt) eventFilter.createdAt = filter.startedAt;
+  if (filter.zoneId) eventFilter.zone = filter.zoneId;
+  if (filter.source) eventFilter.source = filter.source;
+
+  try {
+    const [recordResult, eventResult] = await Promise.all([
+      IrrigationRecord.deleteMany(filter),
+      IrrigationEvent.deleteMany(eventFilter)
+    ]);
+
+    statusCache.payload = null;
+    statusCache.irrigationId = null;
+
+    emitRealtimeEvent({ type: "irrigation:updated" });
+    emitRealtimeEvent({ type: "status:updated" });
+
+    res.json({
+      deletedCount: recordResult.deletedCount,
+      deletedEvents: eventResult.deletedCount
+    });
+  } catch (error) {
+    console.error("Failed to delete irrigation records:", error);
+    res.status(500).json({ message: "Unable to delete irrigation records" });
   }
 };
 

@@ -1,7 +1,9 @@
 import { Schema, model } from "mongoose";
+import { IRRIGATION_RETENTION_SECONDS } from "../config/persistence";
 
 export type CommandStatus = "pending" | "sent" | "acknowledged" | "failed" | "timeout";
 export type CommandSource = "manual" | "schedule" | "program" | "ai-schedule";
+export type ControllerMethod = "compai" | "external";
 
 export interface IrrigationCommandAttributes {
   zoneId: string;
@@ -11,6 +13,10 @@ export interface IrrigationCommandAttributes {
   status: CommandStatus;
   externalRequestId?: string | null;
   errorMessage?: string | null;
+  controllerMethod?: ControllerMethod | null;
+  controllerUrl?: string | null;
+  controllerResponseStatus?: number | null;
+  controllerResponseBody?: string | null;
   sentAt?: Date | null;
   acknowledgedAt?: Date | null;
   createdAt?: Date;
@@ -29,12 +35,17 @@ const irrigationCommandSchema = new Schema<IrrigationCommandAttributes>({
   },
   externalRequestId: { type: String, default: null },
   errorMessage: { type: String, default: null },
+  controllerMethod: { type: String, enum: ["compai", "external", null], default: null },
+  controllerUrl: { type: String, default: null },
+  controllerResponseStatus: { type: Number, default: null },
+  controllerResponseBody: { type: String, default: null },
   sentAt: { type: Date, default: null },
   acknowledgedAt: { type: Date, default: null },
   createdAt: { type: Date, default: () => new Date() }
 });
 
 irrigationCommandSchema.index({ zoneId: 1, createdAt: -1 });
+irrigationCommandSchema.index({ createdAt: 1 }, { expireAfterSeconds: IRRIGATION_RETENTION_SECONDS });
 
 const IrrigationCommand = model<IrrigationCommandAttributes>(
   "IrrigationCommand",

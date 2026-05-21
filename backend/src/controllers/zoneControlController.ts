@@ -34,6 +34,10 @@ export const listCommands = async (req: Request, res: Response) => {
     const result = await commandService.listCommands({
       zoneId: req.query.zoneId as string | undefined,
       status: req.query.status as string | undefined,
+      source: req.query.source as string | undefined,
+      action: req.query.action as string | undefined,
+      start: req.query.start as string | undefined,
+      end: req.query.end as string | undefined,
       page: Number(req.query.page) || undefined,
       pageSize: Number(req.query.pageSize) || undefined
     });
@@ -41,6 +45,23 @@ export const listCommands = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Failed to list commands:", err);
     res.status(500).json({ message: "Unable to fetch commands" });
+  }
+};
+
+export const deleteCommands = async (req: Request, res: Response) => {
+  try {
+    const result = await commandService.deleteCommands({
+      zoneId: req.query.zoneId as string | undefined,
+      status: req.query.status as string | undefined,
+      source: req.query.source as string | undefined,
+      action: req.query.action as string | undefined,
+      start: req.query.start as string | undefined,
+      end: req.query.end as string | undefined
+    });
+    res.json({ data: result });
+  } catch (err) {
+    console.error("Failed to delete commands:", err);
+    res.status(500).json({ message: "Unable to delete commands" });
   }
 };
 

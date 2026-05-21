@@ -26,6 +26,7 @@ export interface ZoneAttributes {
   name: string;
   description?: string;
   enabled: boolean;
+  excludeFromManualRun: boolean;
   sortOrder: number;
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
@@ -40,6 +41,7 @@ const zoneSchema = new Schema<ZoneAttributes>({
   name: { type: String, required: true, trim: true },
   description: { type: String, default: null, trim: true },
   enabled: { type: Boolean, default: true },
+  excludeFromManualRun: { type: Boolean, default: false },
   sortOrder: { type: Number, default: 0 },
   defaultDurationMinutes: { type: Number, required: true },
   maxDurationMinutes: { type: Number, default: 60 },

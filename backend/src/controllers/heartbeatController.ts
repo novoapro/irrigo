@@ -188,6 +188,64 @@ export const listHeartbeats = async (req: Request, res: Response) => {
   }
 };
 
+export const deleteHeartbeats = async (req: Request, res: Response) => {
+  const { start, end, guard, rain, soil, psiMin, psiMax } = req.query;
+
+  const filter: Record<string, unknown> = {};
+
+  if (typeof start === "string" && start.length > 0) {
+    const parsed = new Date(start);
+    if (Number.isNaN(parsed.valueOf())) {
+      return res.status(400).json({ message: "start must be a valid date string" });
+    }
+    filter.timestamp = { ...((filter.timestamp as Record<string, Date>) ?? {}), $gte: parsed };
+  }
+
+  if (typeof end === "string" && end.length > 0) {
+    const parsed = new Date(end);
+    if (Number.isNaN(parsed.valueOf())) {
+      return res.status(400).json({ message: "end must be a valid date string" });
+    }
+    filter.timestamp = { ...((filter.timestamp as Record<string, Date>) ?? {}), $lte: parsed };
+  }
+
+  if (guard === "true") filter.guard = true;
+  else if (guard === "false") filter.guard = false;
+
+  if (rain === "true") filter["sensors.rain"] = true;
+  else if (rain === "false") filter["sensors.rain"] = false;
+
+  if (soil === "true") filter["sensors.soil"] = true;
+  else if (soil === "false") filter["sensors.soil"] = false;
+
+  if (typeof psiMin === "string" && psiMin.length > 0) {
+    const val = Number.parseFloat(psiMin);
+    if (!Number.isNaN(val)) {
+      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $gte: val };
+    }
+  }
+  if (typeof psiMax === "string" && psiMax.length > 0) {
+    const val = Number.parseFloat(psiMax);
+    if (!Number.isNaN(val)) {
+      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $lte: val };
+    }
+  }
+
+  try {
+    const result = await Heartbeat.deleteMany(filter);
+
+    statusCache.payload = null;
+    statusCache.heartbeatId = null;
+
+    emitRealtimeEvent({ type: "status:updated" });
+
+    res.json({ deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error("Failed to delete heartbeats:", error);
+    res.status(500).json({ message: "Unable to delete heartbeats" });
+  }
+};
+
 export const listHeartbeatSeries = async (req: Request, res: Response) => {
   const { start, end, limit: limitQuery } = req.query;
 

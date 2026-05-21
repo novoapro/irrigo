@@ -55,6 +55,7 @@ export interface SendCommandResult {
   statusCode?: number;
   responseBody?: string;
   error?: string;
+  url?: string;
 }
 
 export const sendCommand = async (
@@ -106,16 +107,17 @@ export const sendCommand = async (
         success: false,
         statusCode: response.status,
         responseBody,
-        error: `External controller responded with ${response.status}`
+        error: `External controller responded with ${response.status}`,
+        url
       };
     }
 
-    return { success: true, statusCode: response.status, responseBody };
+    return { success: true, statusCode: response.status, responseBody, url };
   } catch (err: any) {
     if (err?.name === "AbortError") {
-      return { success: false, error: "Request timed out" };
+      return { success: false, error: "Request timed out", url };
     }
-    return { success: false, error: err?.message ?? "Unknown error" };
+    return { success: false, error: err?.message ?? "Unknown error", url };
   } finally {
     clearTimeout(timeout);
   }
