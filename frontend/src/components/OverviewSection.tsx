@@ -145,7 +145,7 @@ const OverviewSection = ({
             {cards.map((card) => (
               <div key={card.key} className="overview-item">
                 <header>
-                  <h4>{card.title}</h4>
+                  <h4>{card.title} ({card.unit === "count" ? `${card.unitLabel}s` : "time"})</h4>
                 </header>
                 <div className="chart-with-legend">
                   <div className="overview-chart">
@@ -184,10 +184,6 @@ const OverviewSection = ({
                         card.total > 0
                           ? Math.round((entry.value / card.total) * 100)
                           : 0;
-                      const labelValue =
-                        card.unit === "duration"
-                          ? formatDurationLabel(entry.value)
-                          : formatCountLabel(entry.value, card.unitLabel);
                       return (
                         <div key={entry.key} className="overview-legend-row">
                           <span
@@ -197,7 +193,7 @@ const OverviewSection = ({
                           <div className="legend-labels">
                             <span>{entry.name}</span>
                             <span className="legend-meta">
-                              {labelValue} • {percentage}%
+                              ({percentage}%)
                             </span>
                           </div>
                         </div>

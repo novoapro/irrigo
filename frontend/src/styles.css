@@ -148,6 +148,7 @@
 
   /* ── Misc component colors ── */
   --color-soil: #8b5a2b;
+  --logo-tint: none;
   --slider-fill-r: 37;
   --slider-fill-g: 99;
   --slider-fill-b: 235;
@@ -242,6 +243,7 @@ html[data-theme="dark"] {
   --forecast-error: #fca5a5;
 
   --color-soil: #c4956a;
+  --logo-tint: brightness(2.2) saturate(0.8) hue-rotate(10deg);
   --slider-fill-r: 56;
   --slider-fill-g: 189;
   --slider-fill-b: 248;
@@ -361,10 +363,7 @@ select {
   height: auto;
   flex: 0 1 auto;
   transition: filter var(--transition-base);
-}
-
-html[data-theme="dark"] .app-logo {
-  filter: brightness(0) invert(1);
+  filter: var(--logo-tint);
 }
 
 .app-header h1 {
@@ -844,6 +843,10 @@ html[data-theme="dark"] .app-logo {
   gap: var(--space-1);
   padding: var(--space-1);
   justify-content: flex-end;
+}
+
+html[data-theme="dark"] .app-header-actions-row > button {
+  color: #67e8f9;
 }
 
 .refresh-icon-button {
@@ -2230,7 +2233,18 @@ html[data-theme="dark"] .app-logo {
 
 @media (max-width: 834px) {
   .overview-grid {
-    grid-template-columns: repeat(2, 1fr);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-5);
+  }
+
+  .overview-grid > * {
+    flex: 0 0 calc((100% - var(--space-5)) / 2);
+  }
+
+  .overview-grid .water-pressure-overview {
+    flex: 0 0 100%;
   }
 }
 
@@ -2340,6 +2354,7 @@ html[data-theme="dark"] .app-logo {
 .overview-legend.compact {
   margin-top: 0;
   gap: 0.4rem;
+  flex: 0 0 110px;
 }
 
 .legend-dot {
@@ -6296,6 +6311,14 @@ tbody tr:hover {
 /* ══════════════════════════════════════════
    Dark mode: component-specific overrides
    ══════════════════════════════════════════ */
+
+html[data-theme="dark"] .zone-card {
+  background: var(--color-surface);
+}
+
+html[data-theme="dark"] .settings-panel .zone-card {
+  background: var(--color-surface-raised);
+}
 
 html[data-theme="dark"] select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
