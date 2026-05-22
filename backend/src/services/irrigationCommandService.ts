@@ -150,7 +150,9 @@ export const acknowledgeCommand = async (zoneId: string, action: "on" | "off") =
     zoneId,
     isActive: action === "on",
     lastAction: action,
-    lastEventAt: new Date().toISOString()
+    lastEventAt: new Date().toISOString(),
+    activeCommandId: action === "on" ? cmd._id.toString() : null,
+    activeDurationMinutes: action === "on" ? (cmd.durationMinutes ?? null) : null
   };
   emitRealtimeEvent({ type: "zoneState:changed", payload: zoneState });
 

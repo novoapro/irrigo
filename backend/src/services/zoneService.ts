@@ -1,12 +1,15 @@
 import Zone from "../models/Zone";
 import type { CreateZoneInput, UpdateZoneInput } from "../schemas/zoneSchema";
 import IrrigationEvent from "../models/IrrigationEvent";
+import IrrigationCommand from "../models/IrrigationCommand";
 
 export interface ZoneState {
   zoneId: string;
   isActive: boolean;
   lastAction: "on" | "off" | null;
   lastEventAt: string | null;
+  activeCommandId?: string | null;
+  activeDurationMinutes?: number | null;
 }
 
 const serializeZone = (doc: Record<string, unknown>) => {
@@ -76,11 +79,28 @@ export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
     .sort({ createdAt: -1 })
     .lean();
 
+  const isActive = latest?.action === "on";
+
+  let activeCommandId: string | null = null;
+  let activeDurationMinutes: number | null = null;
+
+  if (isActive && latest?.commandId) {
+    const cmd = await IrrigationCommand.findById(latest.commandId)
+      .select({ durationMinutes: 1 })
+      .lean();
+    if (cmd) {
+      activeCommandId = latest.commandId.toString();
+      activeDurationMinutes = cmd.durationMinutes ?? null;
+    }
+  }
+
   return {
     zoneId,
-    isActive: latest?.action === "on",
+    isActive,
     lastAction: latest?.action ?? null,
-    lastEventAt: latest?.createdAt?.toISOString() ?? null
+    lastEventAt: latest?.createdAt?.toISOString() ?? null,
+    activeCommandId,
+    activeDurationMinutes
   };
 };
 
