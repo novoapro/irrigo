@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import type { AIScheduleConfig, IrrigationMode, IrrigationProgram, ScheduleEntry, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
@@ -345,6 +346,7 @@ const IrrigationQueuePanel = ({
   onOpenSmartSettings,
   onOpenProgramSettings
 }: IrrigationQueuePanelProps) => {
+  const navigate = useNavigate();
   const [config, setConfig] = useState<AIScheduleConfig | null>(null);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
@@ -530,7 +532,7 @@ const IrrigationQueuePanel = ({
         <button
           type="button"
           className="irrigation-queue-panel__subtitle irrigation-queue-panel__subtitle--link muted"
-          onClick={onOpenSmartSettings}
+          onClick={() => navigate("/ai-runs")}
         >
           {formatDate(config.lastRunAt)}
           {" "}

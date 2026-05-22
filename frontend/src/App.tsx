@@ -1350,20 +1350,20 @@ const App = () => {
       </header>
 
       <nav className="app-nav">
-        <NavLink to="/" end className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          Dashboard
+        <NavLink to="/" end className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Dashboard">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
         </NavLink>
-        <NavLink to="/heartbeats" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          Heartbeats
+        <NavLink to="/heartbeats" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Heartbeats">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
         </NavLink>
-        <NavLink to="/irrigations" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          Irrigations
+        <NavLink to="/irrigations" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Irrigations">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" /></svg>
         </NavLink>
-        <NavLink to="/ai-runs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          AI Runs
+        <NavLink to="/ai-runs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="AI Runs">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 014 4c0 1.95-1.4 3.59-3.25 3.93" /><path d="M12 2a4 4 0 00-4 4c0 1.95 1.4 3.59 3.25 3.93" /><path d="M12 10v4" /><path d="M8 18h8" /><path d="M9 22h6" /><path d="M12 14v4" /></svg>
         </NavLink>
-        <NavLink to="/logs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
-          Logs
+        <NavLink to="/logs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Logs">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
         </NavLink>
       </nav>
 

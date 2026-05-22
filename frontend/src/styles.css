@@ -262,9 +262,10 @@ select {
 }
 
 .app-nav__link {
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
   color: var(--color-text-secondary);
   text-decoration: none;
   border-bottom: 2px solid transparent;
@@ -640,8 +641,12 @@ select {
   }
 
   .app-nav__link {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--text-xs);
+    padding: var(--space-2);
+  }
+
+  .app-nav__link svg {
+    width: 18px;
+    height: 18px;
   }
 }
 
