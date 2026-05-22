@@ -35,7 +35,7 @@ interface QueueZoneStep {
 interface QueueSequence {
   id: string;
   scheduledAt: string;
-  status: "pending" | "running" | "completed" | "skipped" | "failed";
+  status: "pending" | "running" | "completed" | "skipped" | "failed" | "deferred";
   source: "program" | "ai-schedule";
   sourceLabel: string;
   zones: QueueZoneStep[];
@@ -119,11 +119,13 @@ const buildSmartSequences = (
     const anyExecuting = sorted.some((e) => e.status === "executing" || e.status === "queued");
     const anyFailed = sorted.some((e) => e.status === "skipped" && e.skipReason?.toLowerCase().includes("error"));
     const allSkipped = sorted.every((e) => e.status === "skipped" || e.status === "cancelled");
+    const anyDeferred = sorted.some((e) => e.status === "deferred");
 
     let status: QueueSequence["status"] = "pending";
     if (allCompleted) status = "completed";
     else if (anyFailed) status = "failed";
     else if (allSkipped) status = "skipped";
+    else if (anyDeferred) status = "deferred";
     else if (anyExecuting) status = "running";
 
     const reasoning = sorted
@@ -168,6 +170,7 @@ const QueueSequenceCard = ({
   const [confirmSkip, setConfirmSkip] = useState(false);
 
   const isPending = seq.status === "pending";
+  const isDeferred = seq.status === "deferred";
 
   const openDefer = () => {
     setDeferValue(new Date(seq.scheduledAt));
@@ -207,7 +210,7 @@ const QueueSequenceCard = ({
         <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className={`queue-card__expand-icon${expanded ? " queue-card__chevron--open" : ""}`} onClick={() => setExpanded((v) => !v)}>
           <path d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
         </svg>
-        {isPending && (
+        {(isPending || isDeferred) && (
           <div className="queue-card__actions">
             {deferring && (
               <div className="queue-card__defer">
@@ -470,7 +473,7 @@ const IrrigationQueuePanel = ({
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
   })();
 
-  const pendingSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running");
+  const pendingSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred");
   const hasQueue = pendingSequences.length > 0;
 
   return (

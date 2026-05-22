@@ -8,6 +8,7 @@ interface ScheduledProgramsPanelProps {
   zones: Zone[];
   onScheduleChanged: () => void;
   onOpenSettings?: () => void;
+  guardActive?: boolean;
 }
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -30,7 +31,7 @@ const formatSchedule = (cron: string): string => {
   return `Daily at ${timeStr}`;
 };
 
-const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: ScheduledProgramsPanelProps) => {
+const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings, guardActive }: ScheduledProgramsPanelProps) => {
   const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -38,6 +39,7 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: Sc
   const [editingProgram, setEditingProgram] = useState<IrrigationProgram | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [guardConfirmProgramId, setGuardConfirmProgramId] = useState<string | null>(null);
 
   const loadPrograms = useCallback(async () => {
     try {
@@ -54,7 +56,7 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: Sc
     void loadPrograms();
   }, [loadPrograms]);
 
-  const handleRun = useCallback(async (programId: string) => {
+  const executeRun = useCallback(async (programId: string) => {
     setRunningId(programId);
     try {
       await runProgram(programId);
@@ -65,6 +67,14 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: Sc
       setRunningId(null);
     }
   }, [onScheduleChanged]);
+
+  const handleRun = useCallback((programId: string) => {
+    if (guardActive) {
+      setGuardConfirmProgramId(programId);
+    } else {
+      void executeRun(programId);
+    }
+  }, [guardActive, executeRun]);
 
   const handleToggle = useCallback(async (program: IrrigationProgram) => {
     try {
@@ -171,6 +181,12 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: Sc
               <p className="program-card__schedule muted">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 {formatSchedule(program.scheduleCron)}
+                {program.deferralEnabled && (
+                  <span className="program-card__deferral-badge" title={`Defers up to ${program.deferralWindowMinutes ?? 120}min on guard`}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
+                    Defer
+                  </span>
+                )}
               </p>
 
               <div className="program-card__zones">
@@ -256,6 +272,32 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings }: Sc
                 disabled={deleting}
               >
                 {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {guardConfirmProgramId && createPortal(
+        <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
+          <div className="confirm-dialog">
+            <div className="confirm-dialog__icon" style={{ background: "var(--color-warning-bg)" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning-text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+            </div>
+            <h3 className="confirm-dialog__title">Guard is active</h3>
+            <p className="confirm-dialog__message">
+              The irrigation guard is on — conditions are not ideal for irrigation. Do you still want to run <strong>{programs.find((p) => p.programId === guardConfirmProgramId)?.name ?? "this program"}</strong>?
+            </p>
+            <div className="confirm-dialog__actions">
+              <button type="button" className="ghost-button" onClick={() => setGuardConfirmProgramId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => { void executeRun(guardConfirmProgramId); setGuardConfirmProgramId(null); }}
+              >
+                Proceed anyway
               </button>
             </div>
           </div>

@@ -251,7 +251,7 @@ export interface HeartbeatSeriesSample {
 }
 
 export type SequentialRunSource = "manual" | "program" | "ai-schedule";
-export type SequentialRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed";
+export type SequentialRunZoneStatus = "queued" | "activating" | "running" | "completed" | "skipped" | "failed" | "deferred";
 
 export interface SequentialRunZoneEntry {
   zoneId: string;
@@ -268,11 +268,15 @@ export interface SequentialRun {
   _id: string;
   source: SequentialRunSource;
   programId?: string | null;
-  status: "running" | "completed" | "cancelled" | "failed";
+  status: "running" | "deferred" | "completed" | "cancelled" | "failed";
   zones: SequentialRunZoneEntry[];
   currentZoneIndex: number;
   startedAt: string;
   completedAt?: string | null;
+  deferralEnabled?: boolean;
+  deferralWindowMinutes?: number;
+  deferredAt?: string | null;
+  deferralDeadline?: string | null;
 }
 
 /** @deprecated Use SequentialRun */
@@ -411,6 +415,21 @@ export type RealtimeEvent =
       type: "sequentialRun:cancelled";
       payload?: SequentialRun;
       at?: string;
+    }
+  | {
+      type: "deferral:triggered";
+      payload?: { type: string; runId?: string; entryId?: string; programId?: string; zoneId?: string; reason: string; deadline?: string | null };
+      at?: string;
+    }
+  | {
+      type: "deferral:recovered";
+      payload?: { type: string; runId?: string; entryId?: string; programId?: string; zoneId?: string };
+      at?: string;
+    }
+  | {
+      type: "deferral:expired";
+      payload?: { type: string; runId?: string; entryId?: string; programId?: string; reason: string };
+      at?: string;
     };
 
 export interface CompAIConfig {
@@ -459,6 +478,8 @@ export interface IrrigationProgram {
   enabled: boolean;
   scheduleCron: string;
   zoneEntries: ProgramZoneEntry[];
+  deferralEnabled?: boolean;
+  deferralWindowMinutes?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -506,6 +527,14 @@ export interface ScheduleRun {
   entries: number;
   reasoning: string;
   errorMessage?: string | null;
+  systemPrompt?: string | null;
+  userPrompt?: string | null;
+  rawResponse?: string | null;
+  requestParams?: {
+    provider: string;
+    model: string;
+    maxTokens: number;
+  } | null;
   startedAt: string;
   completedAt?: string | null;
 }
@@ -522,13 +551,18 @@ export interface ScheduleEntry {
   zoneId: string;
   plannedStartAt: string;
   plannedDurationMinutes: number;
-  status: "planned" | "queued" | "executing" | "completed" | "skipped" | "cancelled";
+  status: "planned" | "queued" | "executing" | "completed" | "skipped" | "cancelled" | "deferred";
   commandId?: string | null;
   aiReasoning: string;
   weatherContext: WeatherContext;
   skipReason?: string | null;
   userModified?: boolean;
   programId?: string | null;
+  deferralEnabled?: boolean;
+  deferralWindowMinutes?: number;
+  deferredAt?: string | null;
+  deferralDeadline?: string | null;
+  deferralReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

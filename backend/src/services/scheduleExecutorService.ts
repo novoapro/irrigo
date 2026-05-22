@@ -14,6 +14,39 @@ const executeEntry = async (entryId: string) => {
   const entry = await ScheduleEntry.findById(entryId);
   if (!entry || entry.status !== "planned") return;
 
+  const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+  if (latestHeartbeat?.guard) {
+    if (entry.deferralEnabled) {
+      const deadline = new Date(
+        entry.plannedStartAt.getTime() + entry.deferralWindowMinutes * 60_000
+      );
+      entry.status = "deferred";
+      entry.deferredAt = new Date();
+      entry.deferralDeadline = deadline;
+      entry.deferralReason = "Guard active — conditions not suitable for irrigation";
+      entry.updatedAt = new Date();
+      await entry.save();
+      emitRealtimeEvent({ type: "schedule:entryUpdated", payload: entry.toObject() });
+      emitRealtimeEvent({
+        type: "deferral:triggered",
+        payload: {
+          type: "schedule-entry",
+          entryId: entry._id.toString(),
+          zoneId: entry.zoneId,
+          reason: "Guard active — conditions not suitable for irrigation",
+          deadline: deadline.toISOString()
+        }
+      });
+      return;
+    }
+    entry.status = "skipped";
+    entry.skipReason = "Guard active — irrigation not permitted";
+    entry.updatedAt = new Date();
+    await entry.save();
+    emitRealtimeEvent({ type: "schedule:entryUpdated", payload: entry.toObject() });
+    return;
+  }
+
   const config = await AIScheduleConfig.findOne().lean();
   if (!config?.enabled) {
     entry.status = "skipped";

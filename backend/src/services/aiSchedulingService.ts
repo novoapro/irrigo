@@ -59,6 +59,14 @@ interface GatheredData {
     aiReasoning: string;
     userModified: boolean;
   }>;
+  guardActive: boolean;
+  recentDeferrals: Array<{
+    type: string;
+    zoneId?: string;
+    deferredAt: string;
+    reason: string;
+    outcome: string;
+  }>;
   locationName: string;
 }
 
@@ -118,7 +126,7 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
   }
 
   const pendingDbEntries = await ScheduleEntry.find({
-    status: { $in: ["planned", "queued"] }
+    status: { $in: ["planned", "queued", "deferred"] }
   }).sort({ plannedStartAt: 1 }).lean();
 
   const pendingEntries = pendingDbEntries.map((e) => ({
@@ -129,6 +137,21 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     status: e.status,
     aiReasoning: e.aiReasoning,
     userModified: e.userModified ?? false
+  }));
+
+  const guardActive = latestHeartbeat?.guard ?? false;
+
+  const deferralCutoff = new Date(now.getTime() - 7 * 24 * 3600_000);
+  const recentDeferredEntries = await ScheduleEntry.find({
+    deferredAt: { $gte: deferralCutoff }
+  }).sort({ deferredAt: -1 }).limit(20).lean();
+
+  const recentDeferrals = recentDeferredEntries.map((e) => ({
+    type: "schedule-entry",
+    zoneId: e.zoneId,
+    deferredAt: e.deferredAt?.toISOString() ?? "",
+    reason: e.deferralReason ?? "Guard active",
+    outcome: e.status === "deferred" ? "pending" : e.status === "completed" ? "resumed" : "expired"
   }));
 
   return {
@@ -162,6 +185,8 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     })),
     recentIrrigationByZone: irrigationByZone,
     pendingEntries,
+    guardActive,
+    recentDeferrals,
     locationName: forecastSnapshot?.locationName ?? process.env.WEATHER_LOCATION_NAME ?? "Unknown"
   };
 };
@@ -182,7 +207,9 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
       "zoneId": "string",
       "plannedStartAt": "ISO 8601 datetime string",
       "plannedDurationMinutes": number,
-      "reasoning": "1-2 sentence explanation"
+      "reasoning": "1-2 sentence explanation",
+      "deferralEnabled": true | false,
+      "deferralWindowMinutes": number
     }
   ],
   "modifyEntries": [
@@ -305,6 +332,14 @@ Every pending entry MUST appear in exactly one of: keepEntries, modifyEntries, o
 Entries marked USER MODIFIED were adjusted by the user; consider their intent but you may still change them if conditions make them inappropriate.
 ${pendingEntriesLines}
 
+## Guard-Based Deferral
+The irrigation guard indicates when conditions are not suitable for irrigation (e.g., low water pressure). When guard is ON, Irrigo will not execute irrigation.
+You can set "deferralEnabled": true and "deferralWindowMinutes": <number> on new entries. If the guard is ON when the entry is due to execute, Irrigo will automatically defer it and resume when the guard clears, within the specified window. Default: deferralEnabled=true, deferralWindowMinutes=60.
+Entries with status "deferred" are being managed by the system — leave them in keepEntries.
+
+Current guard state: ${data.guardActive ? "ON (conditions not suitable — irrigation blocked)" : "OFF (ready to irrigate)"}
+${data.recentDeferrals.length > 0 ? `Recent deferrals (last 7 days):\n${data.recentDeferrals.map((d) => `  - ${d.zoneId ?? "program"}: deferred ${new Date(d.deferredAt).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })} — ${d.reason} (${d.outcome})`).join("\n")}` : "No recent deferrals."}
+
 ## User Preferences
 - Conservative watering: ${prefs.conservativeWatering ? "YES — skip irrigation if rain is expected" : "no"}
 - Rain skip threshold: ${prefs.rainThresholdPercent}% precipitation probability
@@ -341,6 +376,8 @@ interface AIScheduleResponse {
     plannedStartAt: string;
     plannedDurationMinutes: number;
     reasoning: string;
+    deferralEnabled?: boolean;
+    deferralWindowMinutes?: number;
   }>;
   modifyEntries?: Array<{
     entryId: string;
@@ -442,7 +479,14 @@ export const runScheduleEvaluation = async (
     }
 
     const { system, user } = buildPrompt(config, data, now);
+
+    run.systemPrompt = system;
+    run.userPrompt = user;
+    run.requestParams = { provider: config.provider, model: config.model, maxTokens: 4096 };
+
     const aiResult = await callAI(config.provider, config.model, config.apiKey, system, user);
+    run.rawResponse = aiResult.text;
+
     const parsed = parseAIResponse(aiResult.text);
 
     const forecastSnapshot = await WeatherForecastSnapshot.findOne().sort({ fetchedAt: -1 }).lean();
@@ -458,7 +502,7 @@ export const runScheduleEvaluation = async (
 
     for (const cancel of parsed.cancelEntries ?? []) {
       await ScheduleEntry.updateOne(
-        { _id: cancel.entryId, status: { $in: ["planned", "queued"] } },
+        { _id: cancel.entryId, status: { $in: ["planned", "queued", "deferred"] } },
         { $set: { status: "cancelled", skipReason: cancel.reasoning } }
       );
     }
@@ -482,7 +526,9 @@ export const runScheduleEvaluation = async (
       plannedDurationMinutes: e.plannedDurationMinutes,
       status: "planned" as const,
       aiReasoning: e.reasoning,
-      weatherContext: weatherCtx
+      weatherContext: weatherCtx,
+      deferralEnabled: e.deferralEnabled ?? true,
+      deferralWindowMinutes: e.deferralWindowMinutes ?? 60
     }));
 
     if (newDbEntries.length > 0) {

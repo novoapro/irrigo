@@ -72,18 +72,38 @@ export const triggerScheduleRun = async (_req: Request, res: Response) => {
   }
 };
 
+const buildRunFilter = (query: Record<string, unknown>) => {
+  const filter: Record<string, unknown> = {};
+  const { start, end } = query;
+  if (typeof start === "string" && start.length > 0) {
+    const parsed = new Date(start);
+    if (!Number.isNaN(parsed.valueOf())) {
+      filter.startedAt = { ...((filter.startedAt as Record<string, Date>) ?? {}), $gte: parsed };
+    }
+  }
+  if (typeof end === "string" && end.length > 0) {
+    const parsed = new Date(end);
+    if (!Number.isNaN(parsed.valueOf())) {
+      filter.startedAt = { ...((filter.startedAt as Record<string, Date>) ?? {}), $lte: parsed };
+    }
+  }
+  return filter;
+};
+
 export const listScheduleRuns = async (req: Request, res: Response) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(Math.max(1, Number(req.query.pageSize) || 20), 100);
     const skip = (page - 1) * pageSize;
+    const filter = buildRunFilter(req.query as Record<string, unknown>);
 
     const [totalCount, runs] = await Promise.all([
-      ScheduleRun.countDocuments(),
-      ScheduleRun.find()
+      ScheduleRun.countDocuments(filter),
+      ScheduleRun.find(filter)
         .sort({ startedAt: -1 })
         .skip(skip)
         .limit(pageSize)
+        .select("-systemPrompt -userPrompt -rawResponse")
         .lean()
     ]);
 
@@ -99,6 +119,17 @@ export const listScheduleRuns = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Failed to list schedule runs:", err);
     res.status(500).json({ message: "Unable to fetch schedule runs" });
+  }
+};
+
+export const deleteScheduleRuns = async (req: Request, res: Response) => {
+  try {
+    const filter = buildRunFilter(req.query as Record<string, unknown>);
+    const result = await ScheduleRun.deleteMany(filter);
+    res.json({ deletedCount: result.deletedCount ?? 0 });
+  } catch (err) {
+    console.error("Failed to delete schedule runs:", err);
+    res.status(500).json({ message: "Unable to delete schedule runs" });
   }
 };
 

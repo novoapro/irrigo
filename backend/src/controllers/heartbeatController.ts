@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import type { HeartbeatInput } from "../schemas/heartbeatSchema";
 import Heartbeat from "../models/Heartbeat";
 import { relayGuardState } from "../services/guardRelayService";
+import { handleHeartbeatForDeferral } from "../services/guardDeferralService";
 import { getCurrentWeatherConditions } from "../services/weatherForecastService";
 import { buildHeartbeatOverview } from "../services/heartbeatAnalyticsService";
 import { emitRealtimeEvent } from "../services/realtimeService";
@@ -54,13 +55,14 @@ export const createHeartbeat = async (req: Request, res: Response) => {
     });
 
     void relayGuardState(heartbeat.guard);
+    void handleHeartbeatForDeferral(heartbeat.toObject());
 
     emitRealtimeEvent({
       type: "heartbeat:new",
       payload: heartbeat.toObject()
     });
-    res.status(201).json({ 
-      message: "Heartbeat recorded successfully" 
+    res.status(201).json({
+      message: "Heartbeat recorded successfully"
     });
     statusCache.payload = null;
     statusCache.heartbeatId = null;

@@ -1,5 +1,11 @@
 import { Schema, model } from "mongoose";
 
+export interface RequestParams {
+  provider: string;
+  model: string;
+  maxTokens: number;
+}
+
 export interface ScheduleRunAttributes {
   scheduleRunId: string;
   triggeredBy: "cron" | "manual";
@@ -11,6 +17,10 @@ export interface ScheduleRunAttributes {
   entries: number;
   reasoning: string;
   errorMessage?: string | null;
+  systemPrompt?: string | null;
+  userPrompt?: string | null;
+  rawResponse?: string | null;
+  requestParams?: RequestParams | null;
   startedAt: Date;
   completedAt?: Date | null;
 }
@@ -26,6 +36,17 @@ const scheduleRunSchema = new Schema<ScheduleRunAttributes>({
   entries: { type: Number, default: 0 },
   reasoning: { type: String, default: "" },
   errorMessage: { type: String, default: null },
+  systemPrompt: { type: String, default: null },
+  userPrompt: { type: String, default: null },
+  rawResponse: { type: String, default: null },
+  requestParams: {
+    type: new Schema<RequestParams>({
+      provider: { type: String },
+      model: { type: String },
+      maxTokens: { type: Number }
+    }, { _id: false }),
+    default: null
+  },
   startedAt: { type: Date, required: true },
   completedAt: { type: Date, default: null }
 });

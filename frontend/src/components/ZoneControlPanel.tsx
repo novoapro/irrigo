@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { IrrigationRecord, ManualRun, Zone, ZoneState } from "../types";
 import ZoneCard from "./ZoneCard";
 import type { ZoneIrrigationSummary } from "./ZoneCard";
@@ -24,6 +25,7 @@ interface ZoneControlPanelProps {
   irrigationRecords?: IrrigationRecord[];
   baselinePsi?: number | null;
   manualRun?: ManualRun | null;
+  guardActive?: boolean;
 }
 
 function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrrigationSummary> {
@@ -44,7 +46,7 @@ function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrr
 
 const COMMAND_CONFIRM_TIMEOUT_MS = 15_000;
 
-const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi, manualRun }: ZoneControlPanelProps) => {
+const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi, manualRun, guardActive }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,6 +56,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   const [error, setError] = useState<string | null>(null);
   const [runningAll, setRunningAll] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [guardConfirmAction, setGuardConfirmAction] = useState<(() => void) | null>(null);
 
   const isManage = mode === "manage";
   const zoneSummaries = useMemo(
@@ -158,7 +161,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     };
   }, []);
 
-  const handleCommand = useCallback(
+  const executeCommand = useCallback(
     async (zoneId: string, action: "on" | "off", durationMinutes?: number) => {
       setPendingCommands((prev) => new Set(prev).add(zoneId));
       setError(null);
@@ -193,6 +196,17 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [onZonesChanged, clearConfirmation]
   );
 
+  const handleCommand = useCallback(
+    (zoneId: string, action: "on" | "off", durationMinutes?: number) => {
+      if (action === "on" && guardActive) {
+        setGuardConfirmAction(() => () => void executeCommand(zoneId, action, durationMinutes));
+      } else {
+        void executeCommand(zoneId, action, durationMinutes);
+      }
+    },
+    [guardActive, executeCommand]
+  );
+
   const isManualRunActive = manualRun?.status === "running";
   const manualRunZoneIds = useMemo(
     () => manualRun?.zones.map((z) => z.zoneId) ?? [],
@@ -211,7 +225,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   const enabledZones = zones.filter((z) => z.enabled);
   const eligibleZones = enabledZones.filter((z) => !z.excludeFromManualRun);
 
-  const handleRunAll = useCallback(async () => {
+  const executeRunAll = useCallback(async () => {
     setRunningAll(true);
     setError(null);
     try {
@@ -225,6 +239,14 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
       setRunningAll(false);
     }
   }, [eligibleZones]);
+
+  const handleRunAll = useCallback(() => {
+    if (guardActive) {
+      setGuardConfirmAction(() => () => void executeRunAll());
+    } else {
+      void executeRunAll();
+    }
+  }, [guardActive, executeRunAll]);
 
   const handleCancelRun = useCallback(async () => {
     setCancelling(true);
@@ -347,6 +369,37 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
           onDelete={editingZone ? handleDelete : undefined}
           onClose={handleClose}
         />
+      )}
+
+      {guardConfirmAction && createPortal(
+        <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
+          <div className="confirm-dialog">
+            <div className="confirm-dialog__icon" style={{ background: "var(--color-warning-bg)" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-warning-text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+            </div>
+            <h3 className="confirm-dialog__title">Guard is active</h3>
+            <p className="confirm-dialog__message">
+              The irrigation guard is on — conditions are not ideal for irrigation. Do you still want to proceed?
+            </p>
+            <div className="confirm-dialog__actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setGuardConfirmAction(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => { guardConfirmAction(); setGuardConfirmAction(null); }}
+              >
+                Proceed anyway
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </section>
   );

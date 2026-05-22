@@ -1,6 +1,7 @@
 import IrrigationCommand from "../models/IrrigationCommand";
 import type { CommandSource } from "../models/IrrigationCommand";
 import Zone from "../models/Zone";
+import Heartbeat from "../models/Heartbeat";
 import IrrigationEvent from "../models/IrrigationEvent";
 import { emitRealtimeEvent } from "./realtimeService";
 import * as externalController from "./externalControllerService";
@@ -23,6 +24,13 @@ export const createCommand = async (
   const zone = await Zone.findOne({ zoneId }).lean();
   if (!zone) throw new Error("Zone not found");
   if (!zone.enabled) throw new Error("Zone is disabled");
+
+  if (action === "on" && source !== "manual") {
+    const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+    if (latestHeartbeat?.guard) {
+      throw new Error("Guard is active — irrigation not permitted");
+    }
+  }
 
   if (action === "on") {
     const lastEvent = await IrrigationEvent.findOne({ zone: zoneId })

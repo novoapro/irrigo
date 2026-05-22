@@ -1,6 +1,6 @@
 import { Schema, model } from "mongoose";
 
-export type ScheduleEntryStatus = "planned" | "queued" | "executing" | "completed" | "skipped" | "cancelled";
+export type ScheduleEntryStatus = "planned" | "queued" | "executing" | "completed" | "skipped" | "cancelled" | "deferred";
 
 export interface WeatherContext {
   precipitationProbability: number | null;
@@ -20,6 +20,11 @@ export interface ScheduleEntryAttributes {
   skipReason?: string | null;
   userModified?: boolean;
   programId?: string | null;
+  deferralEnabled: boolean;
+  deferralWindowMinutes: number;
+  deferredAt?: Date | null;
+  deferralDeadline?: Date | null;
+  deferralReason?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -40,7 +45,7 @@ const scheduleEntrySchema = new Schema<ScheduleEntryAttributes>({
   plannedDurationMinutes: { type: Number, required: true },
   status: {
     type: String,
-    enum: ["planned", "queued", "executing", "completed", "skipped", "cancelled"],
+    enum: ["planned", "queued", "executing", "completed", "skipped", "cancelled", "deferred"],
     default: "planned",
     index: true
   },
@@ -50,6 +55,11 @@ const scheduleEntrySchema = new Schema<ScheduleEntryAttributes>({
   skipReason: { type: String, default: null },
   userModified: { type: Boolean, default: false },
   programId: { type: String, default: null },
+  deferralEnabled: { type: Boolean, default: false },
+  deferralWindowMinutes: { type: Number, default: 60 },
+  deferredAt: { type: Date, default: null },
+  deferralDeadline: { type: Date, default: null },
+  deferralReason: { type: String, default: null },
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() }
 });

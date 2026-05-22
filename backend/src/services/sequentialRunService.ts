@@ -11,6 +11,8 @@ interface ActiveRun {
   programId?: string;
   currentZoneIndex: number;
   timeoutTimer: NodeJS.Timeout | null;
+  deferralEnabled: boolean;
+  deferralWindowMinutes: number;
 }
 
 let activeRun: ActiveRun | null = null;
@@ -83,10 +85,12 @@ const advanceToNextZone = async () => {
   clearSafetyTimeout();
 
   const run = await SequentialRun.findById(activeRun.runId);
-  if (!run || run.status !== "running") {
+  if (!run || (run.status !== "running" && run.status !== "deferred")) {
     activeRun = null;
     return;
   }
+
+  if (run.status === "deferred") return;
 
   const currentZone = run.zones[activeRun.currentZoneIndex];
   if (currentZone && currentZone.status === "running") {
@@ -128,7 +132,9 @@ export interface StartRunZoneInput {
 export const startSequentialRun = async (
   zones: StartRunZoneInput[],
   source: SequentialRunSource,
-  programId?: string
+  programId?: string,
+  deferralEnabled: boolean = false,
+  deferralWindowMinutes: number = 120
 ): Promise<string> => {
   if (activeRun) {
     throw new Error("A sequential run is already in progress");
@@ -151,7 +157,9 @@ export const startSequentialRun = async (
     status: "running",
     zones: zoneEntries,
     currentZoneIndex: 0,
-    startedAt: new Date()
+    startedAt: new Date(),
+    deferralEnabled,
+    deferralWindowMinutes
   });
 
   const runId = run._id.toString();
@@ -161,7 +169,9 @@ export const startSequentialRun = async (
     source,
     programId,
     currentZoneIndex: 0,
-    timeoutTimer: null
+    timeoutTimer: null,
+    deferralEnabled,
+    deferralWindowMinutes
   };
 
   emitRealtimeEvent({
@@ -201,10 +211,12 @@ export const cancelRun = async (): Promise<boolean> => {
   }
 
   const currentZone = run.zones[activeRun.currentZoneIndex];
-  if (currentZone && (currentZone.status === "running" || currentZone.status === "activating")) {
-    try {
-      await createCommand(currentZone.zoneId, "off", undefined, run.source);
-    } catch { /* best effort */ }
+  if (currentZone && (currentZone.status === "running" || currentZone.status === "activating" || currentZone.status === "deferred")) {
+    if (currentZone.status !== "deferred") {
+      try {
+        await createCommand(currentZone.zoneId, "off", undefined, run.source);
+      } catch { /* best effort */ }
+    }
     currentZone.status = "skipped";
     currentZone.completedAt = new Date();
     currentZone.error = "Run cancelled";
@@ -242,3 +254,77 @@ export const getRunStatus = async () => {
 };
 
 export const isRunActive = (): boolean => activeRun !== null;
+
+export const getActiveRun = () => activeRun;
+
+export const clearActiveRun = () => {
+  clearSafetyTimeout();
+  activeRun = null;
+};
+
+export const deferCurrentZone = async (): Promise<boolean> => {
+  if (!activeRun || !activeRun.deferralEnabled) return false;
+
+  const run = await SequentialRun.findById(activeRun.runId);
+  if (!run || run.status !== "running") return false;
+
+  const currentZone = run.zones[activeRun.currentZoneIndex];
+  if (!currentZone || (currentZone.status !== "running" && currentZone.status !== "activating")) return false;
+
+  if (currentZone.status === "running") {
+    try {
+      await createCommand(currentZone.zoneId, "off", undefined, run.source);
+    } catch { /* best effort */ }
+  }
+
+  currentZone.status = "deferred";
+  run.status = "deferred";
+  run.deferredAt = new Date();
+  run.deferralDeadline = new Date(Date.now() + run.deferralWindowMinutes * 60_000);
+  await run.save();
+
+  clearSafetyTimeout();
+  emitProgress(serializeRun(run.toObject()), run.source);
+
+  return true;
+};
+
+export const resumeDeferredRun = async (runIdOverride?: string): Promise<boolean> => {
+  const runId = runIdOverride ?? activeRun?.runId;
+  if (!runId) return false;
+
+  const run = await SequentialRun.findById(runId);
+  if (!run || run.status !== "deferred") return false;
+
+  if (run.deferralDeadline && new Date(run.deferralDeadline) <= new Date()) return false;
+
+  const deferredIndex = run.zones.findIndex((z) => z.status === "deferred");
+  if (deferredIndex === -1) return false;
+
+  run.status = "running";
+  run.deferredAt = null;
+  run.deferralDeadline = null;
+  run.zones[deferredIndex]!.status = "queued";
+  await run.save();
+
+  if (!activeRun) {
+    activeRun = {
+      runId: run._id.toString(),
+      source: run.source,
+      programId: run.programId ?? undefined,
+      currentZoneIndex: deferredIndex,
+      timeoutTimer: null,
+      deferralEnabled: run.deferralEnabled,
+      deferralWindowMinutes: run.deferralWindowMinutes
+    };
+  }
+
+  emitRealtimeEvent({
+    type: "sequentialRun:zoneProgress",
+    payload: { ...serializeRun(run.toObject()), source: run.source }
+  });
+
+  await startZone(run, deferredIndex);
+
+  return true;
+};

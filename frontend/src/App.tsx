@@ -5,6 +5,7 @@ import DateTimeInput from "./components/DateTimeInput";
 import RecordsPage from "./pages/RecordsPage";
 import IrrigationsPage from "./pages/IrrigationsPage";
 import LogsPage from "./pages/LogsPage";
+import AIRunsPage from "./pages/AIRunsPage";
 import {
   buildRealtimeUrl,
   fetchDeviceConfig,
@@ -1240,6 +1241,13 @@ const App = () => {
           }
           break;
         }
+        case "deferral:triggered":
+        case "deferral:recovered":
+        case "deferral:expired": {
+          void loadZones();
+          setAiRunRefreshKey((k) => k + 1);
+          break;
+        }
         default:
           break;
       }
@@ -1351,6 +1359,9 @@ const App = () => {
         <NavLink to="/irrigations" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
           Irrigations
         </NavLink>
+        <NavLink to="/ai-runs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
+          AI Runs
+        </NavLink>
         <NavLink to="/logs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}>
           Logs
         </NavLink>
@@ -1397,6 +1408,7 @@ const App = () => {
         irrigationRecords={irrigationRecords}
         baselinePsi={latestBaselinePsi}
         manualRun={manualRun}
+        guardActive={guardActive}
       />
 
       <IrrigationQueuePanel
@@ -1543,6 +1555,7 @@ const App = () => {
         } />
         <Route path="/heartbeats" element={<RecordsPage />} />
         <Route path="/irrigations" element={<IrrigationsPage />} />
+        <Route path="/ai-runs" element={<AIRunsPage zones={zones} />} />
         <Route path="/logs" element={<LogsPage />} />
       </Routes>
 

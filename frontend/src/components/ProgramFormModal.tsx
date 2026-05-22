@@ -87,12 +87,16 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
   const [hour, setHour] = useState(6);
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
   const [zoneEntries, setZoneEntries] = useState<Record<string, { included: boolean; duration: number }>>({});
+  const [deferralEnabled, setDeferralEnabled] = useState(false);
+  const [deferralWindowMinutes, setDeferralWindowMinutes] = useState(120);
 
   useEffect(() => {
     if (!open) return;
     if (program) {
       setName(program.name);
       setEnabled(program.enabled);
+      setDeferralEnabled(program.deferralEnabled ?? false);
+      setDeferralWindowMinutes(program.deferralWindowMinutes ?? 120);
       const parsed = parseCron(program.scheduleCron);
       setFrequency(parsed.frequency);
       setHour(parsed.hour);
@@ -109,6 +113,8 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     } else {
       setName("");
       setEnabled(true);
+      setDeferralEnabled(false);
+      setDeferralWindowMinutes(120);
       setFrequency("daily");
       setHour(6);
       setSelectedDays([1, 3, 5]);
@@ -139,7 +145,9 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
         name: name.trim(),
         enabled,
         scheduleCron: buildCron(frequency, hour, selectedDays),
-        zoneEntries: selectedEntries
+        zoneEntries: selectedEntries,
+        deferralEnabled,
+        deferralWindowMinutes
       };
 
       if (program) {
@@ -155,7 +163,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     } finally {
       setSaving(false);
     }
-  }, [name, enabled, frequency, hour, selectedDays, zoneEntries, program, onSaved, onClose]);
+  }, [name, enabled, frequency, hour, selectedDays, zoneEntries, deferralEnabled, deferralWindowMinutes, program, onSaved, onClose]);
 
   const toggleZone = (zoneId: string) => {
     setZoneEntries((prev) => ({
@@ -217,6 +225,37 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                 </span>
               </label>
             </div>
+
+            <div className="zone-form-top-row">
+              <span className="ai-schedule-enable-label">Defer on Guard</span>
+              <label
+                className={`toggle-switch${deferralEnabled ? " toggle-switch--on" : ""}`}
+                role="switch"
+                aria-checked={deferralEnabled}
+              >
+                <input
+                  type="checkbox"
+                  checked={deferralEnabled}
+                  onChange={(e) => setDeferralEnabled(e.target.checked)}
+                />
+                <span className="toggle-switch__track">
+                  <span className="toggle-switch__thumb" />
+                </span>
+              </label>
+            </div>
+            {deferralEnabled && (
+              <div className="form-group">
+                <label>Deferral Window (minutes)</label>
+                <input
+                  type="number"
+                  min={15}
+                  max={480}
+                  value={deferralWindowMinutes}
+                  onChange={(e) => setDeferralWindowMinutes(Math.max(15, Math.min(480, parseInt(e.target.value, 10) || 120)))}
+                />
+                <span className="form-hint">How long to wait for the guard to clear before giving up.</span>
+              </div>
+            )}
 
             <fieldset className="form-fieldset">
               <legend>Schedule</legend>

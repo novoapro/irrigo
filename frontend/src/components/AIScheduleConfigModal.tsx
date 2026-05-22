@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { AIScheduleConfig, AISchedulePreferences, ScheduleEntry, ScheduleRun, Zone } from "../types";
 import { fetchAIScheduleConfig, updateAIScheduleConfig, triggerAIScheduleRun, fetchScheduleRuns, fetchScheduleRun } from "../api";
 import Dropdown from "./Dropdown";
+import AIInteractionModal from "./AIInteractionModal";
 
 const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropics" },
@@ -150,6 +151,8 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
   const [lastRun, setLastRun] = useState<ScheduleRun | null>(null);
   const [lastRunEntries, setLastRunEntries] = useState<ScheduleEntry[]>([]);
   const [runExpanded, setRunExpanded] = useState(false);
+  const [interactionRun, setInteractionRun] = useState<ScheduleRun | null>(null);
+  const [loadingInteraction, setLoadingInteraction] = useState(false);
 
   const getZoneName = useCallback((zoneId: string) => {
     const z = zones.find((zone) => zone.zoneId === zoneId);
@@ -562,6 +565,30 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
                     ) : (
                       <p className="muted">No zones scheduled — conditions not favorable.</p>
                     )}
+                    <button
+                      type="button"
+                      className="ghost-button schedule-run__view-interaction"
+                      disabled={loadingInteraction}
+                      onClick={async () => {
+                        if (!lastRun) return;
+                        setLoadingInteraction(true);
+                        try {
+                          const detail = await fetchScheduleRun(lastRun.scheduleRunId);
+                          setInteractionRun(detail);
+                        } catch (err) {
+                          console.error("Failed to load interaction:", err);
+                        } finally {
+                          setLoadingInteraction(false);
+                        }
+                      }}
+                    >
+                      {loadingInteraction ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                      )}
+                      View Interaction
+                    </button>
                   </div>
                 )}
               </div>
@@ -585,8 +612,6 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
               >
                 {runningNow ? (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                ) : lastRun?.status === "completed" ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 ) : lastRun?.status === "error" ? (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
                 ) : (
@@ -607,18 +632,27 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
     </>
   );
 
-  if (inline) return formContent;
+  const interactionModal = interactionRun ? (
+    <AIInteractionModal run={interactionRun} onClose={() => setInteractionRun(null)} />
+  ) : null;
 
-  return createPortal(
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-content modal-content--wide">
-        <header className="modal-header">
-          <h2>AI Scheduling Configuration</h2>
-        </header>
-        <div className="modal-body">{formContent}</div>
-      </div>
-    </div>,
-    document.body
+  if (inline) return <>{formContent}{interactionModal}</>;
+
+  return (
+    <>
+      {createPortal(
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-content modal-content--wide">
+            <header className="modal-header">
+              <h2>AI Scheduling Configuration</h2>
+            </header>
+            <div className="modal-body">{formContent}</div>
+          </div>
+        </div>,
+        document.body
+      )}
+      {interactionModal}
+    </>
   );
 };
 

@@ -13,6 +13,7 @@ import IrrigationCommand from "./models/IrrigationCommand";
 import IrrigationEvent from "./models/IrrigationEvent";
 import AIScheduleConfig from "./models/AIScheduleConfig";
 import SystemConfig from "./models/SystemConfig";
+import Config from "./models/Config";
 import IrrigationRecord from "./models/IrrigationRecord";
 
 const now = new Date();
@@ -649,8 +650,7 @@ async function seed() {
     IrrigationCommand,
     IrrigationEvent,
     IrrigationRecord,
-    AIScheduleConfig,
-    SystemConfig,
+    Config,
   ];
   for (const Model of collections as any[]) {
     await Model.deleteMany({});

@@ -9,6 +9,7 @@ import {
   cancelScheduleEntry,
   skipScheduleEntry
 } from "../api";
+import AIInteractionModal from "./AIInteractionModal";
 
 interface AISchedulePanelProps {
   zones: Zone[];
@@ -97,7 +98,19 @@ const EntryCard = ({
     {entry.status === "skipped" && entry.skipReason && (
       <p className="schedule-entry-card__skip muted">{entry.skipReason}</p>
     )}
-    {entry.status === "planned" && onSkip && onCancel && (
+    {entry.status === "deferred" && (
+      <div className="schedule-entry-card__deferral">
+        <p className="schedule-entry-card__skip muted">
+          {entry.deferralReason ?? "Guard active — waiting for conditions to improve"}
+        </p>
+        {entry.deferralDeadline && (
+          <p className="schedule-entry-card__skip muted">
+            Deadline: {formatDate(entry.deferralDeadline)}
+          </p>
+        )}
+      </div>
+    )}
+    {(entry.status === "planned" || entry.status === "deferred") && onSkip && onCancel && (
       <div className="schedule-entry-card__actions">
         <button
           type="button"
@@ -132,6 +145,8 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [runEntries, setRunEntries] = useState<Record<string, ScheduleEntry[]>>({});
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
+  const [interactionRun, setInteractionRun] = useState<ScheduleRun | null>(null);
+  const [loadingInteraction, setLoadingInteraction] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -208,6 +223,18 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
     }
   }, [expandedRun, runEntries]);
 
+  const handleViewInteraction = useCallback(async (runId: string) => {
+    setLoadingInteraction(runId);
+    try {
+      const detail = await fetchScheduleRun(runId);
+      setInteractionRun(detail);
+    } catch (err) {
+      console.error("Failed to load interaction:", err);
+    } finally {
+      setLoadingInteraction(null);
+    }
+  }, []);
+
   const getZoneName = (zoneId: string) => {
     const zone = zones.find((z) => z.zoneId === zoneId);
     return zone?.name ?? zoneId;
@@ -263,16 +290,17 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
 
       {loading ? (
         <p className="muted">Loading schedule...</p>
-      ) : entries.length === 0 && recentRuns.length === 0 ? (
+      ) : !config?.enabled && entries.length === 0 && recentRuns.length === 0 ? (
         <div className="ai-schedule-empty">
-          <p className="muted">
-            {config?.enabled
-              ? "No scheduled entries yet. Run the AI scheduler to create a plan."
-              : "Enable AI scheduling in settings to get started."}
-          </p>
+          <p className="muted">Enable AI scheduling in settings to get started.</p>
         </div>
       ) : (
         <>
+          {entries.length === 0 && recentRuns.length === 0 && (
+            <div className="ai-schedule-empty">
+              <p className="muted">No scheduled entries yet. Run the AI scheduler to create a plan.</p>
+            </div>
+          )}
           {entries.length > 0 && (
             <div className="schedule-entries-list">
               <h4>Upcoming</h4>
@@ -352,6 +380,19 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
                             {run.promptTokens.toLocaleString()} prompt + {(run.completionTokens ?? 0).toLocaleString()} completion tokens
                           </p>
                         )}
+                        <button
+                          type="button"
+                          className="ghost-button schedule-run__view-interaction"
+                          onClick={() => void handleViewInteraction(run.scheduleRunId)}
+                          disabled={loadingInteraction === run.scheduleRunId}
+                        >
+                          {loadingInteraction === run.scheduleRunId ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                          )}
+                          View Interaction
+                        </button>
                       </div>
                     )}
                   </div>
@@ -360,6 +401,12 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
             </div>
           )}
         </>
+      )}
+      {interactionRun && (
+        <AIInteractionModal
+          run={interactionRun}
+          onClose={() => setInteractionRun(null)}
+        />
       )}
     </section>
   );

@@ -4,6 +4,7 @@ import {
   upsertAIScheduleConfig,
   triggerScheduleRun,
   listScheduleRuns,
+  deleteScheduleRuns,
   getScheduleRun,
   listScheduleEntries,
   getUpcomingEntries,
@@ -32,6 +33,10 @@ router.post("/run", (req, res) => {
 
 router.get("/runs", (req, res) => {
   void listScheduleRuns(req, res);
+});
+
+router.delete("/runs", (req, res) => {
+  void deleteScheduleRuns(req, res);
 });
 
 router.get("/runs/:runId", (req, res) => {

@@ -521,12 +521,32 @@ export const triggerAIScheduleRun = async (): Promise<{ runId: string; entriesCr
   return json.data;
 };
 
-export const fetchScheduleRuns = async (page = 1): Promise<{ data: ScheduleRun[]; meta: HeartbeatListMeta }> => {
-  const response = await fetch(buildUrl("/ai-schedule/runs", { page: page.toString() }));
+export interface ScheduleRunQuery {
+  page?: number;
+  start?: string;
+  end?: string;
+}
+
+export const fetchScheduleRuns = async (page = 1, query?: Omit<ScheduleRunQuery, "page">): Promise<{ data: ScheduleRun[]; meta: HeartbeatListMeta }> => {
+  const params: Record<string, string> = { page: page.toString() };
+  if (query?.start) params.start = query.start;
+  if (query?.end) params.end = query.end;
+  const response = await fetch(buildUrl("/ai-schedule/runs", params));
   if (!response.ok) {
     throw new Error(`Failed to fetch schedule runs (${response.status})`);
   }
   return (await response.json()) as { data: ScheduleRun[]; meta: HeartbeatListMeta };
+};
+
+export const deleteScheduleRuns = async (query?: Omit<ScheduleRunQuery, "page">): Promise<{ deletedCount: number }> => {
+  const params: Record<string, string> = {};
+  if (query?.start) params.start = query.start;
+  if (query?.end) params.end = query.end;
+  const response = await fetch(buildUrl("/ai-schedule/runs", params), { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`Failed to delete schedule runs (${response.status})`);
+  }
+  return (await response.json()) as { deletedCount: number };
 };
 
 export const fetchScheduleRun = async (runId: string): Promise<ScheduleRun & { entries: ScheduleEntry[] }> => {

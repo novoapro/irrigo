@@ -34,7 +34,10 @@ export type RealtimeEventType =
   | "sequentialRun:started"
   | "sequentialRun:zoneProgress"
   | "sequentialRun:completed"
-  | "sequentialRun:cancelled";
+  | "sequentialRun:cancelled"
+  | "deferral:triggered"
+  | "deferral:recovered"
+  | "deferral:expired";
 
 export interface RealtimeEvent<TPayload = unknown> {
   type: RealtimeEventType;

@@ -3,6 +3,7 @@ import type { IrrigationMode } from "../models/SystemConfig";
 import { startScheduleExecutor, stopScheduleExecutor } from "./scheduleExecutorService";
 import { startAIScheduleCron, stopAIScheduleCron } from "./aiScheduleCronService";
 import { startProgramScheduler, stopProgramScheduler } from "./programSchedulerService";
+import { startGuardDeferralMonitor, stopGuardDeferralMonitor } from "./guardDeferralService";
 import { runScheduleEvaluation } from "./aiSchedulingService";
 import { emitRealtimeEvent } from "./realtimeService";
 
@@ -35,6 +36,7 @@ export const applyModeServices = (mode: IrrigationMode) => {
       stopProgramScheduler();
       startScheduleExecutor();
       startAIScheduleCron();
+      startGuardDeferralMonitor();
       runScheduleEvaluation("cron").catch((err) =>
         console.error("[applyModeServices] Initial smart evaluation failed:", err)
       );
@@ -43,11 +45,13 @@ export const applyModeServices = (mode: IrrigationMode) => {
       stopScheduleExecutor();
       stopAIScheduleCron();
       startProgramScheduler();
+      startGuardDeferralMonitor();
       break;
     case "manual":
       stopScheduleExecutor();
       stopAIScheduleCron();
       stopProgramScheduler();
+      stopGuardDeferralMonitor();
       break;
   }
 };
