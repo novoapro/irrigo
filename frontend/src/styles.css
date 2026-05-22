@@ -121,6 +121,132 @@
   color: var(--color-text);
   background-color: var(--color-bg);
   margin: 0;
+
+  /* ── Chart colors ── */
+  --chart-pressure-line: #2c7be5;
+  --chart-baseline-stroke: #047857;
+  --chart-baseline-label: #065f46;
+  --chart-grid-stroke: rgba(148, 163, 184, 0.35);
+  --chart-axis-color: #94a3b8;
+  --chart-precip-line: #2563eb;
+  --chart-danger: #ef4444;
+  --chart-success: #10b981;
+  --chart-info: #3b82f6;
+  --chart-muted: #94a3b8;
+  --chart-green: #22c55e;
+  --chart-amber: #f59e0b;
+  --chart-indigo: #6366f1;
+  --chart-indigo-light: #a5b4fc;
+
+  /* ── Forecast-specific ── */
+  --forecast-card-bg: #1e293b;
+  --forecast-card-text: #e2e8f0;
+  --forecast-accent: #62a8cf;
+  --forecast-precip-color: #bae6fd;
+  --forecast-muted: #94a3b8;
+  --forecast-error: #fecaca;
+
+  /* ── Misc component colors ── */
+  --color-soil: #8b5a2b;
+  --slider-fill-r: 37;
+  --slider-fill-g: 99;
+  --slider-fill-b: 235;
+}
+
+/* ── Dark theme ── */
+html[data-theme="dark"] {
+  --color-gray-50:  #18181b;
+  --color-gray-100: #27272a;
+  --color-gray-200: #3f3f46;
+  --color-gray-300: #52525b;
+  --color-gray-400: #71717a;
+  --color-gray-500: #a1a1aa;
+  --color-gray-600: #d4d4d8;
+  --color-gray-700: #e4e4e7;
+  --color-gray-800: #f4f4f5;
+  --color-gray-900: #fafafa;
+
+  --color-primary-50:  #0c4a6e;
+  --color-primary-100: #075985;
+  --color-primary-200: #0369a1;
+  --color-primary-300: #0284c7;
+  --color-primary-400: #0ea5e9;
+  --color-primary-500: #38bdf8;
+  --color-primary-600: #7dd3fc;
+  --color-primary-700: #bae6fd;
+  --color-primary-800: #e0f2fe;
+  --color-primary-900: #f0f9ff;
+
+  --color-success: #4ade80;
+  --color-success-bg: rgba(34, 197, 94, 0.15);
+  --color-success-border: rgba(34, 197, 94, 0.30);
+  --color-success-text: #4ade80;
+
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(239, 68, 68, 0.15);
+  --color-danger-border: rgba(239, 68, 68, 0.25);
+  --color-danger-text: #f87171;
+
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(245, 158, 11, 0.15);
+  --color-warning-border: rgba(245, 158, 11, 0.25);
+  --color-warning-text: #fbbf24;
+
+  --color-info: #60a5fa;
+  --color-info-bg: rgba(59, 130, 246, 0.15);
+  --color-info-border: rgba(59, 130, 246, 0.25);
+  --color-info-text: #60a5fa;
+
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-raised: #273548;
+  --color-surface-sunken: #0f172a;
+  --color-surface-dark: #1e293b;
+  --color-surface-dark-deep: #0f172a;
+
+  --color-text: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+  --color-text-on-dark: #e2e8f0;
+
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-color-strong: rgba(255, 255, 255, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 1px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.30), 0 0 1px rgba(0, 0, 0, 0.30);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.40), 0 0 1px rgba(0, 0, 0, 0.30);
+
+  --focus-ring: 0 0 0 2px rgba(56, 189, 248, 0.30);
+
+  --chart-pressure-line: #60a5fa;
+  --chart-baseline-stroke: #34d399;
+  --chart-baseline-label: #6ee7b7;
+  --chart-grid-stroke: rgba(148, 163, 184, 0.20);
+  --chart-axis-color: #64748b;
+  --chart-precip-line: #60a5fa;
+  --chart-danger: #f87171;
+  --chart-success: #34d399;
+  --chart-info: #60a5fa;
+  --chart-muted: #64748b;
+  --chart-green: #4ade80;
+  --chart-amber: #fbbf24;
+  --chart-indigo: #818cf8;
+  --chart-indigo-light: #c7d2fe;
+
+  --forecast-card-bg: #273548;
+  --forecast-card-text: #e2e8f0;
+  --forecast-accent: #7dd3fc;
+  --forecast-precip-color: #bae6fd;
+  --forecast-muted: #64748b;
+  --forecast-error: #fca5a5;
+
+  --color-soil: #c4956a;
+  --slider-fill-r: 56;
+  --slider-fill-g: 189;
+  --slider-fill-b: 248;
+
+  color-scheme: dark;
 }
 
 *,
@@ -234,6 +360,11 @@ select {
   max-width: clamp(100px, 16vw, 140px);
   height: auto;
   flex: 0 1 auto;
+  transition: filter var(--transition-base);
+}
+
+html[data-theme="dark"] .app-logo {
+  filter: brightness(0) invert(1);
 }
 
 .app-header h1 {
@@ -278,7 +409,7 @@ select {
 }
 
 .app-nav__link--active {
-  color: var(--color-text);
+  color: var(--color-primary-600);
   border-bottom-color: var(--color-primary-600);
 }
 
@@ -314,15 +445,15 @@ select {
   padding: 0;
   border: none;
   border-radius: var(--radius-md);
-  background: rgba(220, 38, 38, 0.08);
-  color: #dc2626;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
   cursor: pointer;
   flex-shrink: 0;
   transition: background var(--transition-fast);
 }
 
 .records-delete-btn:hover {
-  background: rgba(220, 38, 38, 0.18);
+  background: var(--color-danger-border);
 }
 
 .records-filters {
@@ -1129,14 +1260,14 @@ select {
 
 .filter-calendar-portal .react-datepicker {
   border-radius: 18px;
-  border: 1px solid rgba(3, 44, 24, 0.18);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+  border: 1px solid var(--border-color-strong);
+  box-shadow: var(--shadow-xl);
 }
 
 .date-calendar {
   border-radius: 12px;
-  border: 1px solid rgba(3, 44, 24, 0.15);
-  box-shadow: 0 18px 40px rgba(3, 44, 24, 0.18);
+  border: 1px solid var(--border-color-strong);
+  box-shadow: var(--shadow-xl);
   padding: 0.5rem;
   font-family: inherit;
 }
@@ -1679,11 +1810,11 @@ select {
   font-size: 2.6rem;
   line-height: 1;
   pointer-events: none;
-  color: rgba(202, 138, 4, 0.35);
+  color: var(--color-warning-border);
 }
 
 .guard-card--ok .guard-icon-anchor {
-  color: rgba(21, 128, 61, 0.3);
+  color: var(--color-success-border);
 }
 
 .guard-card-main {
@@ -1828,7 +1959,7 @@ select {
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  background: rgba(148, 163, 184, 0.08);
+  background: rgba(148, 163, 184, 0.06);
   border-radius: var(--radius-lg);
   padding: var(--space-5) var(--space-6);
   flex-wrap: wrap;
@@ -1926,7 +2057,7 @@ select {
   justify-content: space-between;
   align-items: center;
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--forecast-muted);
   gap: 1rem;
 }
 
@@ -1962,7 +2093,7 @@ select {
   align-self: left;
   font-weight: 600;
   letter-spacing: 0.03em;
-  color: #62a8cf;
+  color: var(--forecast-accent);
   text-transform: uppercase;
 }
 
@@ -1970,12 +2101,12 @@ select {
   margin: 0;
   max-width: 16rem;
   font-size: 1rem;
-  color: #e2e8f0;
+  color: var(--forecast-card-text);
 }
 
 .forecast-location {
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--forecast-muted);
 }
 
 .forecast-leading-precip,
@@ -1992,7 +2123,7 @@ select {
   gap: 0.4rem;
   font-size: 1.5rem;
   font-weight: 600;
-  color: #bae6fd;
+  color: var(--forecast-precip-color);
 }
 
 .forecast-precip-value .rain-icon {
@@ -2027,7 +2158,7 @@ select {
 }
 
 .error-text {
-  color: #fecaca;
+  color: var(--forecast-error);
 }
 
 .sensor-icons {
@@ -2245,7 +2376,7 @@ select {
 .chart-placeholder {
   text-align: center;
   padding: 2.5rem 1rem;
-  border: 1px dashed rgba(3, 44, 24, 0.15);
+  border: 1px dashed var(--border-color-strong);
   border-radius: 12px;
 }
 
@@ -2266,7 +2397,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--color-bg);
+  opacity: 0.82;
   border-radius: var(--radius-lg);
   backdrop-filter: blur(2px);
 }
@@ -2715,7 +2847,7 @@ tbody tr:hover {
 }
 
 .sensor-icon--soil {
-  color: #8b5a2b;
+  color: var(--color-soil);
 }
 
 .sensor-icon-anchor .rain-icon {
@@ -2724,19 +2856,19 @@ tbody tr:hover {
 }
 
 .sensor-widget--positive .sensor-icon-anchor {
-  color: rgba(22, 163, 74, 0.35);
+  color: var(--color-success-border);
 }
 
 .sensor-widget--negative .sensor-icon-anchor {
-  color: rgba(220, 38, 38, 0.35);
+  color: var(--color-danger-border);
 }
 
 .sensor-widget--informative .sensor-icon-anchor {
-  color: rgba(37, 99, 235, 0.35);
+  color: var(--color-info-border);
 }
 
 .sensor-widget--warning .sensor-icon-anchor {
-  color: rgba(217, 119, 6, 0.35);
+  color: var(--color-warning-border);
 }
 
 .badge {
@@ -3104,14 +3236,14 @@ tbody tr:hover {
   display: inline-flex;
   align-items: center;
   font-size: 1.1rem;
-  color: #0f172a;
+  color: var(--color-text);
 }
 
 .weather-inline .weather-precip {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  color: #1d4ed8;
+  color: var(--color-info-text);
   font-size: 1.1rem;
 }
 
@@ -3442,7 +3574,7 @@ tbody tr:hover {
   .forecast-temp,
   .forecast-precip-value {
     font-size: 2.3rem;
-    color: #17306b;
+    color: var(--color-text);
   }
 
   .forecast-precip-value.stacked {
@@ -3484,7 +3616,7 @@ tbody tr:hover {
   }
 
   .forecast-precip-value .rain-icon {
-    color: #2563eb;
+    color: var(--color-info-text);
   }
 
   .forecast-chart header {
@@ -3853,6 +3985,30 @@ tbody tr:hover {
   outline: none;
 }
 
+/* ── Theme toggle ── */
+
+.theme-toggle-button {
+  border: none;
+  background: transparent;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text);
+  transition: color var(--transition-base);
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+}
+
+.theme-toggle-button:hover,
+.theme-toggle-button:focus-visible {
+  color: var(--color-primary-600);
+  outline: none;
+}
+
 /* ── AI Schedule Improvements ── */
 
 .schedule-status-pill {
@@ -4055,15 +4211,15 @@ tbody tr:hover {
 }
 
 .zone-card--active {
-  border-left-color: #2563eb;
+  border-left-color: var(--color-primary-500);
   border-left-width: 4px;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, var(--color-surface-sunken) 100%);
+  background: linear-gradient(135deg, var(--color-primary-50) 0%, var(--color-surface-sunken) 100%);
   animation: zone-active-pulse 2s ease-in-out infinite;
 }
 
 @keyframes zone-active-pulse {
-  0%, 100% { border-left-color: #2563eb; }
-  50% { border-left-color: #60a5fa; }
+  0%, 100% { border-left-color: var(--color-primary-500); }
+  50% { border-left-color: var(--color-primary-400); }
 }
 
 .zone-card--disabled {
@@ -4196,8 +4352,8 @@ tbody tr:hover {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease;
 }
 
@@ -4241,12 +4397,12 @@ tbody tr:hover {
 }
 
 .zone-toggle-btn--on {
-  background: rgba(220, 38, 38, 0.12);
-  color: #dc2626;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
 }
 
 .zone-toggle-btn--on:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.22);
+  background: var(--color-danger-border);
 }
 
 .zone-command-pending {
@@ -4329,7 +4485,7 @@ tbody tr:hover {
   border-radius: var(--radius-md);
   background: var(--color-primary-500);
   border: none;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: var(--focus-ring);
   cursor: grab;
 }
 
@@ -4339,7 +4495,7 @@ tbody tr:hover {
   border-radius: var(--radius-md);
   background: var(--color-primary-500);
   border: none;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: var(--focus-ring);
   cursor: grab;
 }
 
@@ -4393,7 +4549,7 @@ tbody tr:hover {
 .zone-card__active-bar-fill {
   position: absolute;
   inset: 0;
-  background: rgba(37, 99, 235, 0.06);
+  background: var(--color-primary-50);
   transition: width 1s linear;
   pointer-events: none;
 }
@@ -4760,7 +4916,7 @@ tbody tr:hover {
 
 .danger-button {
   background: var(--color-danger);
-  color: #fff;
+  color: #ffffff;
   border: none;
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
@@ -5304,10 +5460,6 @@ tbody tr:hover {
 .subtitle-link-icon {
   flex-shrink: 0;
   opacity: 0.5;
-}
-
-.irrigation-queue-panel__subtitle--link:hover .subtitle-link-icon {
-  opacity: 1;
 }
 
 /* Schedule runs */
@@ -5900,26 +6052,6 @@ tbody tr:hover {
   gap: var(--space-2);
 }
 
-.irrigation-queue-panel__subtitle {
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-4);
-}
-
-.irrigation-queue-panel__subtitle--link {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.irrigation-queue-panel__subtitle--link:hover {
-  color: var(--color-text);
-}
-
 .irrigation-queue-empty {
   padding: var(--space-6) var(--space-4);
   text-align: center;
@@ -5997,10 +6129,9 @@ tbody tr:hover {
 /* ===== AI Run Summary (Dashboard) ===== */
 
 .ai-run-summary {
-  background: var(--color-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
+  border-top: 1px dotted var(--color-gray-400);
+  margin-inline: var(--space-12);
+  padding: var(--space-4) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -6108,6 +6239,22 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.ai-run-summary__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-primary-600);
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+
+.ai-run-summary__cta:hover {
+  opacity: 0.7;
+}
+
 /* ===== Zone Control Panel Actions ===== */
 
 .zone-control-panel__actions {
@@ -6139,9 +6286,103 @@ tbody tr:hover {
 }
 
 .zone-control-panel__run-btn--active {
-  color: #dc2626;
+  color: var(--color-danger-text);
 }
 
 .zone-control-panel__run-btn--active:hover:not(:disabled) {
-  color: #b91c1c;
+  color: var(--color-danger);
+}
+
+/* ══════════════════════════════════════════
+   Dark mode: component-specific overrides
+   ══════════════════════════════════════════ */
+
+html[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+html[data-theme="dark"] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+html[data-theme="dark"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+html[data-theme="dark"] .irrigation-mode-toggle {
+  background: var(--color-gray-200);
+}
+
+html[data-theme="dark"] .irrigation-mode-toggle__thumb {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .history-loading-overlay {
+  opacity: 0.85;
+}
+
+html[data-theme="dark"] .forecast-card {
+  background: var(--forecast-card-bg);
+}
+
+/* ── react-datepicker dark overrides ── */
+
+html[data-theme="dark"] .react-datepicker {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--border-color-strong);
+}
+
+html[data-theme="dark"] .react-datepicker__header {
+  background-color: var(--color-surface-sunken);
+  border-bottom-color: var(--border-color);
+}
+
+html[data-theme="dark"] .react-datepicker__current-month,
+html[data-theme="dark"] .react-datepicker-time__header,
+html[data-theme="dark"] .react-datepicker__day-name {
+  color: var(--color-text);
+}
+
+html[data-theme="dark"] .react-datepicker__day {
+  color: var(--color-text);
+}
+
+html[data-theme="dark"] .react-datepicker__day:hover {
+  background-color: var(--color-gray-200);
+}
+
+html[data-theme="dark"] .react-datepicker__day--selected,
+html[data-theme="dark"] .react-datepicker__day--keyboard-selected {
+  background-color: var(--color-primary-500);
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .react-datepicker__day--outside-month {
+  color: var(--color-text-tertiary);
+}
+
+html[data-theme="dark"] .react-datepicker__time-container {
+  border-left-color: var(--border-color);
+}
+
+html[data-theme="dark"] .react-datepicker__time-list-item {
+  color: var(--color-text);
+}
+
+html[data-theme="dark"] .react-datepicker__time-list-item:hover {
+  background-color: var(--color-gray-200) !important;
+}
+
+html[data-theme="dark"] .react-datepicker__time-list-item--selected {
+  background-color: var(--color-primary-500) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="dark"] .react-datepicker__navigation-icon::before {
+  border-color: var(--color-text-secondary);
+}
+
+html[data-theme="dark"] .react-datepicker__triangle {
+  display: none;
 }

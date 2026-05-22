@@ -262,7 +262,7 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
             onClick={handleRunNow}
             disabled={running || !config?.enabled}
             title={running ? "Running..." : config?.lastRunAt ? `Last run: ${formatTime(config.lastRunAt)} (${config.lastRunStatus ?? "unknown"})` : "Run now"}
-            aria-label={running ? "Running..." : "Run AI scheduler now"}
+            aria-label={running ? "Running..." : "Run AI Run"}
           >
             {running ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>

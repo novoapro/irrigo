@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { formatDurationLabel, formatCountLabel, formatTimestamp } from "../utils/date";
 import { format, parseISO } from "date-fns";
+import { useChartTheme } from "../hooks/useChartTheme";
 
 export type OverviewUnit = "duration" | "count";
 
@@ -57,149 +58,162 @@ const OverviewSection = ({
   subtitle,
   loading,
   error
-}: OverviewSectionProps) => (
-  <section className="charts-grid">
-    <article className="chart-card overview-card">
-      {loading ? (
-        <p className="muted">Calculating statistics…</p>
-      ) : error ? (
-        <p className="error-text">{error}</p>
-      ) : cards.length > 0 ? (
-        <div className="overview-grid">
-          {pressureOverview ? (
-            <div className="overview-item water-pressure-overview">
-              <header>
-                <h4>Water Pressure</h4>
-              </header>
-              <div className="pressure-card-body">
-                <div className="chart-wrapper pressure-trend">
-                  {trendData.length > 0 ? (
-                    <div className="pressure-trend-container">
-                      <ResponsiveContainer width="100%" height={250}>
-                        <LineChart data={trendData} margin={{ top: 16, right: 10, left: 0, bottom: 16 }}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis
-                            dataKey="timestamp"
-                            tickFormatter={(value) => format(parseISO(value), "MMM d")}
-                            minTickGap={32}
-                          />
-                          <YAxis
-                            domain={["auto", "auto"]}
-                            padding={{ top: 20, bottom: 20 }}
-                            width={30}
-                          />
-                          <Tooltip
-                            labelFormatter={(value) => formatTimestamp(value as string)}
-                          />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="psi"
-                            stroke="#2c7be5"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                          {latestBaselinePsi !== undefined ? (
-                            <ReferenceLine
-                              y={latestBaselinePsi}
-                              stroke="#047857"
-                              strokeWidth={3}
-                              strokeDasharray="4 6"
-                              isFront
-                              ifOverflow="extendDomain"
-                              label={{
-                                position: "insideTop",
-                                value: `Baseline`,
-                                fill: "#065f46",
-                                fontSize: 13,
-                                fontWeight: 600,
-                                dy: -6,
-                                offset: 12
-                              }}
+}: OverviewSectionProps) => {
+  const ct = useChartTheme();
+  const tooltipStyle = {
+    contentStyle: { backgroundColor: ct.surface, borderColor: ct.borderColor, color: ct.text, borderRadius: "var(--radius-md)" },
+    labelStyle: { color: ct.text },
+    itemStyle: { color: ct.textSecondary },
+  };
+
+  return (
+    <section className="charts-grid">
+      <article className="chart-card overview-card">
+        {loading ? (
+          <p className="muted">Calculating statistics…</p>
+        ) : error ? (
+          <p className="error-text">{error}</p>
+        ) : cards.length > 0 ? (
+          <div className="overview-grid">
+            {pressureOverview ? (
+              <div className="overview-item water-pressure-overview">
+                <header>
+                  <h4>Water Pressure</h4>
+                </header>
+                <div className="pressure-card-body">
+                  <div className="chart-wrapper pressure-trend">
+                    {trendData.length > 0 ? (
+                      <div className="pressure-trend-container">
+                        <ResponsiveContainer width="100%" height={250}>
+                          <LineChart data={trendData} margin={{ top: 16, right: 10, left: 0, bottom: 16 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} />
+                            <XAxis
+                              dataKey="timestamp"
+                              tickFormatter={(value) => format(parseISO(value), "MMM d")}
+                              minTickGap={32}
+                              tick={{ fill: ct.axisColor }}
                             />
-                          ) : null}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <p className="muted chart-placeholder">
-                      No data in the selected range.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-          {cards.map((card) => (
-            <div key={card.key} className="overview-item">
-              <header>
-                <h4>{card.title}</h4>
-              </header>
-              <div className="chart-with-legend">
-                <div className="overview-chart">
-                  <ResponsiveContainer minWidth={165} minHeight={165}>
-                    <PieChart>
-                      <Tooltip
-                        formatter={(value: number, name: string) => [
-                          card.unit === "duration"
-                            ? formatDurationLabel(value as number)
-                            : formatCountLabel(value as number, card.unitLabel),
-                          name
-                        ]}
-                      />
-                      <Pie
-                        data={card.data}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius="60%"
-                        outerRadius="80%"
-                        paddingAngle={2}
-                      >
-                        {card.data.map((entry) => (
-                          <Cell
-                            key={`${card.key}-${entry.key}`}
-                            fill={entry.color}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="overview-legend compact">
-                  {card.data.map((entry) => {
-                    const percentage =
-                      card.total > 0
-                        ? Math.round((entry.value / card.total) * 100)
-                        : 0;
-                    const labelValue =
-                      card.unit === "duration"
-                        ? formatDurationLabel(entry.value)
-                        : formatCountLabel(entry.value, card.unitLabel);
-                    return (
-                      <div key={entry.key} className="overview-legend-row">
-                        <span
-                          className="legend-dot"
-                          style={{ backgroundColor: entry.color }}
-                        />
-                        <div className="legend-labels">
-                          <span>{entry.name}</span>
-                          <span className="legend-meta">
-                            {labelValue} • {percentage}%
-                          </span>
-                        </div>
+                            <YAxis
+                              domain={["auto", "auto"]}
+                              padding={{ top: 20, bottom: 20 }}
+                              width={30}
+                              tick={{ fill: ct.axisColor }}
+                            />
+                            <Tooltip
+                              labelFormatter={(value) => formatTimestamp(value as string)}
+                              {...tooltipStyle}
+                            />
+                            <Legend />
+                            <Line
+                              type="monotone"
+                              dataKey="psi"
+                              stroke={ct.pressureLine}
+                              strokeWidth={2}
+                              dot={false}
+                            />
+                            {latestBaselinePsi !== undefined ? (
+                              <ReferenceLine
+                                y={latestBaselinePsi}
+                                stroke={ct.baselineStroke}
+                                strokeWidth={3}
+                                strokeDasharray="4 6"
+                                isFront
+                                ifOverflow="extendDomain"
+                                label={{
+                                  position: "insideTop",
+                                  value: `Baseline`,
+                                  fill: ct.baselineLabel,
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  dy: -6,
+                                  offset: 12
+                                }}
+                              />
+                            ) : null}
+                          </LineChart>
+                        </ResponsiveContainer>
                       </div>
-                    );
-                  })}
+                    ) : (
+                      <p className="muted chart-placeholder">
+                        No data in the selected range.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="muted">No statistics available for this range.</p>
-      )}
-    </article>
-  </section>
-);
+            ) : null}
+            {cards.map((card) => (
+              <div key={card.key} className="overview-item">
+                <header>
+                  <h4>{card.title}</h4>
+                </header>
+                <div className="chart-with-legend">
+                  <div className="overview-chart">
+                    <ResponsiveContainer minWidth={165} minHeight={165}>
+                      <PieChart>
+                        <Tooltip
+                          formatter={(value: number, name: string) => [
+                            card.unit === "duration"
+                              ? formatDurationLabel(value as number)
+                              : formatCountLabel(value as number, card.unitLabel),
+                            name
+                          ]}
+                          {...tooltipStyle}
+                        />
+                        <Pie
+                          data={card.data}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius="60%"
+                          outerRadius="80%"
+                          paddingAngle={2}
+                        >
+                          {card.data.map((entry) => (
+                            <Cell
+                              key={`${card.key}-${entry.key}`}
+                              fill={entry.color}
+                            />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="overview-legend compact">
+                    {card.data.map((entry) => {
+                      const percentage =
+                        card.total > 0
+                          ? Math.round((entry.value / card.total) * 100)
+                          : 0;
+                      const labelValue =
+                        card.unit === "duration"
+                          ? formatDurationLabel(entry.value)
+                          : formatCountLabel(entry.value, card.unitLabel);
+                      return (
+                        <div key={entry.key} className="overview-legend-row">
+                          <span
+                            className="legend-dot"
+                            style={{ backgroundColor: entry.color }}
+                          />
+                          <div className="legend-labels">
+                            <span>{entry.name}</span>
+                            <span className="legend-meta">
+                              {labelValue} • {percentage}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No statistics available for this range.</p>
+        )}
+      </article>
+    </section>
+  );
+};
 
 export default OverviewSection;

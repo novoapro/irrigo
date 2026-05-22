@@ -15,6 +15,14 @@
       rel="stylesheet"
     />
     <title>Irrigo</title>
+    <script>
+      (function() {
+        var p = localStorage.getItem("irrigo:theme") || "system";
+        var r = p;
+        if (p === "system") r = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = r;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -12,6 +12,8 @@ import { formatHourLabel, formatTimestamp } from "../utils/date";
 import { formatWeatherWindow, getForecastIcon, getRainIndicatorIcon } from "../utils/weather";
 import React from "react";
 import useMediaQuery from "../hooks/useMediaQuery";
+import { useChartTheme } from "../hooks/useChartTheme";
+import { useThemeContext } from "../ThemeContext";
 
 export interface PrecipitationPoint {
   timestamp: string;
@@ -37,9 +39,12 @@ const WeatherWidget = ({
 }: WeatherWidgetProps) => {
   const locationName = currentWeather?.locationName ?? fallbackLocation ?? "";
   const updatedAt = currentWeather?.fetchedAt ?? fallbackUpdatedAt ?? null;
-  const isLightForecastCard = useMediaQuery("(max-width: 768px)");
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const { theme } = useThemeContext();
+  const ct = useChartTheme();
+  const isLightForecastCard = isMobile && theme === "light";
   const iconBackground = isLightForecastCard ? "light" : "dark";
-  const chartHeight = isLightForecastCard ? 220 : "100%";
+  const chartHeight = isMobile ? 220 : "100%";
 
   return (
     <section className="forecast-section">
@@ -87,17 +92,17 @@ const WeatherWidget = ({
                       data={precipitationSeries}
                       margin={{ top: 8, right: 16, left: 8, bottom: 20 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.35)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} />
                       <XAxis
                         dataKey="timestamp"
                         tickFormatter={formatHourLabel}
                         minTickGap={28}
-                        tick={{ fill: "#94a3b8", fontSize: 12 }}
+                        tick={{ fill: ct.axisColor, fontSize: 12 }}
                         label={{
                           value: "Rain forecast",
                           position: "insideBottom",
                           offset: -8,
-                          fill: "#94a3b8",
+                          fill: ct.axisColor,
                           fontSize: 12
                         }}
                       />
@@ -105,16 +110,18 @@ const WeatherWidget = ({
                         domain={[0, 100]}
                         tickFormatter={(v) => `${v}%`}
                         width={32}
-                        tick={{ fill: "#94a3b8", fontSize: 12 }}
+                        tick={{ fill: ct.axisColor, fontSize: 12 }}
                       />
                       <Tooltip
                         labelFormatter={(value) => formatTimestamp(value as string)}
                         formatter={(value: number) => `${value}%`}
+                        contentStyle={{ backgroundColor: ct.surface, borderColor: ct.borderColor, color: ct.text, borderRadius: "var(--radius-md)" }}
+                        labelStyle={{ color: ct.text }}
                       />
                       <Line
                         type="monotone"
                         dataKey="probability"
-                        stroke="#2563eb"
+                        stroke={ct.precipLine}
                         strokeWidth={3}
                         dot={false}
                       />

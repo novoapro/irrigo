@@ -72,6 +72,9 @@ import {
 import { useRealtimeChannel } from "./hooks/useRealtimeChannel";
 import { useIntegrationHealth } from "./hooks/useIntegrationHealth";
 import HeaderHealthBar from "./components/HeaderHealthBar";
+import { useThemeContext } from "./ThemeContext";
+import type { ThemePreference } from "./hooks/useTheme";
+import { useChartTheme } from "./hooks/useChartTheme";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -140,7 +143,11 @@ const RefreshIcon = () => (
   </svg>
 );
 
+const THEME_CYCLE: ThemePreference[] = ["light", "dark", "system"];
+
 const App = () => {
+  const { preference: themePreference, setPreference: setThemePreference } = useThemeContext();
+  const chartTheme = useChartTheme();
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [heartbeatSeries, setHeartbeatSeries] = useState<HeartbeatSeriesSample[]>([]);
   const [heartbeatPage, setHeartbeatPage] = useState<Heartbeat[]>([]);
@@ -863,13 +870,13 @@ const App = () => {
             key: "guard-active",
             name: "Guard active",
             value: overviewStats.guard.activeMs,
-            color: "#ef4444"
+            color: chartTheme.danger
           },
           {
             key: "guard-ready",
             name: "Guard ready",
             value: overviewStats.guard.inactiveMs,
-            color: "#10b981"
+            color: chartTheme.success
           }
         ]
       },
@@ -884,13 +891,13 @@ const App = () => {
             key: "rainy",
             name: "Rainy",
             value: overviewStats.rainDays.positive,
-            color: "#3b82f6"
+            color: chartTheme.info
           },
           {
             key: "clear",
             name: "Dry",
             value: overviewStats.rainDays.negative,
-            color: "#94a3b8"
+            color: chartTheme.muted
           }
         ]
       },
@@ -905,13 +912,13 @@ const App = () => {
             key: "saturated",
             name: "Saturated",
             value: overviewStats.soilDays.positive,
-            color: "#22c55e"
+            color: chartTheme.green
           },
           {
             key: "dry",
             name: "Dry",
             value: overviewStats.soilDays.negative,
-            color: "#f59e0b"
+            color: chartTheme.amber
           }
         ]
       },
@@ -926,13 +933,13 @@ const App = () => {
             key: "above",
             name: "Above baseline",
             value: overviewStats.pressure.activeMs,
-            color: "#6366f1"
+            color: chartTheme.indigo
           },
           {
             key: "below",
             name: "At or below",
             value: overviewStats.pressure.inactiveMs,
-            color: "#a5b4fc"
+            color: chartTheme.indigoLight
           }
         ]
       }
@@ -942,7 +949,7 @@ const App = () => {
       overviewCards: cards.filter((card) => card.key !== "pressure"),
       pressureOverview: cards.find((card) => card.key === "pressure") ?? null
     };
-  }, [overviewStats]);
+  }, [overviewStats, chartTheme]);
 
   const filterActive = useMemo(
     () => Boolean(startDate || endDate),
@@ -1068,10 +1075,11 @@ const App = () => {
     setDashboardRunningAI(true);
     try {
       await triggerAIScheduleRun();
-    } catch {
-      setDashboardRunningAI(false);
-    }
-  }, []);
+      await loadLastAIRun();
+      setAiRunRefreshKey((k) => k + 1);
+    } catch { /* ignore */ }
+    setDashboardRunningAI(false);
+  }, [loadLastAIRun]);
 
   const handleForceRefresh = useCallback(async () => {
     if (isRefreshAnimating) {
@@ -1335,6 +1343,35 @@ const App = () => {
             </button>
             <button
               type="button"
+              className="theme-toggle-button"
+              onClick={() => {
+                const i = THEME_CYCLE.indexOf(themePreference);
+                setThemePreference(THEME_CYCLE[(i + 1) % THEME_CYCLE.length]);
+              }}
+              aria-label={`Theme: ${themePreference}. Click to switch.`}
+              title={`Theme: ${themePreference}`}
+            >
+              {themePreference === "dark" ? (
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              ) : themePreference === "light" ? (
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
               className="settings-gear-button"
               onClick={toggleSettingsPanel}
               aria-label="Open settings"
@@ -1360,10 +1397,10 @@ const App = () => {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" /></svg>
         </NavLink>
         <NavLink to="/ai-runs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="AI Runs">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 014 4c0 1.95-1.4 3.59-3.25 3.93" /><path d="M12 2a4 4 0 00-4 4c0 1.95 1.4 3.59 3.25 3.93" /><path d="M12 10v4" /><path d="M8 18h8" /><path d="M9 22h6" /><path d="M12 14v4" /></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0112 4.5v15a2.5 2.5 0 01-4.96.44 2.5 2.5 0 01-2.96-3.08 3 3 0 01-.34-5.58 2.5 2.5 0 011.32-4.24 2.5 2.5 0 011.44-3A2.5 2.5 0 019.5 2z" /><path d="M14.5 2A2.5 2.5 0 0012 4.5v15a2.5 2.5 0 004.96.44 2.5 2.5 0 002.96-3.08 3 3 0 00.34-5.58 2.5 2.5 0 00-1.32-4.24 2.5 2.5 0 00-1.44-3A2.5 2.5 0 0014.5 2z" /></svg>
         </NavLink>
         <NavLink to="/logs" className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Logs">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
         </NavLink>
       </nav>
 
@@ -1430,7 +1467,7 @@ const App = () => {
               className="ai-run-summary__header"
               onClick={() => setAiRunExpanded((v) => !v)}
             >
-              <h3>Last AI Evaluation</h3>
+              <h3>Last AI Run</h3>
               <span className={`schedule-status-pill schedule-status-pill--${lastAIRun.status}`}>
                 {lastAIRun.status}
               </span>
@@ -1447,15 +1484,15 @@ const App = () => {
               </span>
             </button>
           )}
-          {!lastAIRun && <h3 style={{ margin: 0 }}>AI Evaluation</h3>}
+          {!lastAIRun && <h3 style={{ margin: 0 }}>AI Runs</h3>}
           {aiScheduleEnabled && (
             <button
               type="button"
               className={`icon-btn ai-run-status-btn ai-run-status-btn--${dashboardRunningAI ? "running" : lastAIRun?.status === "completed" ? "success" : lastAIRun?.status ?? "none"}`}
               disabled={dashboardRunningAI}
               onClick={handleDashboardRunAI}
-              title={dashboardRunningAI ? "Running..." : "Run AI evaluation"}
-              aria-label={dashboardRunningAI ? "Running..." : "Run AI evaluation"}
+              title={dashboardRunningAI ? "Running..." : "Run AI Run"}
+              aria-label={dashboardRunningAI ? "Running..." : "Run AI Run"}
             >
               {dashboardRunningAI ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
@@ -1489,6 +1526,10 @@ const App = () => {
                 })}
               </div>
             )}
+            <Link to="/ai-runs" className="ai-run-summary__cta">
+              View all AI Runs
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </Link>
           </div>
         )}
       </section>

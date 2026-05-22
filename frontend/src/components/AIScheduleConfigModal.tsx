@@ -527,7 +527,7 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
 
           {lastRun && (
             <fieldset className="form-fieldset">
-              <legend>Last AI Evaluation</legend>
+              <legend>Last AI Run</legend>
               <div className={`schedule-run${runExpanded ? " schedule-run--expanded" : ""}`}>
                 <button
                   type="button"
@@ -607,8 +607,8 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
                 className={`icon-btn ai-run-status-btn ai-run-status-btn--${runningNow ? "running" : lastRun?.status === "completed" ? "success" : lastRun?.status ?? "none"}`}
                 onClick={() => void handleRunNow()}
                 disabled={runningNow}
-                title={runningNow ? "Evaluating..." : lastRun ? `Last: ${formatRunDate(lastRun.startedAt)} (${lastRun.status})` : "Run evaluation"}
-                aria-label={runningNow ? "Evaluating..." : "Run AI evaluation"}
+                title={runningNow ? "Running..." : lastRun ? `Last: ${formatRunDate(lastRun.startedAt)} (${lastRun.status})` : "Run AI Run"}
+                aria-label={runningNow ? "Running..." : "Run AI Run"}
               >
                 {runningNow ? (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>

@@ -528,23 +528,8 @@ const IrrigationQueuePanel = ({
         </div>
       </header>
 
-      {activeMode === "smart" && config && config.lastRunAt && (
-        <button
-          type="button"
-          className="irrigation-queue-panel__subtitle irrigation-queue-panel__subtitle--link muted"
-          onClick={() => navigate("/ai-runs")}
-        >
-          {formatDate(config.lastRunAt)}
-          {" "}
-          <span className={`schedule-status-pill schedule-status-pill--${config.lastRunStatus ?? "unknown"}`}>
-            {config.lastRunStatus ?? "—"}
-          </span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="subtitle-link-icon"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-        </button>
-      )}
-
       {activeMode === "scheduled" && (
-        <p className="irrigation-queue-panel__subtitle muted">
+        <p className="muted" style={{ fontSize: "var(--text-sm)", marginBottom: "var(--space-4)" }}>
           {enabledPrograms.length > 0
             ? `${enabledPrograms.length} active program${enabledPrograms.length !== 1 ? "s" : ""}`
             : "No active programs. Add programs in Settings."}

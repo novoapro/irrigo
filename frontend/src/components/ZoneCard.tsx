@@ -250,7 +250,7 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
                     className="zone-duration-slider__fill"
                     style={{
                       width: `${((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 100}%`,
-                      background: `rgba(37, 99, 235, ${0.06 + ((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 0.18})`
+                      background: `rgba(var(--slider-fill-r), var(--slider-fill-g), var(--slider-fill-b), ${0.12 + ((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 0.28})`
                     }}
                   />
                   <input
