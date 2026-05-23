@@ -3,6 +3,7 @@ import Zone from "../models/Zone";
 import { persistEvent } from "./irrigationEventService";
 import { emitRealtimeEvent } from "./realtimeService";
 import type { CompAIWebhookPayload } from "../schemas/compAISchema";
+import * as debugMock from "./debugMockService";
 
 // ── Config cache ──
 
@@ -83,6 +84,11 @@ const CHARACTERISTIC_NAME_MAP: Record<string, string> = {
 };
 
 export const fetchDeviceInfo = async (): Promise<CompAIDeviceInfo> => {
+  const debugConfig = await debugMock.getDebugConfig();
+  if (debugConfig?.enabled) {
+    return debugMock.mockFetchDeviceInfo();
+  }
+
   const config = await getConfig();
   if (!config?.endpoint || !config.deviceId) {
     throw new Error("CompAI endpoint and deviceId must be configured");
@@ -206,6 +212,11 @@ export const sendCommand = async (
 };
 
 export const testConnection = async (): Promise<{ success: boolean; message: string }> => {
+  const debugConfig = await debugMock.getDebugConfig();
+  if (debugConfig?.enabled) {
+    return debugMock.mockTestConnection();
+  }
+
   const config = await getConfig();
   if (!config?.endpoint || !config.deviceId) {
     return { success: false, message: "No endpoint or device ID configured" };

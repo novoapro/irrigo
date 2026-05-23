@@ -42,7 +42,7 @@ const WeatherWidget = ({
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useThemeContext();
   const ct = useChartTheme();
-  const isLightForecastCard = isMobile && theme === "light";
+  const isLightForecastCard = theme === "light";
   const iconBackground = isLightForecastCard ? "light" : "dark";
   const chartHeight = isMobile ? 220 : "100%";
 
@@ -82,6 +82,18 @@ const WeatherWidget = ({
                   {locationName ? (
                     <span className="forecast-location">{locationName}</span>
                   ) : null}
+                </div>
+                <div className="forecast-updated-row forecast-updated-row--desktop">
+                  <span className="forecast-window">
+                    {formatWeatherWindow(
+                      currentWeather.periodStart,
+                      currentWeather.periodEnd
+                    )}
+                  </span>
+                  <span className="forecast-updated-label">
+                    Updated{" "}
+                    {updatedAt ? formatTimestamp(updatedAt) : "—"}
+                  </span>
                 </div>
               </div>
 
@@ -134,7 +146,7 @@ const WeatherWidget = ({
                 )}
               </div>
             </div>
-            <div className="forecast-updated-row">
+            <div className="forecast-updated-row forecast-updated-row--mobile">
               <span className="forecast-window">
                 {formatWeatherWindow(
                   currentWeather.periodStart,
@@ -150,7 +162,6 @@ const WeatherWidget = ({
                 Updated{" "}
                 {updatedAt ? formatTimestamp(updatedAt) : "—"}
               </span>
-
             </div>
           </div>
         ) : (

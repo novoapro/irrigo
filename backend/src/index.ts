@@ -11,6 +11,7 @@ import {
 } from "./services/weatherForecastService";
 import { startRealtimeService } from "./services/realtimeService";
 import { getSystemConfig, applyModeServices } from "./services/systemConfigService";
+import { migrateIrrigationSettings } from "./services/irrigationSettingsService";
 
 const loadEnvironment = () => {
   const env =
@@ -38,6 +39,7 @@ const PORT = Number(process.env.PORT ?? 4000);
 const start = async () => {
   try {
     await connectToDatabase();
+    await migrateIrrigationSettings();
     await ensureForecastSnapshot();
     await scheduleForecastPeriodPush();
     startForecastAutoRefresh();

@@ -4,10 +4,12 @@ import type { AIScheduleConfig, AISchedulePreferences, ScheduleEntry, ScheduleRu
 import { fetchAIScheduleConfig, updateAIScheduleConfig, triggerAIScheduleRun, fetchScheduleRuns, fetchScheduleRun } from "../api";
 import Dropdown from "./Dropdown";
 import AIInteractionModal from "./AIInteractionModal";
+import ActionButton, { useActionStatus, CheckIcon, XIcon, PlayIcon, ErrorCircleIcon } from "./ActionButton";
 
 const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropics" },
   { value: "openai", label: "OpenAI" },
+  { value: "google", label: "Google Gemini" },
 ];
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
@@ -62,12 +64,6 @@ const MIN_DAYS_OPTIONS = [
   { value: "1", label: "1 day" },
   { value: "2", label: "2 days" },
   { value: "3", label: "3 days" },
-];
-
-const WATER_SAVING_OPTIONS = [
-  { value: "normal", label: "Normal — use default durations" },
-  { value: "moderate", label: "Moderate — reduce ~30%" },
-  { value: "aggressive", label: "Aggressive — minimize usage" },
 ];
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekdays" | "weekly";
@@ -125,10 +121,8 @@ const DEFAULT_PREFS: AISchedulePreferences = {
   conservativeWatering: true,
   rainThresholdPercent: 40,
   recentRainWindowHours: 48,
-  preferredTimeWindows: [{ startHour: 20, endHour: 6 }],
   maxDailyRunMinutes: 120,
-  minDaysBetweenRuns: 1,
-  waterSavingMode: "normal"
+  minDaysBetweenRuns: 1
 };
 
 const formatRunDate = (iso: string) => {
@@ -144,8 +138,7 @@ const formatRunDate = (iso: string) => {
 
 const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones = [], refreshKey }: AIScheduleConfigModalProps) => {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [runningNow, setRunningNow] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, inline ? undefined : onClose);
   const [error, setError] = useState<string | null>(null);
 
   const [lastRun, setLastRun] = useState<ScheduleRun | null>(null);
@@ -160,7 +153,7 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
   }, [zones]);
 
   const [enabled, setEnabled] = useState(false);
-  const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
+  const [provider, setProvider] = useState<"anthropic" | "openai" | "google">("anthropic");
   const [model, setModel] = useState("claude-sonnet-4-20250514");
   const [apiKey, setApiKey] = useState("");
   const [scheduleFrequency, setScheduleFrequency] = useState<ScheduleFrequency>("daily");
@@ -216,68 +209,42 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
   }, [open, refreshKey]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     setError(null);
     try {
-      const payload: Partial<AIScheduleConfig> = {
-        enabled,
-        provider,
-        model,
-        scheduleCron: buildCron(scheduleFrequency, scheduleHour, selectedDays),
-        evaluationWindowHours: evalWindow,
-        userContext,
-        preferences: prefs
-      };
-      if (apiKey && !apiKey.includes("••••")) {
-        payload.apiKey = apiKey;
-      }
-      await updateAIScheduleConfig(payload);
-      onSaved();
-      if (!inline) onClose();
+      await wrapSave(async () => {
+        const payload: Partial<AIScheduleConfig> = {
+          enabled,
+          provider,
+          model,
+          scheduleCron: buildCron(scheduleFrequency, scheduleHour, selectedDays),
+          evaluationWindowHours: evalWindow,
+          userContext,
+          preferences: prefs
+        };
+        if (apiKey && !apiKey.includes("••••")) {
+          payload.apiKey = apiKey;
+        }
+        await updateAIScheduleConfig(payload);
+        onSaved();
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
     }
-  }, [enabled, provider, model, apiKey, scheduleFrequency, selectedDays, scheduleHour, evalWindow, userContext, prefs, onSaved, onClose, inline]);
+  }, [enabled, provider, model, apiKey, scheduleFrequency, selectedDays, scheduleHour, evalWindow, userContext, prefs, onSaved, wrapSave]);
 
   const handleRunNow = useCallback(async () => {
-    setRunningNow(true);
     setError(null);
     try {
       await triggerAIScheduleRun();
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run failed");
-    } finally {
-      setRunningNow(false);
+      throw err;
     }
   }, [onSaved]);
 
   const updatePref = <K extends keyof AISchedulePreferences>(key: K, value: AISchedulePreferences[K]) => {
     setPrefs((p) => ({ ...p, [key]: value }));
-  };
-
-  const updateTimeWindow = (index: number, field: "startHour" | "endHour", value: number) => {
-    setPrefs((p) => {
-      const windows = [...p.preferredTimeWindows];
-      windows[index] = { ...windows[index], [field]: value };
-      return { ...p, preferredTimeWindows: windows };
-    });
-  };
-
-  const addTimeWindow = () => {
-    setPrefs((p) => ({
-      ...p,
-      preferredTimeWindows: [...p.preferredTimeWindows, { startHour: 20, endHour: 6 }]
-    }));
-  };
-
-  const removeTimeWindow = (index: number) => {
-    setPrefs((p) => ({
-      ...p,
-      preferredTimeWindows: p.preferredTimeWindows.filter((_, i) => i !== index)
-    }));
   };
 
   if (!open) return null;
@@ -328,7 +295,7 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
                 <Dropdown
                   value={provider}
                   options={PROVIDER_OPTIONS}
-                  onChange={(v) => setProvider(v as "anthropic" | "openai")}
+                  onChange={(v) => setProvider(v as "anthropic" | "openai" | "google")}
                 />
               </div>
               <div className="form-group">
@@ -336,7 +303,7 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
                 <input
                   type="text"
                   value={model}
-                  placeholder={provider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4o"}
+                  placeholder={provider === "anthropic" ? "claude-sonnet-4-20250514" : provider === "google" ? "gemini-2.5-flash" : "gpt-4o"}
                   onChange={(e) => setModel(e.target.value)}
                 />
               </div>
@@ -406,45 +373,6 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
           </fieldset>
 
           <fieldset className="form-fieldset">
-            <legend>Preferred Irrigation Times</legend>
-            <span className="form-hint">The AI will try to schedule watering within these windows.</span>
-            {prefs.preferredTimeWindows.map((w, i) => (
-              <div className="time-window-row" key={i}>
-                <div className="form-group time-window-field">
-                  <label>From</label>
-                  <Dropdown
-                    value={String(w.startHour)}
-                    options={HOUR_OPTIONS}
-                    onChange={(v) => updateTimeWindow(i, "startHour", parseInt(v, 10))}
-                  />
-                </div>
-                <div className="form-group time-window-field">
-                  <label>To</label>
-                  <Dropdown
-                    value={String(w.endHour)}
-                    options={HOUR_OPTIONS}
-                    onChange={(v) => updateTimeWindow(i, "endHour", parseInt(v, 10))}
-                  />
-                </div>
-                {prefs.preferredTimeWindows.length > 1 && (
-                  <button
-                    type="button"
-                    className="ghost-button icon-btn danger-text time-window-remove"
-                    onClick={() => removeTimeWindow(i)}
-                    aria-label="Remove window"
-                    title="Remove window"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                  </button>
-                )}
-              </div>
-            ))}
-            <button type="button" className="ghost-button time-window-add" onClick={addTimeWindow}>
-              + Add Window
-            </button>
-          </fieldset>
-
-          <fieldset className="form-fieldset">
             <legend>Rain &amp; Weather Sensitivity</legend>
             <span className="form-hint">Controls how the AI responds to rain forecasts and recent weather.</span>
             <div className="form-group">
@@ -480,15 +408,6 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
           <fieldset className="form-fieldset">
             <legend>Watering Limits</legend>
             <span className="form-hint">Guardrails for how much and how often the AI can schedule irrigation.</span>
-            <div className="form-group">
-              <label>Water saving</label>
-              <Dropdown
-                value={prefs.waterSavingMode ?? "normal"}
-                options={WATER_SAVING_OPTIONS}
-                onChange={(v) => updatePref("waterSavingMode", v as "normal" | "moderate" | "aggressive")}
-              />
-              <span className="form-hint">Tells the AI to shorten run times per zone to conserve water.</span>
-            </div>
             <div className="form-row">
               <div className="form-group">
                 <label>Max total per day</label>
@@ -597,35 +516,36 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
 
           <div className="form-actions">
             {!inline && (
-              <button type="button" className="ghost-button icon-btn danger-text" onClick={onClose} title="Cancel" aria-label="Cancel">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
+              <ActionButton
+                icon={<XIcon />}
+                variant="ghost"
+                onClick={onClose}
+                title="Cancel"
+                aria-label="Cancel"
+              />
             )}
             {enabled && (
-              <button
-                type="button"
-                className={`icon-btn ai-run-status-btn ai-run-status-btn--${runningNow ? "running" : lastRun?.status === "completed" ? "success" : lastRun?.status ?? "none"}`}
-                onClick={() => void handleRunNow()}
-                disabled={runningNow}
-                title={runningNow ? "Running..." : lastRun ? `Last: ${formatRunDate(lastRun.startedAt)} (${lastRun.status})` : "Run AI Run"}
-                aria-label={runningNow ? "Running..." : "Run AI Run"}
-              >
-                {runningNow ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                ) : lastRun?.status === "error" ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                )}
-              </button>
+              <ActionButton
+                icon={lastRun?.status === "error" ? <ErrorCircleIcon /> : <PlayIcon />}
+                variant="ghost"
+                idleClassName={`ai-run-status-btn ai-run-status-btn--${lastRun?.status === "completed" ? "success" : lastRun?.status ?? "none"}`}
+                action={handleRunNow}
+                successLabel="Done"
+                errorLabel="Failed"
+                title={lastRun ? `Last: ${formatRunDate(lastRun.startedAt)} (${lastRun.status})` : "Run AI Run"}
+                aria-label="Run AI Run"
+              />
             )}
-            <button type="submit" className="primary-button icon-btn" disabled={saving} title={saving ? "Saving..." : "Save"} aria-label={saving ? "Saving..." : "Save"}>
-              {saving ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              )}
-            </button>
+            <ActionButton
+              icon={<CheckIcon />}
+              variant="primary"
+              type="submit"
+              status={saveStatus}
+              successLabel="Saved"
+              errorLabel="Error"
+              title="Save"
+              aria-label="Save"
+            />
           </div>
         </form>
       )}

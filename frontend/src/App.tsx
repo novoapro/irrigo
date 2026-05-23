@@ -22,6 +22,7 @@ import {
   fetchSystemConfig,
   triggerAIScheduleRun,
   fetchWeatherForecast,
+  fetchDebugConfig,
   fetchZones,
   fetchZoneStates,
   getManualRunStatus
@@ -183,7 +184,7 @@ const App = () => {
   const [zonesLoading, setZonesLoading] = useState(false);
   const [manualRun, setManualRun] = useState<SequentialRun | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "schedule" | "programs" | "integrations" | "preferences">("zones");
+  const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "irrigation" | "programs" | "integrations" | "preferences">("zones");
   const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
   const [aiScheduleEnabled, setAiScheduleEnabled] = useState(false);
   const [lastAIRun, setLastAIRun] = useState<ScheduleRun | null>(null);
@@ -191,6 +192,7 @@ const App = () => {
   const [aiRunExpanded, setAiRunExpanded] = useState(false);
   const [aiRunRefreshKey, setAiRunRefreshKey] = useState(0);
   const [dashboardRunningAI, setDashboardRunningAI] = useState(false);
+  const [debugModeActive, setDebugModeActive] = useState(false);
 
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
@@ -645,6 +647,12 @@ const App = () => {
     void loadAIScheduleEnabled();
     void loadLastAIRun();
   }, [loadSystemConfig, loadAIScheduleEnabled, loadLastAIRun]);
+
+  useEffect(() => {
+    fetchDebugConfig()
+      .then((c) => setDebugModeActive(c?.enabled ?? false))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -1256,6 +1264,11 @@ const App = () => {
           setAiRunRefreshKey((k) => k + 1);
           break;
         }
+        case "debugMode:changed": {
+          const enabled = (event.payload as { enabled?: boolean })?.enabled ?? false;
+          setDebugModeActive(enabled);
+          break;
+        }
         default:
           break;
       }
@@ -1386,6 +1399,23 @@ const App = () => {
         </div>
       </header>
 
+      {debugModeActive && (
+        <div className="debug-mode-banner" role="alert">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 2l1.88 1.88M14.12 3.88L16 2M9 7.13v-1a3.003 3.003 0 116 0v1" />
+            <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6" />
+            <path d="M12 20v2M6 13H2M22 13h-4M6 17H3.5M20.5 17H18M6 9H4M20 9h-2" />
+          </svg>
+          <span>Debug Mode Active — external calls are mocked</span>
+          <button
+            type="button"
+            onClick={() => { setSettingsTab("preferences"); setIsSettingsPanelOpen(true); }}
+          >
+            Configure
+          </button>
+        </div>
+      )}
+
       <nav className="app-nav">
         <NavLink to="/" end className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`} title="Dashboard">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
@@ -1455,7 +1485,7 @@ const App = () => {
         refreshKey={aiRunRefreshKey}
         onModeChanged={(mode) => setIrrigationMode(mode)}
         onScheduleChanged={loadZones}
-        onOpenSmartSettings={() => { setSettingsTab("schedule"); setIsSettingsPanelOpen(true); }}
+        onOpenSmartSettings={() => { setSettingsTab("irrigation"); setIsSettingsPanelOpen(true); }}
         onOpenProgramSettings={() => { setSettingsTab("programs"); setIsSettingsPanelOpen(true); }}
       />
 
@@ -1620,6 +1650,7 @@ const App = () => {
         onRealtimePreferenceToggle={handleRealtimePreferenceToggle}
         onAIScheduleConfigChanged={loadAIScheduleEnabled}
         onControllerHealthChanged={integrationHealth.recheckController}
+        onDebugModeChanged={setDebugModeActive}
         aiRunRefreshKey={aiRunRefreshKey}
       />
     </main>

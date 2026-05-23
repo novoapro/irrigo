@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Zone, ZoneMetadata } from "../types";
 import Dropdown from "./Dropdown";
+import ActionButton, { useActionStatus, CheckIcon, XIcon, TrashIcon } from "./ActionButton";
 
 const PLANT_TYPES = [
   { value: "", label: "—" },
@@ -39,9 +40,8 @@ interface ZoneFormModalProps {
   zone?: Zone | null;
   existingZones: Zone[];
   open: boolean;
-  saving: boolean;
-  onSave: (data: Partial<Zone> & { zoneId: string; name: string; defaultDurationMinutes: number }) => void;
-  onDelete?: () => void;
+  onSave: (data: Partial<Zone> & { zoneId: string; name: string; defaultDurationMinutes: number }) => Promise<void>;
+  onDelete?: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -62,7 +62,7 @@ const getUniqueSlug = (base: string, existingIds: string[]): string => {
 
 const EMPTY_METADATA: ZoneMetadata = {};
 
-const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, onClose }: ZoneFormModalProps) => {
+const ZoneFormModal = ({ zone, existingZones, open, onSave, onDelete, onClose }: ZoneFormModalProps) => {
   const isEdit = Boolean(zone);
 
   const [zoneId, setZoneId] = useState("");
@@ -77,6 +77,7 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
   const [area, setArea] = useState("");
   const [notes, setNotes] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, onClose);
 
   useEffect(() => {
     if (zone) {
@@ -115,7 +116,7 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
     setZoneId(getUniqueSlug(slug, otherIds));
   }, [name, isEdit, existingZones]);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const metadata: ZoneMetadata = {};
     if (plantType) metadata.plantType = plantType;
     if (sunExposure) metadata.sunExposure = sunExposure;
@@ -123,7 +124,7 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
     if (area && !Number.isNaN(Number(area))) metadata.area = Number(area);
     if (notes) metadata.notes = notes;
 
-    onSave({
+    await wrapSave(() => onSave({
       zoneId,
       name,
       description: description || undefined,
@@ -131,8 +132,8 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
       maxDurationMinutes: maxDuration,
       enabled,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    });
-  }, [zoneId, name, description, defaultDuration, maxDuration, enabled, plantType, sunExposure, soilType, area, notes, onSave]);
+    }));
+  }, [zoneId, name, description, defaultDuration, maxDuration, enabled, plantType, sunExposure, soilType, area, notes, onSave, wrapSave]);
 
   if (!open) return null;
 
@@ -156,7 +157,7 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
             className="settings-form"
             onSubmit={(e) => {
               e.preventDefault();
-              handleSubmit();
+              void handleSubmit();
             }}
           >
             <div className="zone-form-top-row">
@@ -283,38 +284,33 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
 
             <div className="form-actions">
               {isEdit && onDelete && (
-                <button
-                  type="button"
-                  className="ghost-button icon-btn danger-text"
+                <ActionButton
+                  icon={<TrashIcon />}
+                  variant="danger"
                   onClick={() => setConfirmDelete(true)}
-                  aria-label="Delete zone"
                   title="Delete zone"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" /></svg>
-                </button>
+                  aria-label="Delete zone"
+                />
               )}
               <div className="form-actions-right">
-                <button
-                  type="button"
-                  className="ghost-button icon-btn danger-text"
+                <ActionButton
+                  icon={<XIcon />}
+                  variant="ghost"
                   onClick={onClose}
-                  aria-label="Cancel"
                   title="Cancel"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                </button>
-                <button
+                  aria-label="Cancel"
+                />
+                <ActionButton
+                  icon={<CheckIcon />}
+                  variant="primary"
                   type="submit"
-                  className="primary-button icon-btn"
-                  disabled={saving || !zoneId || !name}
-                  aria-label={saving ? "Saving..." : isEdit ? "Save changes" : "Create zone"}
-                  title={saving ? "Saving..." : isEdit ? "Save changes" : "Create zone"}
-                >
-                  {saving
-                    ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                    : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                  }
-                </button>
+                  status={saveStatus}
+                  successLabel="Saved"
+                  errorLabel="Error"
+                  disabled={!zoneId || !name}
+                  title={isEdit ? "Save changes" : "Create zone"}
+                  aria-label={isEdit ? "Save changes" : "Create zone"}
+                />
               </div>
             </div>
           </form>
@@ -342,9 +338,8 @@ const ZoneFormModal = ({ zone, existingZones, open, saving, onSave, onDelete, on
                   type="button"
                   className="danger-button"
                   onClick={onDelete}
-                  disabled={saving}
                 >
-                  {saving ? "Deleting..." : "Delete"}
+                  Delete
                 </button>
               </div>
             </div>

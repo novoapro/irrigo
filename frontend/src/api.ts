@@ -1,5 +1,6 @@
 import type {
   AIScheduleConfig,
+  DebugConfig,
   DeviceConfig,
   ExternalControllerConfig,
   CompAIConfig,
@@ -15,6 +16,7 @@ import type {
   IrrigationMode,
   IrrigationProgram,
   IrrigationRecord,
+  IrrigationSettings,
   IrrigationRecordListResponse,
   ScheduleEntry,
   ScheduleRun,
@@ -646,6 +648,32 @@ export const updateSystemConfig = async (irrigationMode: IrrigationMode): Promis
   return json.data;
 };
 
+// --- Irrigation Settings API ---
+
+export const fetchIrrigationSettings = async (): Promise<IrrigationSettings> => {
+  const response = await fetch(buildUrl("/irrigation-settings"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch irrigation settings (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationSettings };
+  return json.data;
+};
+
+export const updateIrrigationSettings = async (
+  settings: Partial<IrrigationSettings>
+): Promise<IrrigationSettings> => {
+  const response = await fetch(buildUrl("/irrigation-settings"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings)
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update irrigation settings (${response.status})`);
+  }
+  const json = (await response.json()) as { data: IrrigationSettings };
+  return json.data;
+};
+
 // --- Programs API ---
 
 export const fetchPrograms = async (): Promise<IrrigationProgram[]> => {
@@ -796,6 +824,40 @@ export const deleteControllerLogs = async (query?: Omit<ControllerLogQuery, "pag
   const qs = params.toString();
   const response = await fetch(buildUrl(`/zones/commands${qs ? `?${qs}` : ""}`), { method: "DELETE" });
   if (!response.ok) throw new Error(`Failed to delete logs (${response.status})`);
+};
+
+// ── Debug Mode ──
+
+export const fetchDebugConfig = async (): Promise<DebugConfig | null> => {
+  const response = await fetch(buildUrl("/debug/config"));
+  if (!response.ok) throw new Error(`Failed to fetch debug config (${response.status})`);
+  const json = await response.json();
+  return json.data ?? null;
+};
+
+export const updateDebugConfig = async (config: Partial<DebugConfig>): Promise<DebugConfig> => {
+  const response = await fetch(buildUrl("/debug/config"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config)
+  });
+  if (!response.ok) throw new Error(`Failed to update debug config (${response.status})`);
+  const json = await response.json();
+  return json.data;
+};
+
+export const simulateDebugEvent = async (payload: {
+  zoneId: string;
+  action: "on" | "off";
+}) => {
+  const response = await fetch(buildUrl("/debug/simulate-event"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(`Event simulation failed (${response.status})`);
+  const json = await response.json();
+  return json.data;
 };
 
 export const buildRealtimeUrl = () => {

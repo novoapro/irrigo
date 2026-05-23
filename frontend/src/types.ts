@@ -102,7 +102,7 @@ export interface IrrigationCommand {
   status: "pending" | "sent" | "acknowledged" | "failed" | "timeout";
   externalRequestId?: string | null;
   errorMessage?: string | null;
-  controllerMethod?: "compai" | "external" | null;
+  controllerMethod?: "compai" | "external" | "debug" | null;
   controllerUrl?: string | null;
   controllerResponseStatus?: number | null;
   controllerResponseBody?: string | null;
@@ -273,8 +273,6 @@ export interface SequentialRun {
   currentZoneIndex: number;
   startedAt: string;
   completedAt?: string | null;
-  deferralEnabled?: boolean;
-  deferralWindowMinutes?: number;
   deferredAt?: string | null;
   deferralDeadline?: string | null;
 }
@@ -430,6 +428,11 @@ export type RealtimeEvent =
       type: "deferral:expired";
       payload?: { type: string; runId?: string; entryId?: string; programId?: string; reason: string };
       at?: string;
+    }
+  | {
+      type: "debugMode:changed";
+      payload?: { enabled: boolean };
+      at?: string;
     };
 
 export interface CompAIConfig {
@@ -459,6 +462,12 @@ export interface CompAIDiscoveryResult {
   services: CompAIDiscoveredService[];
 }
 
+export interface DebugConfig {
+  _id?: string;
+  enabled: boolean;
+  updatedAt?: string;
+}
+
 export type IrrigationMode = "smart" | "manual" | "scheduled";
 
 export interface SystemConfig {
@@ -478,8 +487,6 @@ export interface IrrigationProgram {
   enabled: boolean;
   scheduleCron: string;
   zoneEntries: ProgramZoneEntry[];
-  deferralEnabled?: boolean;
-  deferralWindowMinutes?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -493,16 +500,23 @@ export interface AISchedulePreferences {
   conservativeWatering: boolean;
   rainThresholdPercent: number;
   recentRainWindowHours: number;
-  preferredTimeWindows: PreferredTimeWindow[];
   maxDailyRunMinutes: number;
   minDaysBetweenRuns: number;
-  waterSavingMode: "normal" | "moderate" | "aggressive";
+}
+
+export type WaterSavingMode = "normal" | "moderate" | "aggressive";
+
+export interface IrrigationSettings {
+  _id?: string;
+  preferredTimeWindows: PreferredTimeWindow[];
+  waterSavingMode: WaterSavingMode;
+  updatedAt?: string;
 }
 
 export interface AIScheduleConfig {
   _id?: string;
   enabled: boolean;
-  provider: "anthropic" | "openai";
+  provider: "anthropic" | "openai" | "google";
   model: string;
   apiKey: string | null;
   scheduleCron: string;
@@ -558,8 +572,6 @@ export interface ScheduleEntry {
   skipReason?: string | null;
   userModified?: boolean;
   programId?: string | null;
-  deferralEnabled?: boolean;
-  deferralWindowMinutes?: number;
   deferredAt?: string | null;
   deferralDeadline?: string | null;
   deferralReason?: string | null;

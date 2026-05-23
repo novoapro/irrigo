@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeviceConfig } from "../types";
+import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton";
 
 interface DeviceWidgetProps {
   ip?: string;
@@ -27,7 +28,7 @@ const DeviceWidget = ({
   onSaveConfig
 }: DeviceWidgetProps) => {
   const [draft, setDraft] = useState<DeviceConfig | null>(deviceConfig);
-  const [isSaving, setIsSaving] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus();
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
@@ -40,14 +41,11 @@ const DeviceWidget = ({
   const handleSave = useCallback(async () => {
     if (!draft) return;
     try {
-      setIsSaving(true);
-      await onSaveConfig(draft);
+      await wrapSave(() => onSaveConfig(draft));
     } catch (error) {
       console.error("Failed to save device config:", error);
-    } finally {
-      setIsSaving(false);
     }
-  }, [draft, onSaveConfig]);
+  }, [draft, onSaveConfig, wrapSave]);
 
   const startEditingIdentity = useCallback(() => {
     setDraftName(draft?.deviceName ?? "");
@@ -65,14 +63,7 @@ const DeviceWidget = ({
     const updated = { ...draft, deviceName: draftName || undefined, deviceDescription: draftDesc || undefined };
     setDraft(updated);
     setEditingIdentity(false);
-    try {
-      setIsSaving(true);
-      await onSaveConfig(updated);
-    } catch (error) {
-      console.error("Failed to save device identity:", error);
-    } finally {
-      setIsSaving(false);
-    }
+    await onSaveConfig(updated);
   }, [draft, draftName, draftDesc, onSaveConfig]);
 
   const deviceIp = ip ?? deviceConfig?.deviceIp ?? "—";
@@ -111,12 +102,22 @@ const DeviceWidget = ({
                 onKeyDown={(e) => { if (e.key === "Enter") void saveIdentity(); if (e.key === "Escape") cancelEditingIdentity(); }}
               />
               <div className="device-identity-edit__actions">
-                <button type="button" className="icon-btn primary-button" onClick={() => void saveIdentity()} title="Save" aria-label="Save">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                </button>
-                <button type="button" className="icon-btn ghost-button danger-text" onClick={cancelEditingIdentity} title="Cancel" aria-label="Cancel">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                </button>
+                <ActionButton
+                  icon={<CheckIcon />}
+                  variant="primary"
+                  action={saveIdentity}
+                  successLabel="Saved"
+                  errorLabel="Error"
+                  title="Save"
+                  aria-label="Save"
+                />
+                <ActionButton
+                  icon={<XIcon />}
+                  variant="ghost"
+                  onClick={cancelEditingIdentity}
+                  title="Cancel"
+                  aria-label="Cancel"
+                />
               </div>
             </div>
           ) : (
@@ -247,19 +248,16 @@ const DeviceWidget = ({
         </fieldset>
 
         <div className="form-actions">
-          <button
+          <ActionButton
+            icon={<CheckIcon />}
+            variant="primary"
             type="submit"
-            className="primary-button icon-btn"
-            disabled={isSaving}
-            title={isSaving ? "Saving..." : "Save changes"}
-            aria-label={isSaving ? "Saving..." : "Save changes"}
-          >
-            {isSaving ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            )}
-          </button>
+            status={saveStatus}
+            successLabel="Saved"
+            errorLabel="Error"
+            title="Save changes"
+            aria-label="Save changes"
+          />
         </div>
       </form>
     </article>

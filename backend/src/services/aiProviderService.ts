@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export interface AICallResult {
   text: string;
@@ -8,7 +9,7 @@ export interface AICallResult {
 }
 
 export const callAI = async (
-  provider: "anthropic" | "openai",
+  provider: "anthropic" | "openai" | "google",
   modelId: string,
   apiKey: string,
   systemPrompt: string,
@@ -16,6 +17,9 @@ export const callAI = async (
 ): Promise<AICallResult> => {
   if (provider === "anthropic") {
     return callAnthropic(modelId, apiKey, systemPrompt, userPrompt);
+  }
+  if (provider === "google") {
+    return callGoogle(modelId, apiKey, systemPrompt, userPrompt);
   }
   return callOpenAI(modelId, apiKey, systemPrompt, userPrompt);
 };
@@ -42,6 +46,30 @@ const callAnthropic = async (
     text,
     promptTokens: response.usage.input_tokens,
     completionTokens: response.usage.output_tokens
+  };
+};
+
+const callGoogle = async (
+  modelId: string,
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<AICallResult> => {
+  const client = new GoogleGenerativeAI(apiKey);
+  const model = client.getGenerativeModel({
+    model: modelId,
+    systemInstruction: systemPrompt
+  });
+
+  const result = await model.generateContent(userPrompt);
+  const response = result.response;
+  const text = response.text();
+  const usage = response.usageMetadata;
+
+  return {
+    text,
+    promptTokens: usage?.promptTokenCount ?? 0,
+    completionTokens: usage?.candidatesTokenCount ?? 0
   };
 };
 

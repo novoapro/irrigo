@@ -3,11 +3,12 @@ import { createPortal } from "react-dom";
 import type { DeviceConfig, Zone, ZoneState } from "../types";
 import ZoneControlPanel from "./ZoneControlPanel";
 import DeviceWidget from "./DeviceWidget";
-import AIScheduleConfigModal from "./AIScheduleConfigModal";
 import CompAISettings from "./CompAISettings";
+import DebugSettings from "./DebugSettings";
+import IrrigationSettingsTab from "./IrrigationSettingsTab";
 import ScheduledProgramsPanel from "./ScheduledProgramsPanel";
 
-type SettingsTab = "zones" | "device" | "schedule" | "programs" | "integrations" | "preferences";
+type SettingsTab = "zones" | "device" | "irrigation" | "programs" | "integrations" | "preferences";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -29,6 +30,7 @@ interface SettingsPanelProps {
   onRealtimePreferenceToggle: (enabled: boolean) => void;
   onAIScheduleConfigChanged?: () => void;
   onControllerHealthChanged?: () => void;
+  onDebugModeChanged?: (enabled: boolean) => void;
   aiRunRefreshKey?: number;
 }
 
@@ -37,7 +39,7 @@ const TabIcon = ({ name }: { name: SettingsTab }) => {
   switch (name) {
     case "zones": return <svg {...props}><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" /></svg>;
     case "device": return <svg {...props}><rect x="6" y="3" width="12" height="18" rx="1" /><path d="M6 7h12M6 17h12" /><line x1="9" y1="3" x2="9" y2="7" /><line x1="15" y1="3" x2="15" y2="7" /><line x1="9" y1="17" x2="9" y2="21" /><line x1="15" y1="17" x2="15" y2="21" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></svg>;
-    case "schedule": return <svg {...props}><path d="M12 2a4 4 0 014 4c0 1.95-1.4 3.58-3.25 3.93V12h2.75a2.5 2.5 0 012.5 2.5v1a2.5 2.5 0 01-2.5 2.5H8.5A2.5 2.5 0 016 15.5v-1A2.5 2.5 0 018.5 12h2.75V9.93A4.002 4.002 0 018 6a4 4 0 014-4z" /><path d="M10 18v2a2 2 0 104 0v-2" /><circle cx="10" cy="6" r="0.5" fill="currentColor" /><circle cx="14" cy="6" r="0.5" fill="currentColor" /></svg>;
+    case "irrigation": return <svg {...props}><path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" /><path d="M8 14h8M10 17h4" /></svg>;
     case "programs": return <svg {...props}><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>;
     case "integrations": return <svg {...props}><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>;
     case "preferences": return <svg {...props}><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" /><circle cx="12" cy="12" r="3" /></svg>;
@@ -47,7 +49,7 @@ const TabIcon = ({ name }: { name: SettingsTab }) => {
 const BASE_TABS: { key: SettingsTab; label: string }[] = [
   { key: "zones", label: "Zones" },
   { key: "device", label: "Device" },
-  { key: "schedule", label: "Smart Schedule" },
+  { key: "irrigation", label: "Irrigation" },
   { key: "programs", label: "Programs" },
   { key: "integrations", label: "Integrations" },
   { key: "preferences", label: "Preferences" },
@@ -73,6 +75,7 @@ const SettingsPanel = ({
   onRealtimePreferenceToggle,
   onAIScheduleConfigChanged,
   onControllerHealthChanged,
+  onDebugModeChanged,
   aiRunRefreshKey,
 }: SettingsPanelProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "zones");
@@ -157,14 +160,11 @@ const SettingsPanel = ({
               />
             )}
 
-            {activeTab === "schedule" && (
-              <AIScheduleConfigModal
-                open={true}
-                inline={true}
-                onClose={() => {}}
-                onSaved={handleScheduleSaved}
+            {activeTab === "irrigation" && (
+              <IrrigationSettingsTab
                 zones={zones}
-                refreshKey={aiRunRefreshKey}
+                onScheduleChanged={handleScheduleSaved}
+                aiRunRefreshKey={aiRunRefreshKey}
               />
             )}
 
@@ -193,6 +193,8 @@ const SettingsPanel = ({
                 <p className="device-panel-preference__hint">
                   When enabled, the app maintains a live connection to receive instant updates from your device.
                 </p>
+
+                <DebugSettings zones={zones} onDebugModeChanged={onDebugModeChanged} />
               </div>
             )}
           </div>

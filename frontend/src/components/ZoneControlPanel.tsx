@@ -49,7 +49,6 @@ const COMMAND_CONFIRM_TIMEOUT_MS = 15_000;
 const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi, manualRun, guardActive }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
-  const [saving, setSaving] = useState(false);
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, { expectedActive: boolean; durationMinutes?: number }>>({});
   const confirmTimersRef = useRef<Record<string, number>>({});
@@ -83,41 +82,21 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
 
   const handleSave = useCallback(
     async (data: Partial<Zone> & { zoneId: string; name: string; defaultDurationMinutes: number }) => {
-      setSaving(true);
-      setError(null);
-      try {
-        if (editingZone) {
-          const { zoneId, ...updates } = data;
-          await apiUpdateZone(editingZone.zoneId, updates);
-        } else {
-          await apiCreateZone(data as Zone);
-        }
-        setFormOpen(false);
-        setEditingZone(null);
-        onZonesChanged();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save zone");
-      } finally {
-        setSaving(false);
+      if (editingZone) {
+        const { zoneId, ...updates } = data;
+        await apiUpdateZone(editingZone.zoneId, updates);
+      } else {
+        await apiCreateZone(data as Zone);
       }
+      onZonesChanged();
     },
     [editingZone, onZonesChanged]
   );
 
   const handleDelete = useCallback(async () => {
     if (!editingZone) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await apiDeleteZone(editingZone.zoneId);
-      setFormOpen(false);
-      setEditingZone(null);
-      onZonesChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete zone");
-    } finally {
-      setSaving(false);
-    }
+    await apiDeleteZone(editingZone.zoneId);
+    onZonesChanged();
   }, [editingZone, onZonesChanged]);
 
   const handleToggleEnabled = useCallback(
@@ -364,7 +343,6 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
           zone={editingZone}
           existingZones={zones}
           open={formOpen}
-          saving={saving}
           onSave={handleSave}
           onDelete={editingZone ? handleDelete : undefined}
           onClose={handleClose}

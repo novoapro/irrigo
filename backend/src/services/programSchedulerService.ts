@@ -57,13 +57,16 @@ const buildZoneInputs = async (
 
 const executeProgramZones = async (
   programId: string,
-  zoneEntries: { zoneId: string; durationMinutes: number }[],
-  deferralEnabled: boolean = false,
-  deferralWindowMinutes: number = 120
+  zoneEntries: { zoneId: string; durationMinutes: number }[]
 ) => {
   try {
-    const inputs = await buildZoneInputs(zoneEntries);
-    await startSequentialRun(inputs, "program", programId, deferralEnabled, deferralWindowMinutes);
+    const { getWaterSavingFactor } = await import("./irrigationSettingsService");
+    const factor = await getWaterSavingFactor();
+    const adjustedEntries = factor < 1
+      ? zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
+      : zoneEntries;
+    const inputs = await buildZoneInputs(adjustedEntries);
+    await startSequentialRun(inputs, "program", programId);
   } catch (err) {
     console.error(`[ProgramScheduler] Failed to start sequential run for program ${programId}:`, err);
   }
@@ -87,35 +90,30 @@ const checkPrograms = async () => {
     const guardActive = latestHeartbeat?.guard ?? false;
 
     if (guardActive) {
-      if (program.deferralEnabled) {
-        const deadline = new Date(now.getTime() + (program.deferralWindowMinutes ?? 120) * 60_000);
-        addDeferredProgram({
+      const deadline = new Date(now.getTime() + 24 * 60 * 60_000);
+      addDeferredProgram({
+        programId: program.programId,
+        deferredAt: now,
+        deadline,
+        zoneEntries: program.zoneEntries
+      });
+      console.log(`[ProgramScheduler] Guard active — deferred program "${program.name}" until ${deadline.toISOString()}`);
+      emitRealtimeEvent({
+        type: "deferral:triggered",
+        payload: {
+          type: "deferred-program",
           programId: program.programId,
-          deferredAt: now,
-          deadline,
-          zoneEntries: program.zoneEntries,
-          deferralWindowMinutes: program.deferralWindowMinutes ?? 120
-        });
-        console.log(`[ProgramScheduler] Guard active — deferred program "${program.name}" until ${deadline.toISOString()}`);
-        emitRealtimeEvent({
-          type: "deferral:triggered",
-          payload: {
-            type: "deferred-program",
-            programId: program.programId,
-            reason: "Guard active — conditions not suitable for irrigation",
-            deadline: deadline.toISOString()
-          }
-        });
-        continue;
-      }
-      console.log(`[ProgramScheduler] Guard active — skipping program "${program.name}" (deferral not enabled)`);
+          reason: "Guard active — conditions not suitable for irrigation",
+          deadline: deadline.toISOString()
+        }
+      });
       continue;
     }
 
     console.log(`[ProgramScheduler] Triggering program "${program.name}" (${program.programId})`);
     emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
 
-    void executeProgramZones(program.programId, program.zoneEntries, program.deferralEnabled ?? false, program.deferralWindowMinutes ?? 120);
+    void executeProgramZones(program.programId, program.zoneEntries);
   }
 };
 
@@ -143,8 +141,13 @@ export const runProgramNow = async (programId: string) => {
 
   emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
 
-  const inputs = await buildZoneInputs(program.zoneEntries);
-  const runId = await startSequentialRun(inputs, "program", program.programId, program.deferralEnabled ?? false, program.deferralWindowMinutes ?? 120);
+  const { getWaterSavingFactor } = await import("./irrigationSettingsService");
+  const factor = await getWaterSavingFactor();
+  const adjustedEntries = factor < 1
+    ? program.zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
+    : program.zoneEntries;
+  const inputs = await buildZoneInputs(adjustedEntries);
+  const runId = await startSequentialRun(inputs, "program", program.programId);
 
   return { programId: program.programId, zonesTriggered: program.zoneEntries.length, runId };
 };

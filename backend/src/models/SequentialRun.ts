@@ -23,8 +23,6 @@ export interface SequentialRunAttributes {
   currentZoneIndex: number;
   startedAt: Date;
   completedAt?: Date | null;
-  deferralEnabled: boolean;
-  deferralWindowMinutes: number;
   deferredAt?: Date | null;
   deferralDeadline?: Date | null;
 }
@@ -65,8 +63,6 @@ const sequentialRunSchema = new Schema<SequentialRunAttributes>({
   currentZoneIndex: { type: Number, default: 0 },
   startedAt: { type: Date, default: () => new Date() },
   completedAt: { type: Date, default: null },
-  deferralEnabled: { type: Boolean, default: false },
-  deferralWindowMinutes: { type: Number, default: 120 },
   deferredAt: { type: Date, default: null },
   deferralDeadline: { type: Date, default: null }
 });

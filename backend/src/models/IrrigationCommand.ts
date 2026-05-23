@@ -3,7 +3,7 @@ import { IRRIGATION_RETENTION_SECONDS } from "../config/persistence";
 
 export type CommandStatus = "pending" | "sent" | "acknowledged" | "failed" | "timeout";
 export type CommandSource = "manual" | "schedule" | "program" | "ai-schedule";
-export type ControllerMethod = "compai" | "external";
+export type ControllerMethod = "compai" | "external" | "debug";
 
 export interface IrrigationCommandAttributes {
   zoneId: string;
@@ -35,7 +35,7 @@ const irrigationCommandSchema = new Schema<IrrigationCommandAttributes>({
   },
   externalRequestId: { type: String, default: null },
   errorMessage: { type: String, default: null },
-  controllerMethod: { type: String, enum: ["compai", "external", null], default: null },
+  controllerMethod: { type: String, enum: ["compai", "external", "debug", null], default: null },
   controllerUrl: { type: String, default: null },
   controllerResponseStatus: { type: Number, default: null },
   controllerResponseBody: { type: String, default: null },

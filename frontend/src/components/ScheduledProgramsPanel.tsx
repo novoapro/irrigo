@@ -181,12 +181,6 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings, guar
               <p className="program-card__schedule muted">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 {formatSchedule(program.scheduleCron)}
-                {program.deferralEnabled && (
-                  <span className="program-card__deferral-badge" title={`Defers up to ${program.deferralWindowMinutes ?? 120}min on guard`}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>
-                    Defer
-                  </span>
-                )}
               </p>
 
               <div className="program-card__zones">

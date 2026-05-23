@@ -12,6 +12,7 @@ import ScheduleEntry from "./models/ScheduleEntry";
 import IrrigationCommand from "./models/IrrigationCommand";
 import IrrigationEvent from "./models/IrrigationEvent";
 import AIScheduleConfig from "./models/AIScheduleConfig";
+import IrrigationSettings from "./models/configs/IrrigationSettings";
 import SystemConfig from "./models/SystemConfig";
 import Config from "./models/Config";
 import IrrigationRecord from "./models/IrrigationRecord";
@@ -693,6 +694,16 @@ async function seed() {
   await IrrigationRecord.insertMany(irrigationRecords);
   console.log(`✓ ${irrigationRecords.length} irrigation records`);
 
+  // Irrigation settings
+  await IrrigationSettings.create({
+    preferredTimeWindows: [
+      { startHour: 4, endHour: 7 },
+      { startHour: 20, endHour: 22 },
+    ],
+    waterSavingMode: "normal",
+  });
+  console.log("✓ irrigation settings");
+
   // System config — smart mode
   await SystemConfig.create({ irrigationMode: "smart" });
   console.log("✓ system config (smart mode)");
@@ -711,10 +722,6 @@ async function seed() {
       conservativeWatering: true,
       rainThresholdPercent: 40,
       recentRainWindowHours: 48,
-      preferredTimeWindows: [
-        { startHour: 4, endHour: 7 },
-        { startHour: 20, endHour: 22 },
-      ],
       maxDailyRunMinutes: 120,
       minDaysBetweenRuns: 1,
     },

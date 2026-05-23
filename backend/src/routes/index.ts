@@ -13,6 +13,8 @@ import programRouter from "./program.routes";
 import manualRunRouter from "./manualRun.routes";
 import irrigationRecordRouter from "./irrigationRecord.routes";
 import compAIRouter from "./compAI.routes";
+import debugRouter from "./debug.routes";
+import irrigationSettingsRouter from "./irrigationSettings.routes";
 
 const router = Router();
 router.use("/heartbeats", heartbeatRouter);
@@ -27,7 +29,9 @@ router.use("/external-controller", externalControllerRouter);
 router.use("/ai-schedule", aiScheduleRouter);
 router.use("/system-config", systemConfigRouter);
 router.use("/programs", programRouter);
+router.use("/irrigation-settings", irrigationSettingsRouter);
 router.use("/manual-run", manualRunRouter);
 router.use(compAIRouter);
+router.use("/debug", debugRouter);
 
 export default router;

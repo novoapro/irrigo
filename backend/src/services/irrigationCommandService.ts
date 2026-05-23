@@ -6,6 +6,7 @@ import IrrigationEvent from "../models/IrrigationEvent";
 import { emitRealtimeEvent } from "./realtimeService";
 import * as externalController from "./externalControllerService";
 import * as compAI from "./compAIService";
+import * as debugMock from "./debugMockService";
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const autoOffTimers = new Map<string, NodeJS.Timeout>();
@@ -59,11 +60,21 @@ export const createCommand = async (
 
   emitRealtimeEvent({ type: "command:created", payload: serializeCommand(command.toObject()) });
 
-  const compAIConfigured = await compAI.isConfigured();
-  const controllerMethod = compAIConfigured ? "compai" : "external";
-  const result = compAIConfigured
-    ? await compAI.sendCommand(zoneId, action, durationMinutes)
-    : await externalController.sendCommand(zoneId, action, durationMinutes);
+  const debugActive = await debugMock.isDebugMode();
+
+  let controllerMethod: "compai" | "external" | "debug";
+  let result: compAI.SendCommandResult;
+
+  if (debugActive) {
+    controllerMethod = "debug";
+    result = await debugMock.mockSendCommand(zoneId, action, durationMinutes);
+  } else {
+    const compAIConfigured = await compAI.isConfigured();
+    controllerMethod = compAIConfigured ? "compai" : "external";
+    result = compAIConfigured
+      ? await compAI.sendCommand(zoneId, action, durationMinutes)
+      : await externalController.sendCommand(zoneId, action, durationMinutes);
+  }
 
   command.controllerMethod = controllerMethod;
   command.controllerUrl = result.url ?? null;

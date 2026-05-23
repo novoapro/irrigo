@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { IrrigationProgram, ProgramZoneEntry, Zone } from "../types";
 import { createProgram, updateProgram } from "../api";
 import Dropdown from "./Dropdown";
+import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton";
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekly" | "weekdays";
 
@@ -79,7 +80,7 @@ interface ProgramFormModalProps {
 }
 
 const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFormModalProps) => {
-  const [saving, setSaving] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, onClose);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -87,16 +88,12 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
   const [hour, setHour] = useState(6);
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
   const [zoneEntries, setZoneEntries] = useState<Record<string, { included: boolean; duration: number }>>({});
-  const [deferralEnabled, setDeferralEnabled] = useState(false);
-  const [deferralWindowMinutes, setDeferralWindowMinutes] = useState(120);
 
   useEffect(() => {
     if (!open) return;
     if (program) {
       setName(program.name);
       setEnabled(program.enabled);
-      setDeferralEnabled(program.deferralEnabled ?? false);
-      setDeferralWindowMinutes(program.deferralWindowMinutes ?? 120);
       const parsed = parseCron(program.scheduleCron);
       setFrequency(parsed.frequency);
       setHour(parsed.hour);
@@ -113,8 +110,6 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     } else {
       setName("");
       setEnabled(true);
-      setDeferralEnabled(false);
-      setDeferralWindowMinutes(120);
       setFrequency("daily");
       setHour(6);
       setSelectedDays([1, 3, 5]);
@@ -128,42 +123,37 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
   }, [open, program, zones]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     setError(null);
+    const selectedEntries: ProgramZoneEntry[] = Object.entries(zoneEntries)
+      .filter(([, v]) => v.included)
+      .map(([zoneId, v]) => ({ zoneId, durationMinutes: v.duration }));
+
+    if (selectedEntries.length === 0) {
+      setError("Select at least one zone");
+      return;
+    }
+
     try {
-      const selectedEntries: ProgramZoneEntry[] = Object.entries(zoneEntries)
-        .filter(([, v]) => v.included)
-        .map(([zoneId, v]) => ({ zoneId, durationMinutes: v.duration }));
+      await wrapSave(async () => {
+        const payload = {
+          name: name.trim(),
+          enabled,
+          scheduleCron: buildCron(frequency, hour, selectedDays),
+          zoneEntries: selectedEntries
+        };
 
-      if (selectedEntries.length === 0) {
-        setError("Select at least one zone");
-        setSaving(false);
-        return;
-      }
+        if (program) {
+          await updateProgram(program.programId, payload);
+        } else {
+          await createProgram(payload);
+        }
 
-      const payload = {
-        name: name.trim(),
-        enabled,
-        scheduleCron: buildCron(frequency, hour, selectedDays),
-        zoneEntries: selectedEntries,
-        deferralEnabled,
-        deferralWindowMinutes
-      };
-
-      if (program) {
-        await updateProgram(program.programId, payload);
-      } else {
-        await createProgram(payload);
-      }
-
-      onSaved();
-      onClose();
+        onSaved();
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
     }
-  }, [name, enabled, frequency, hour, selectedDays, zoneEntries, deferralEnabled, deferralWindowMinutes, program, onSaved, onClose]);
+  }, [name, enabled, frequency, hour, selectedDays, zoneEntries, program, onSaved, wrapSave]);
 
   const toggleZone = (zoneId: string) => {
     setZoneEntries((prev) => ({
@@ -225,37 +215,6 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                 </span>
               </label>
             </div>
-
-            <div className="zone-form-top-row">
-              <span className="ai-schedule-enable-label">Defer on Guard</span>
-              <label
-                className={`toggle-switch${deferralEnabled ? " toggle-switch--on" : ""}`}
-                role="switch"
-                aria-checked={deferralEnabled}
-              >
-                <input
-                  type="checkbox"
-                  checked={deferralEnabled}
-                  onChange={(e) => setDeferralEnabled(e.target.checked)}
-                />
-                <span className="toggle-switch__track">
-                  <span className="toggle-switch__thumb" />
-                </span>
-              </label>
-            </div>
-            {deferralEnabled && (
-              <div className="form-group">
-                <label>Deferral Window (minutes)</label>
-                <input
-                  type="number"
-                  min={15}
-                  max={480}
-                  value={deferralWindowMinutes}
-                  onChange={(e) => setDeferralWindowMinutes(Math.max(15, Math.min(480, parseInt(e.target.value, 10) || 120)))}
-                />
-                <span className="form-hint">How long to wait for the guard to clear before giving up.</span>
-              </div>
-            )}
 
             <fieldset className="form-fieldset">
               <legend>Schedule</legend>
@@ -331,16 +290,24 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
             </fieldset>
 
             <div className="form-actions">
-              <button type="button" className="ghost-button icon-btn danger-text" onClick={onClose} title="Cancel" aria-label="Cancel">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-              <button type="submit" className="primary-button icon-btn" disabled={saving || !name.trim()} title={saving ? "Saving..." : "Save"} aria-label={saving ? "Saving..." : "Save"}>
-                {saving ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                )}
-              </button>
+              <ActionButton
+                icon={<XIcon />}
+                variant="ghost"
+                onClick={onClose}
+                title="Cancel"
+                aria-label="Cancel"
+              />
+              <ActionButton
+                icon={<CheckIcon />}
+                variant="primary"
+                type="submit"
+                status={saveStatus}
+                successLabel="Saved"
+                errorLabel="Error"
+                disabled={!name.trim()}
+                title="Save"
+                aria-label="Save"
+              />
             </div>
           </form>
         </div>

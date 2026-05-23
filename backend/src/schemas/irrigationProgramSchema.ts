@@ -10,9 +10,7 @@ export const createProgramSchema = z
     name: z.string().trim().min(1, "name is required").max(128),
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1, "scheduleCron is required"),
-    zoneEntries: z.array(zoneEntrySchema).min(1, "At least one zone entry is required"),
-    deferralEnabled: z.boolean().optional(),
-    deferralWindowMinutes: z.number().int().min(15).max(480).optional()
+    zoneEntries: z.array(zoneEntrySchema).min(1, "At least one zone entry is required")
   })
   .strict();
 

@@ -12,8 +12,6 @@ export interface IrrigationProgramAttributes {
   enabled: boolean;
   scheduleCron: string;
   zoneEntries: ProgramZoneEntry[];
-  deferralEnabled: boolean;
-  deferralWindowMinutes: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,8 +30,6 @@ const irrigationProgramSchema = new Schema<IrrigationProgramAttributes>({
   enabled: { type: Boolean, default: true },
   scheduleCron: { type: String, required: true, default: "0 6 * * *" },
   zoneEntries: { type: [programZoneEntrySchema], default: [] },
-  deferralEnabled: { type: Boolean, default: false },
-  deferralWindowMinutes: { type: Number, default: 120, min: 15, max: 480 },
   createdAt: { type: Date, default: () => new Date() },
   updatedAt: { type: Date, default: () => new Date() }
 });

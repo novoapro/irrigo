@@ -8,6 +8,7 @@ import {
   updateZone
 } from "../api";
 import Dropdown from "./Dropdown";
+import ActionButton, { useActionStatus, CheckIcon, TestIcon } from "./ActionButton";
 
 const AUTH_OPTIONS = [
   { value: "none", label: "None" },
@@ -25,8 +26,7 @@ interface CompAISettingsProps {
 const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettingsProps) => {
   const [config, setConfig] = useState<CompAIConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus();
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,38 +78,37 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
   }, [populateForm]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     setError(null);
     setTestResult(null);
     setDiscoverError(null);
     setZoneError(null);
     try {
-      const payload: Partial<CompAIConfig> = {
-        enabled,
-        deviceId,
-        endpoint: endpoint || null,
-        authType,
-        timeoutMs
-      };
-      if (authToken && !authToken.includes("••••")) {
-        payload.authToken = authToken;
-      }
-      if (webhookSecret && !webhookSecret.includes("••••")) {
-        payload.webhookSecret = webhookSecret;
-      }
-      const result = await updateCompAIConfig(payload);
-      setConfig(result);
-      populateForm(result);
+      await wrapSave(async () => {
+        const payload: Partial<CompAIConfig> = {
+          enabled,
+          deviceId,
+          endpoint: endpoint || null,
+          authType,
+          timeoutMs
+        };
+        if (authToken && !authToken.includes("••••")) {
+          payload.authToken = authToken;
+        }
+        if (webhookSecret && !webhookSecret.includes("••••")) {
+          payload.webhookSecret = webhookSecret;
+        }
+        const result = await updateCompAIConfig(payload);
+        setConfig(result);
+        populateForm(result);
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
-      setSaving(false);
       onHealthChanged?.();
     }
-  }, [enabled, deviceId, endpoint, authType, authToken, timeoutMs, webhookSecret, populateForm, onHealthChanged]);
+  }, [enabled, deviceId, endpoint, authType, authToken, timeoutMs, webhookSecret, populateForm, onHealthChanged, wrapSave]);
 
   const handleTest = useCallback(async () => {
-    setTesting(true);
     setTestResult(null);
     setError(null);
     setDiscoverError(null);
@@ -117,10 +116,8 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
     try {
       const result = await testCompAIConnection();
       setTestResult(result);
-    } catch (err) {
-      setTestResult({ success: false, message: err instanceof Error ? err.message : "Test failed" });
+      if (!result.success) throw new Error(result.message);
     } finally {
-      setTesting(false);
       onHealthChanged?.();
     }
   }, [onHealthChanged]);
@@ -325,32 +322,28 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
         )}
 
         <div className="form-actions">
-          <button
-            type="button"
-            className="ghost-button icon-btn"
-            onClick={handleTest}
-            disabled={testing || !endpoint || !deviceId}
-            aria-label={testing ? "Testing..." : "Test connection"}
-            title={testing ? "Testing..." : "Test connection"}
-          >
-            {testing
-              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
-            }
-          </button>
+          <ActionButton
+            icon={<TestIcon />}
+            variant="ghost"
+            action={handleTest}
+            disabled={!endpoint || !deviceId}
+            successLabel="OK"
+            errorLabel="Failed"
+            title="Test connection"
+            aria-label="Test connection"
+          />
           <div className="form-actions-right">
-            <button
+            <ActionButton
+              icon={<CheckIcon />}
+              variant="primary"
               type="submit"
-              className="primary-button icon-btn"
-              disabled={saving || !deviceId}
-              aria-label={saving ? "Saving..." : "Save"}
-              title={saving ? "Saving..." : "Save"}
-            >
-              {saving
-                ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              }
-            </button>
+              status={saveStatus}
+              successLabel="Saved"
+              errorLabel="Error"
+              disabled={!deviceId}
+              title="Save"
+              aria-label="Save"
+            />
           </div>
         </div>
       </form>

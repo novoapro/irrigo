@@ -11,8 +11,6 @@ interface ActiveRun {
   programId?: string;
   currentZoneIndex: number;
   timeoutTimer: NodeJS.Timeout | null;
-  deferralEnabled: boolean;
-  deferralWindowMinutes: number;
 }
 
 let activeRun: ActiveRun | null = null;
@@ -132,9 +130,7 @@ export interface StartRunZoneInput {
 export const startSequentialRun = async (
   zones: StartRunZoneInput[],
   source: SequentialRunSource,
-  programId?: string,
-  deferralEnabled: boolean = false,
-  deferralWindowMinutes: number = 120
+  programId?: string
 ): Promise<string> => {
   if (activeRun) {
     throw new Error("A sequential run is already in progress");
@@ -157,9 +153,7 @@ export const startSequentialRun = async (
     status: "running",
     zones: zoneEntries,
     currentZoneIndex: 0,
-    startedAt: new Date(),
-    deferralEnabled,
-    deferralWindowMinutes
+    startedAt: new Date()
   });
 
   const runId = run._id.toString();
@@ -169,9 +163,7 @@ export const startSequentialRun = async (
     source,
     programId,
     currentZoneIndex: 0,
-    timeoutTimer: null,
-    deferralEnabled,
-    deferralWindowMinutes
+    timeoutTimer: null
   };
 
   emitRealtimeEvent({
@@ -262,8 +254,10 @@ export const clearActiveRun = () => {
   activeRun = null;
 };
 
+const DEFERRAL_SAFETY_CAP_MS = 24 * 60 * 60_000;
+
 export const deferCurrentZone = async (): Promise<boolean> => {
-  if (!activeRun || !activeRun.deferralEnabled) return false;
+  if (!activeRun) return false;
 
   const run = await SequentialRun.findById(activeRun.runId);
   if (!run || run.status !== "running") return false;
@@ -280,7 +274,7 @@ export const deferCurrentZone = async (): Promise<boolean> => {
   currentZone.status = "deferred";
   run.status = "deferred";
   run.deferredAt = new Date();
-  run.deferralDeadline = new Date(Date.now() + run.deferralWindowMinutes * 60_000);
+  run.deferralDeadline = new Date(Date.now() + DEFERRAL_SAFETY_CAP_MS);
   await run.save();
 
   clearSafetyTimeout();
@@ -313,9 +307,7 @@ export const resumeDeferredRun = async (runIdOverride?: string): Promise<boolean
       source: run.source,
       programId: run.programId ?? undefined,
       currentZoneIndex: deferredIndex,
-      timeoutTimer: null,
-      deferralEnabled: run.deferralEnabled,
-      deferralWindowMinutes: run.deferralWindowMinutes
+      timeoutTimer: null
     };
   }
 

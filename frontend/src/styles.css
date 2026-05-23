@@ -139,12 +139,12 @@
   --chart-indigo-light: #a5b4fc;
 
   /* ── Forecast-specific ── */
-  --forecast-card-bg: #1e293b;
-  --forecast-card-text: #e2e8f0;
-  --forecast-accent: #62a8cf;
-  --forecast-precip-color: #bae6fd;
-  --forecast-muted: #94a3b8;
-  --forecast-error: #fecaca;
+  --forecast-card-bg: var(--color-surface);
+  --forecast-card-text: var(--color-text);
+  --forecast-accent: #2563eb;
+  --forecast-precip-color: #3b82f6;
+  --forecast-muted: #64748b;
+  --forecast-error: #ef4444;
 
   /* ── Misc component colors ── */
   --color-soil: #8b5a2b;
@@ -1933,11 +1933,12 @@ html[data-theme="dark"] .app-header-actions-row > button {
 }
 
 .forecast-card {
-  background: var(--color-surface-dark);
-  color: var(--color-text-on-dark);
+  background: var(--forecast-card-bg);
+  color: var(--forecast-card-text);
   border-radius: var(--radius-xl);
   padding: var(--space-8);
   border: none;
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
@@ -2074,6 +2075,17 @@ html[data-theme="dark"] .app-header-actions-row > button {
   gap: 1rem;
 }
 
+.forecast-updated-row--mobile {
+  display: none;
+}
+
+.forecast-updated-row--desktop {
+  width: 100%;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
 .forecast-updated-row .forecast-window {
   text-align: left;
 }
@@ -2081,6 +2093,11 @@ html[data-theme="dark"] .app-header-actions-row > button {
 .forecast-updated-row .forecast-updated-label {
   margin-left: auto;
   text-align: right;
+}
+
+.forecast-updated-row--desktop .forecast-updated-label {
+  margin-left: 0;
+  text-align: left;
 }
 
 .forecast-leading-metrics.single-row {
@@ -3040,13 +3057,6 @@ tbody tr:hover {
   margin-right: var(--space-2);
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
 .form-actions button {
   text-align: center;
 }
@@ -3627,7 +3637,11 @@ tbody tr:hover {
     font-weight: var(--weight-semibold);
   }
 
-  .forecast-updated-row {
+  .forecast-updated-row--desktop {
+    display: none;
+  }
+
+  .forecast-updated-row--mobile {
     display: flex;
     flex-direction: row;
     font-size: var(--text-xs);
@@ -3870,7 +3884,12 @@ tbody tr:hover {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.settings-section-header:first-child {
+  margin-top: 0;
 }
 
 .settings-section-header h3 {
@@ -3948,6 +3967,20 @@ tbody tr:hover {
   .settings-panel__content .program-cards {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Irrigation Settings Tab ── */
+
+.irrigation-settings-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form-actions--inline {
+  justify-content: flex-start;
+  margin-top: 0;
+  margin-bottom: var(--space-2);
 }
 
 /* ── Modal Mobile ── */
@@ -4808,6 +4841,34 @@ tbody tr:hover {
 
 .icon-spin {
   animation: icon-spin 0.8s linear infinite;
+}
+
+/* ── ActionButton feedback states ── */
+
+.action-btn--success {
+  color: var(--color-success-text) !important;
+  width: auto;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+.action-btn--error {
+  color: var(--color-danger-text) !important;
+  width: auto;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+}
+
+.action-btn__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  animation: action-btn-fade-in var(--transition-base);
+}
+
+@keyframes action-btn-fade-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .ai-run-status-btn {
@@ -5808,7 +5869,7 @@ tbody tr:hover {
 
 .time-window-add {
   align-self: flex-start;
-  font-size: var(--text-sm);
+  margin-top: var(--space-2);
 }
 
 .ai-schedule-enable-label {
@@ -6418,4 +6479,115 @@ html[data-theme="dark"] .react-datepicker__navigation-icon::before {
 
 html[data-theme="dark"] .react-datepicker__triangle {
   display: none;
+}
+
+/* ── Debug Mode ── */
+
+.debug-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background: var(--color-warning-bg);
+  border-bottom: 1px solid var(--color-warning-border);
+  color: var(--color-warning-text);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.debug-mode-banner svg {
+  flex-shrink: 0;
+}
+
+.debug-mode-banner span {
+  flex: 1;
+}
+
+.debug-mode-banner button {
+  background: none;
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning-text);
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.debug-mode-banner button:hover {
+  background: var(--color-warning-border);
+}
+
+.debug-settings {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.debug-settings__warning {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--color-warning-text);
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.debug-settings__row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.debug-settings__row .form-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.debug-settings__simulate {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.debug-settings__simulate h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 0.3rem;
+}
+
+.debug-settings__hint {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.6rem;
+}
+
+.debug-settings__sim-result {
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-success-text);
+}
+
+.debug-settings__error {
+  color: var(--color-danger-text);
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+}
+
+.debug-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.debug-settings__loading {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
 }

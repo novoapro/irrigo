@@ -6,6 +6,7 @@ import {
   testExternalController
 } from "../api";
 import Dropdown from "./Dropdown";
+import ActionButton, { useActionStatus, CheckIcon, TestIcon } from "./ActionButton";
 
 const AUTH_OPTIONS = [
   { value: "none", label: "None" },
@@ -22,9 +23,8 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
   const [collapsed, setCollapsed] = useState(true);
   const [config, setConfig] = useState<ExternalControllerConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus();
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
@@ -66,42 +66,35 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
   }, [populateForm]);
 
   const handleSave = useCallback(async () => {
-    setSaving(true);
     setError(null);
     try {
-      const payload: Partial<ExternalControllerConfig> = {
-        name,
-        endpoint,
-        authType,
-        commandPath: commandPath || undefined,
-        timeoutMs,
-        enabled,
-        zoneMapping
-      };
-      if (authToken && !authToken.includes("••••")) {
-        payload.authToken = authToken;
-      }
-      const result = await updateExternalControllerConfig(payload);
-      setConfig(result);
-      populateForm(result);
+      await wrapSave(async () => {
+        const payload: Partial<ExternalControllerConfig> = {
+          name,
+          endpoint,
+          authType,
+          commandPath: commandPath || undefined,
+          timeoutMs,
+          enabled,
+          zoneMapping
+        };
+        if (authToken && !authToken.includes("••••")) {
+          payload.authToken = authToken;
+        }
+        const result = await updateExternalControllerConfig(payload);
+        setConfig(result);
+        populateForm(result);
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
     }
-  }, [name, endpoint, authType, authToken, commandPath, timeoutMs, enabled, zoneMapping, populateForm]);
+  }, [name, endpoint, authType, authToken, commandPath, timeoutMs, enabled, zoneMapping, populateForm, wrapSave]);
 
   const handleTest = useCallback(async () => {
-    setTesting(true);
     setTestResult(null);
-    try {
-      const result = await testExternalController();
-      setTestResult(result);
-    } catch (err) {
-      setTestResult({ success: false, message: err instanceof Error ? err.message : "Test failed" });
-    } finally {
-      setTesting(false);
-    }
+    const result = await testExternalController();
+    setTestResult(result);
+    if (!result.success) throw new Error(result.message);
   }, []);
 
   const handleMappingChange = useCallback((zoneId: string, value: string) => {
@@ -263,32 +256,28 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
         )}
 
         <div className="form-actions">
-          <button
-            type="button"
-            className="ghost-button icon-btn"
-            onClick={handleTest}
-            disabled={testing || !endpoint}
-            aria-label={testing ? "Testing..." : "Test connection"}
-            title={testing ? "Testing..." : "Test connection"}
-          >
-            {testing
-              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-              : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
-            }
-          </button>
+          <ActionButton
+            icon={<TestIcon />}
+            variant="ghost"
+            action={handleTest}
+            disabled={!endpoint}
+            successLabel="OK"
+            errorLabel="Failed"
+            title="Test connection"
+            aria-label="Test connection"
+          />
           <div className="form-actions-right">
-            <button
+            <ActionButton
+              icon={<CheckIcon />}
+              variant="primary"
               type="submit"
-              className="primary-button icon-btn"
-              disabled={saving || !endpoint}
-              aria-label={saving ? "Saving..." : "Save"}
-              title={saving ? "Saving..." : "Save"}
-            >
-              {saving
-                ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-                : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              }
-            </button>
+              status={saveStatus}
+              successLabel="Saved"
+              errorLabel="Error"
+              disabled={!endpoint}
+              title="Save"
+              aria-label="Save"
+            />
           </div>
         </div>
       </form>

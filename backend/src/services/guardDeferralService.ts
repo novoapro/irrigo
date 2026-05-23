@@ -7,13 +7,13 @@ import {
   deferCurrentZone,
   resumeDeferredRun
 } from "./sequentialRunService";
+import { isWithinPreferredWindow } from "./irrigationSettingsService";
 
 interface DeferredProgramEntry {
   programId: string;
   deferredAt: Date;
   deadline: Date;
   zoneEntries: { zoneId: string; durationMinutes: number }[];
-  deferralWindowMinutes: number;
 }
 
 let monitorActive = false;
@@ -30,7 +30,7 @@ export const addDeferredProgram = (entry: DeferredProgramEntry) => {
 
 const onGuardActivated = async () => {
   const active = getActiveRun();
-  if (active && active.deferralEnabled) {
+  if (active) {
     const success = await deferCurrentZone();
     if (success) {
       const run = await SequentialRun.findById(active.runId).lean();
@@ -47,7 +47,7 @@ const onGuardActivated = async () => {
   }
 };
 
-const onGuardDeactivated = async () => {
+const resumeDeferredTasks = async () => {
   const active = getActiveRun();
   if (active) {
     const run = await SequentialRun.findById(active.runId).lean();
@@ -108,7 +108,9 @@ const onGuardDeactivated = async () => {
     if (deferred.deadline > now) {
       const { startSequentialRun } = await import("./sequentialRunService");
       const { default: Zone } = await import("../models/Zone");
+      const { getWaterSavingFactor } = await import("./irrigationSettingsService");
 
+      const factor = await getWaterSavingFactor();
       const zoneIds = deferred.zoneEntries.map((e) => e.zoneId);
       const zones = await Zone.find({ zoneId: { $in: zoneIds } }).lean();
       const nameMap = new Map(zones.map((z) => [z.zoneId, z.name]));
@@ -116,11 +118,11 @@ const onGuardDeactivated = async () => {
       const inputs = deferred.zoneEntries.map((e) => ({
         zoneId: e.zoneId,
         name: nameMap.get(e.zoneId) ?? e.zoneId,
-        durationMinutes: e.durationMinutes
+        durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor))
       }));
 
       try {
-        await startSequentialRun(inputs, "program", programId, true, deferred.deferralWindowMinutes);
+        await startSequentialRun(inputs, "program", programId);
         emitRealtimeEvent({
           type: "deferral:recovered",
           payload: { type: "deferred-program", programId }
@@ -131,6 +133,31 @@ const onGuardDeactivated = async () => {
     }
     deferredPrograms.delete(programId);
   }
+};
+
+const onGuardDeactivated = async () => {
+  const inWindow = await isWithinPreferredWindow(new Date());
+  if (inWindow) {
+    await resumeDeferredTasks();
+  }
+};
+
+const hasDeferredTasks = async (): Promise<boolean> => {
+  if (deferredPrograms.size > 0) return true;
+
+  const active = getActiveRun();
+  if (active) {
+    const run = await SequentialRun.findById(active.runId).lean();
+    if (run?.status === "deferred") return true;
+  }
+
+  const deferredRun = await SequentialRun.findOne({ status: "deferred", deferralDeadline: { $gt: new Date() } });
+  if (deferredRun) return true;
+
+  const deferredEntry = await ScheduleEntry.findOne({ status: "deferred", deferralDeadline: { $gt: new Date() } });
+  if (deferredEntry) return true;
+
+  return false;
 };
 
 const checkDeadlines = async () => {
@@ -226,6 +253,14 @@ export const handleHeartbeatForDeferral = async (heartbeat: { guard: boolean }) 
 
     if (currentGuard === true) {
       await checkDeadlines();
+    }
+
+    // When guard is off but deferred tasks exist, check if we've entered a preferred window
+    if (currentGuard === false && await hasDeferredTasks()) {
+      const inWindow = await isWithinPreferredWindow(new Date());
+      if (inWindow) {
+        await resumeDeferredTasks();
+      }
     }
   } catch (err) {
     console.error("[GuardDeferral] Error handling heartbeat:", err);

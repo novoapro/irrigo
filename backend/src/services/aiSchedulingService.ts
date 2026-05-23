@@ -12,6 +12,8 @@ import type { ForecastPeriodSnapshot } from "../models/WeatherForecastSnapshot";
 import PrecipitationHistory from "../models/PrecipitationHistory";
 import { callAI } from "./aiProviderService";
 import { emitRealtimeEvent } from "./realtimeService";
+import { getIrrigationSettings } from "./irrigationSettingsService";
+import type { PreferredTimeWindow, WaterSavingMode } from "../models/configs/IrrigationSettings";
 
 interface GatheredData {
   zones: Array<{
@@ -194,7 +196,9 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
 const buildPrompt = (
   config: AIScheduleConfigAttributes,
   data: GatheredData,
-  now: Date
+  now: Date,
+  preferredTimeWindows: PreferredTimeWindow[],
+  waterSavingMode: WaterSavingMode
 ): { system: string; user: string } => {
   const prefs = config.preferences;
 
@@ -207,9 +211,7 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
       "zoneId": "string",
       "plannedStartAt": "ISO 8601 datetime string",
       "plannedDurationMinutes": number,
-      "reasoning": "1-2 sentence explanation",
-      "deferralEnabled": true | false,
-      "deferralWindowMinutes": number
+      "reasoning": "1-2 sentence explanation"
     }
   ],
   "modifyEntries": [
@@ -236,8 +238,8 @@ You MUST respond with valid JSON only — no markdown, no explanation outside th
   "summary": "1-3 sentence overall summary of the scheduling decision"
 }`;
 
-  const timeWindowsDesc = prefs.preferredTimeWindows.length > 0
-    ? prefs.preferredTimeWindows
+  const timeWindowsDesc = preferredTimeWindows.length > 0
+    ? preferredTimeWindows
         .map((w) => `${w.startHour}:00 – ${w.endHour}:00`)
         .join(", ")
     : "any time";
@@ -334,7 +336,7 @@ ${pendingEntriesLines}
 
 ## Guard-Based Deferral
 The irrigation guard indicates when conditions are not suitable for irrigation (e.g., low water pressure). When guard is ON, Irrigo will not execute irrigation.
-You can set "deferralEnabled": true and "deferralWindowMinutes": <number> on new entries. If the guard is ON when the entry is due to execute, Irrigo will automatically defer it and resume when the guard clears, within the specified window. Default: deferralEnabled=true, deferralWindowMinutes=60.
+If the guard is ON when an entry is due to execute, Irrigo will automatically defer it and resume when the guard clears and the current time is within a preferred irrigation window.
 Entries with status "deferred" are being managed by the system — leave them in keepEntries.
 
 Current guard state: ${data.guardActive ? "ON (conditions not suitable — irrigation blocked)" : "OFF (ready to irrigate)"}
@@ -346,7 +348,7 @@ ${data.recentDeferrals.length > 0 ? `Recent deferrals (last 7 days):\n${data.rec
 - Preferred irrigation windows: ${timeWindowsDesc}
 - Max daily irrigation: ${prefs.maxDailyRunMinutes} minutes total
 - Minimum days between runs per zone: ${prefs.minDaysBetweenRuns}
-- Water saving mode: ${prefs.waterSavingMode ?? "normal"}${prefs.waterSavingMode === "moderate" ? " — reduce zone durations by ~25-40% from defaults, prefer shorter more frequent runs" : prefs.waterSavingMode === "aggressive" ? " — minimize water usage, reduce zone durations by ~40-60% from defaults, skip zones that are not critically dry" : ""}
+- Water saving mode: ${waterSavingMode}${waterSavingMode === "moderate" ? " — reduce zone durations by ~25-40% from defaults, prefer shorter more frequent runs" : waterSavingMode === "aggressive" ? " — minimize water usage, reduce zone durations by ~40-60% from defaults, skip zones that are not critically dry" : ""}
 ${config.userContext ? `\n## Additional User Instructions\n${config.userContext}` : ""}
 
 ## Task
@@ -365,7 +367,7 @@ Decision factors:
 - Use historical water pressure patterns to prefer times when PSI is consistently well above the baseline minimum
 - Factor in temperature and precipitation — prefer cooler hours (after sunset, before sunrise), skip if rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h
 - Stagger zone start times so they don't overlap
-- Respect max daily irrigation minutes and minimum days between runs per zone${prefs.waterSavingMode === "moderate" ? "\n- Water saving mode is MODERATE: use noticeably shorter run times per zone than the defaults" : prefs.waterSavingMode === "aggressive" ? "\n- Water saving mode is AGGRESSIVE: minimize run times, use the shortest durations that keep plants alive, skip any zone that isn't critically in need" : ""}`;
+- Respect max daily irrigation minutes and minimum days between runs per zone${waterSavingMode === "moderate" ? "\n- Water saving mode is MODERATE: use noticeably shorter run times per zone than the defaults" : waterSavingMode === "aggressive" ? "\n- Water saving mode is AGGRESSIVE: minimize run times, use the shortest durations that keep plants alive, skip any zone that isn't critically in need" : ""}`;
 
   return { system, user };
 };
@@ -376,8 +378,6 @@ interface AIScheduleResponse {
     plannedStartAt: string;
     plannedDurationMinutes: number;
     reasoning: string;
-    deferralEnabled?: boolean;
-    deferralWindowMinutes?: number;
   }>;
   modifyEntries?: Array<{
     entryId: string;
@@ -478,7 +478,8 @@ export const runScheduleEvaluation = async (
       return { runId: scheduleRunId, entriesCreated: 0 };
     }
 
-    const { system, user } = buildPrompt(config, data, now);
+    const irrigationSettings = await getIrrigationSettings();
+    const { system, user } = buildPrompt(config, data, now, irrigationSettings.preferredTimeWindows, irrigationSettings.waterSavingMode);
 
     run.systemPrompt = system;
     run.userPrompt = user;
@@ -526,9 +527,7 @@ export const runScheduleEvaluation = async (
       plannedDurationMinutes: e.plannedDurationMinutes,
       status: "planned" as const,
       aiReasoning: e.reasoning,
-      weatherContext: weatherCtx,
-      deferralEnabled: e.deferralEnabled ?? true,
-      deferralWindowMinutes: e.deferralWindowMinutes ?? 60
+      weatherContext: weatherCtx
     }));
 
     if (newDbEntries.length > 0) {
