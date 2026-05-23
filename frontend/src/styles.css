@@ -1347,6 +1347,16 @@ html[data-theme="dark"] .app-header-actions-row > button {
   gap: var(--space-3);
 }
 
+@media (max-width: 1024px) {
+  .status-panel__header {
+    justify-content: center;
+  }
+
+  .status-panel__header-left {
+    justify-content: center;
+  }
+}
+
 .status-panel__icon {
   font-size: 1.75rem;
   line-height: 1;
