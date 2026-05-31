@@ -25,10 +25,10 @@ export const updateProgram = async (programId: string, data: UpdateProgramInput)
     { new: true }
   ).lean();
   if (!program) return null;
-  await ScheduleEntry.updateMany(
-    { programId, status: "planned" },
-    { status: "cancelled" }
-  );
+  await ScheduleEntry.deleteMany({
+    programId,
+    status: { $in: ["planned", "skipped"] }
+  });
   emitRealtimeEvent({ type: "program:updated", payload: program });
   return program;
 };
