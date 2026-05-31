@@ -78,7 +78,7 @@ const parseDowField = (field: string): Set<number> | null => {
   return values.size > 0 ? values : null;
 };
 
-const nextCronRun = (cron: string): Date | null => {
+const nextCronRun = (cron: string, after?: Date): Date | null => {
   const parts = cron.trim().split(/\s+/);
   if (parts.length < 5) return null;
   const minute = parseInt(parts[0]!, 10);
@@ -91,10 +91,10 @@ const nextCronRun = (cron: string): Date | null => {
   const domStep = domPart.match(/^\*\/(\d+)$/);
   const domInterval = domStep ? parseInt(domStep[1]!, 10) : 0;
 
-  const now = new Date();
-  const candidate = new Date(now);
+  const ref = after ?? new Date();
+  const candidate = new Date(ref);
   candidate.setHours(hour, minute, 0, 0);
-  if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
+  if (candidate <= ref) candidate.setDate(candidate.getDate() + 1);
 
   for (let i = 0; i < 60; i++) {
     const dayOk = !allowedDays || allowedDays.has(candidate.getDay());
@@ -509,7 +509,6 @@ const IrrigationQueuePanel = ({
     const activeProgramIds = new Set(
       activeEntries.filter((e) => e.programId).map((e) => e.programId!)
     );
-    const remainingPrograms = programSeqs.filter((ps) => !activeProgramIds.has(ps.programId!));
 
     const materializedSeqs = buildSmartSequences(activeEntries, getZoneName);
     materializedSeqs.forEach((s) => {
@@ -528,6 +527,10 @@ const IrrigationQueuePanel = ({
         skippedByProgram.get(e.programId)!.push(e);
       }
     }
+
+    const handledProgramIds = new Set([...activeProgramIds, ...skippedByProgram.keys()]);
+    const remainingPrograms = programSeqs.filter((ps) => !handledProgramIds.has(ps.programId!));
+
     const skippedSeqs: QueueSequence[] = [];
     for (const [progId, skippedEntries] of skippedByProgram) {
       const prog = programs.find((p) => p.programId === progId);
@@ -550,6 +553,27 @@ const IrrigationQueuePanel = ({
         totalMinutes: prog.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
         entryIds: skippedEntries.map((e) => e._id),
       });
+
+      const latest = skippedEntries.reduce((max, e) =>
+        new Date(e.plannedStartAt) > new Date(max.plannedStartAt) ? e : max
+      );
+      const nextRun = nextCronRun(prog.scheduleCron, new Date(latest.plannedStartAt));
+      if (nextRun) {
+        skippedSeqs.push({
+          id: prog.programId,
+          scheduledAt: nextRun.toISOString(),
+          status: "pending",
+          source: "program",
+          sourceLabel: prog.name,
+          programId: progId,
+          zones: prog.zoneEntries.map((ze) => ({
+            zoneId: ze.zoneId,
+            zoneName: getZoneName(ze.zoneId),
+            durationMinutes: ze.durationMinutes,
+          })),
+          totalMinutes: prog.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
+        });
+      }
     }
 
     return [...materializedSeqs, ...skippedSeqs, ...remainingPrograms]
