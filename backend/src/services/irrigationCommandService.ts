@@ -144,7 +144,7 @@ export const acknowledgeCommand = async (zoneId: string, action: "on" | "off") =
   const cmd = await IrrigationCommand.findOne({
     zoneId,
     action,
-    status: { $in: ["pending", "sent"] }
+    status: { $in: ["pending", "sent", "timeout"] }
   })
     .sort({ createdAt: -1 })
     .exec();
@@ -157,13 +157,17 @@ export const acknowledgeCommand = async (zoneId: string, action: "on" | "off") =
 
   emitRealtimeEvent({ type: "command:updated", payload: serializeCommand(cmd.toObject()) });
 
+  const now = new Date().toISOString();
+  const durationMin = action === "on" ? (cmd.durationMinutes ?? null) : null;
   const zoneState = {
     zoneId,
     isActive: action === "on",
     lastAction: action,
-    lastEventAt: new Date().toISOString(),
+    lastEventAt: now,
     activeCommandId: action === "on" ? cmd._id.toString() : null,
-    activeDurationMinutes: action === "on" ? (cmd.durationMinutes ?? null) : null
+    activeDurationMinutes: durationMin,
+    remainingSeconds: durationMin != null && durationMin > 0 ? durationMin * 60 : null,
+    remainingUpdatedAt: durationMin != null && durationMin > 0 ? now : null
   };
   emitRealtimeEvent({ type: "zoneState:changed", payload: zoneState });
 

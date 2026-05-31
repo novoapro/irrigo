@@ -486,6 +486,48 @@ export const discoverCompAIServices = async (): Promise<CompAIDiscoveryResult> =
   return json.data;
 };
 
+// --- CompAI Webhook Events ---
+
+export interface WebhookEventQuery {
+  page?: number;
+  pageSize?: number;
+  zoneId?: string;
+  characteristicType?: string;
+  start?: string;
+  end?: string;
+}
+
+export const fetchWebhookEvents = async (query?: WebhookEventQuery) => {
+  const params = new URLSearchParams();
+  if (query?.page) params.set("page", String(query.page));
+  if (query?.pageSize) params.set("pageSize", String(query.pageSize));
+  if (query?.zoneId) params.set("zoneId", query.zoneId);
+  if (query?.characteristicType) params.set("characteristicType", query.characteristicType);
+  if (query?.start) params.set("start", query.start);
+  if (query?.end) params.set("end", query.end);
+
+  const url = buildUrl(`/compai/events?${params.toString()}`);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch webhook events (${response.status})`);
+  return (await response.json()) as {
+    events: import("./types").WebhookEvent[];
+    meta: { page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean };
+  };
+};
+
+export const deleteWebhookEvents = async (query?: Omit<WebhookEventQuery, "page" | "pageSize">) => {
+  const params = new URLSearchParams();
+  if (query?.zoneId) params.set("zoneId", query.zoneId);
+  if (query?.characteristicType) params.set("characteristicType", query.characteristicType);
+  if (query?.start) params.set("start", query.start);
+  if (query?.end) params.set("end", query.end);
+
+  const url = buildUrl(`/compai/events?${params.toString()}`);
+  const response = await fetch(url, { method: "DELETE" });
+  if (!response.ok) throw new Error(`Failed to delete webhook events (${response.status})`);
+  return (await response.json()) as { deletedCount: number };
+};
+
 // --- AI Schedule API ---
 
 export const fetchAIScheduleConfig = async (): Promise<AIScheduleConfig | null> => {
@@ -869,6 +911,21 @@ export const simulateDebugEvent = async (payload: {
     body: JSON.stringify(payload)
   });
   if (!response.ok) throw new Error(`Event simulation failed (${response.status})`);
+  const json = await response.json();
+  return json.data;
+};
+
+export const simulateCharacteristic = async (payload: {
+  zoneId: string;
+  characteristic: string;
+  value: number;
+}) => {
+  const response = await fetch(buildUrl("/debug/simulate-characteristic"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(`Characteristic simulation failed (${response.status})`);
   const json = await response.json();
   return json.data;
 };

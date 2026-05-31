@@ -182,6 +182,7 @@ const App = () => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneStates, setZoneStates] = useState<Record<string, ZoneState>>({});
   const [zonesLoading, setZonesLoading] = useState(false);
+  const zoneStateVersionRef = useRef(0);
   const [manualRun, setManualRun] = useState<SequentialRun | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "irrigation" | "programs" | "integrations" | "preferences">("zones");
@@ -409,12 +410,15 @@ const App = () => {
 
   const loadZones = useCallback(async () => {
     setZonesLoading(true);
+    const versionAtStart = zoneStateVersionRef.current;
     try {
       const [zoneList, states] = await Promise.all([fetchZones(), fetchZoneStates()]);
       setZones(zoneList);
-      const stateMap: Record<string, ZoneState> = {};
-      states.forEach((s) => { stateMap[s.zoneId] = s; });
-      setZoneStates(stateMap);
+      if (zoneStateVersionRef.current === versionAtStart) {
+        const stateMap: Record<string, ZoneState> = {};
+        states.forEach((s) => { stateMap[s.zoneId] = s; });
+        setZoneStates(stateMap);
+      }
     } catch (err) {
       console.error("Failed to load zones:", err);
     } finally {
@@ -1224,11 +1228,23 @@ const App = () => {
         }
         case "zone:created":
         case "zone:updated":
-        case "zone:deleted":
-        case "command:created":
-        case "command:updated":
-        case "zoneState:changed": {
+        case "zone:deleted": {
           void loadZones();
+          break;
+        }
+        case "command:created":
+        case "command:updated": {
+          void loadZones();
+          break;
+        }
+        case "zoneState:changed": {
+          if (event.payload && "zoneId" in event.payload) {
+            const statePayload = event.payload as ZoneState;
+            zoneStateVersionRef.current++;
+            setZoneStates((prev) => ({ ...prev, [statePayload.zoneId]: statePayload }));
+          } else {
+            void loadZones();
+          }
           break;
         }
         case "schedule:runCompleted": {

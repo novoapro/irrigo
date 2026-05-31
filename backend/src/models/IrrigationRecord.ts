@@ -13,6 +13,8 @@ export interface IrrigationRecordAttributes {
   durationMs?: number | null;
   pressureStart?: number | null;
   pressureEnd?: number | null;
+  remainingSeconds?: number | null;
+  remainingUpdatedAt?: Date | null;
   commandId?: Types.ObjectId | null;
   programId?: string | null;
   scheduleEntryId?: Types.ObjectId | null;
@@ -36,6 +38,8 @@ const irrigationRecordSchema = new Schema<IrrigationRecordAttributes>({
   durationMs: { type: Number, default: null },
   pressureStart: { type: Number, default: null },
   pressureEnd: { type: Number, default: null },
+  remainingSeconds: { type: Number, default: null },
+  remainingUpdatedAt: { type: Date, default: null },
   commandId: {
     type: Schema.Types.ObjectId,
     ref: "IrrigationCommand",

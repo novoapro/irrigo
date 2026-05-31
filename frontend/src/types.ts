@@ -91,6 +91,7 @@ export interface ZoneState {
   activeCommandId?: string | null;
   activeDurationMinutes?: number | null;
   remainingSeconds?: number | null;
+  remainingUpdatedAt?: string | null;
 }
 
 export interface IrrigationCommand {
@@ -109,6 +110,23 @@ export interface IrrigationCommand {
   sentAt?: string | null;
   acknowledgedAt?: string | null;
   createdAt: string;
+}
+
+export interface WebhookEvent {
+  _id: string;
+  deviceId: string;
+  serviceId: string;
+  serviceName?: string | null;
+  characteristicId: string;
+  characteristicType: string;
+  characteristicName?: string | null;
+  oldValue: unknown;
+  newValue: unknown;
+  zoneId?: string | null;
+  zoneName?: string | null;
+  processed: boolean;
+  result?: string | null;
+  receivedAt: string;
 }
 
 export interface ExternalControllerConfig {

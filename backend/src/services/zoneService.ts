@@ -2,6 +2,7 @@ import Zone from "../models/Zone";
 import type { CreateZoneInput, UpdateZoneInput } from "../schemas/zoneSchema";
 import IrrigationEvent from "../models/IrrigationEvent";
 import IrrigationCommand from "../models/IrrigationCommand";
+import IrrigationRecord from "../models/IrrigationRecord";
 
 export interface ZoneState {
   zoneId: string;
@@ -10,6 +11,8 @@ export interface ZoneState {
   lastEventAt: string | null;
   activeCommandId?: string | null;
   activeDurationMinutes?: number | null;
+  remainingSeconds?: number | null;
+  remainingUpdatedAt?: string | null;
 }
 
 const serializeZone = (doc: Record<string, unknown>) => {
@@ -83,6 +86,8 @@ export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
 
   let activeCommandId: string | null = null;
   let activeDurationMinutes: number | null = null;
+  let remainingSeconds: number | null = null;
+  let remainingUpdatedAt: string | null = null;
 
   if (isActive && latest?.commandId) {
     const cmd = await IrrigationCommand.findById(latest.commandId)
@@ -94,13 +99,30 @@ export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
     }
   }
 
+  if (isActive) {
+    const runningRecord = await IrrigationRecord.findOne({
+      zoneId,
+      status: "running"
+    })
+      .sort({ startedAt: -1 })
+      .select({ remainingSeconds: 1, remainingUpdatedAt: 1 })
+      .lean();
+
+    if (runningRecord?.remainingSeconds != null && runningRecord.remainingUpdatedAt) {
+      remainingSeconds = runningRecord.remainingSeconds;
+      remainingUpdatedAt = runningRecord.remainingUpdatedAt.toISOString();
+    }
+  }
+
   return {
     zoneId,
     isActive,
     lastAction: latest?.action ?? null,
     lastEventAt: latest?.createdAt?.toISOString() ?? null,
     activeCommandId,
-    activeDurationMinutes
+    activeDurationMinutes,
+    remainingSeconds,
+    remainingUpdatedAt
   };
 };
 

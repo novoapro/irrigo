@@ -5,7 +5,9 @@ import {
   getCompAIConfig,
   upsertCompAIConfig,
   testCompAIConnection,
-  discoverServices
+  discoverServices,
+  listWebhookEvents,
+  deleteWebhookEvents
 } from "../controllers/compAIController";
 
 const router = Router();
@@ -15,5 +17,7 @@ router.get("/compai/config", getCompAIConfig);
 router.put("/compai/config", upsertCompAIConfig);
 router.post("/compai/test", testCompAIConnection);
 router.get("/compai/services", discoverServices);
+router.get("/compai/events", listWebhookEvents);
+router.delete("/compai/events", deleteWebhookEvents);
 
 export default router;

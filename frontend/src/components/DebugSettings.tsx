@@ -3,10 +3,66 @@ import type { Zone } from "../types";
 import {
   fetchDebugConfig,
   updateDebugConfig,
-  simulateDebugEvent
+  simulateCharacteristic
 } from "../api";
 import ActionButton, { useActionStatus, CheckIcon } from "./ActionButton";
 import Dropdown from "./Dropdown";
+
+type CharacteristicKey = "active" | "inUse" | "isConfigured" | "setDuration" | "remainingDuration";
+
+const CHARACTERISTICS: { value: CharacteristicKey; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "inUse", label: "In Use" },
+  { value: "isConfigured", label: "Is Configured" },
+  { value: "setDuration", label: "Set Duration" },
+  { value: "remainingDuration", label: "Remaining Duration" },
+];
+
+const BOOLEAN_VALUES = [
+  { value: "1", label: "1 (On)" },
+  { value: "0", label: "0 (Off)" },
+];
+
+const IS_CONFIGURED_VALUES = [
+  { value: "1", label: "1 (Enabled)" },
+  { value: "0", label: "0 (Disabled)" },
+];
+
+const DURATION_VALUES = [
+  { value: "0", label: "0s" },
+  { value: "30", label: "30s" },
+  { value: "60", label: "1 min" },
+  { value: "300", label: "5 min" },
+  { value: "600", label: "10 min" },
+  { value: "900", label: "15 min" },
+  { value: "1800", label: "30 min" },
+  { value: "3600", label: "60 min" },
+];
+
+const getValueOptions = (characteristic: CharacteristicKey) => {
+  switch (characteristic) {
+    case "active":
+    case "inUse":
+      return BOOLEAN_VALUES;
+    case "isConfigured":
+      return IS_CONFIGURED_VALUES;
+    case "setDuration":
+    case "remainingDuration":
+      return DURATION_VALUES;
+  }
+};
+
+const getDefaultValue = (characteristic: CharacteristicKey) => {
+  switch (characteristic) {
+    case "active":
+    case "inUse":
+    case "isConfigured":
+      return "1";
+    case "setDuration":
+    case "remainingDuration":
+      return "300";
+  }
+};
 
 interface DebugSettingsProps {
   zones: Zone[];
@@ -21,7 +77,8 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
   const [enabled, setEnabled] = useState(false);
 
   const [simZoneId, setSimZoneId] = useState("");
-  const [simAction, setSimAction] = useState<"on" | "off">("on");
+  const [simCharacteristic, setSimCharacteristic] = useState<CharacteristicKey>("active");
+  const [simValue, setSimValue] = useState("1");
   const [simResult, setSimResult] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +103,12 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
     }
   }, [zones, simZoneId]);
 
+  const handleCharacteristicChange = useCallback((key: string) => {
+    const k = key as CharacteristicKey;
+    setSimCharacteristic(k);
+    setSimValue(getDefaultValue(k));
+  }, []);
+
   const handleSave = useCallback(async () => {
     setError(null);
     await wrapSave(async () => {
@@ -54,16 +117,21 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
     });
   }, [enabled, wrapSave, onDebugModeChanged]);
 
-  const handleSimulateEvent = useCallback(async () => {
+  const handleSimulate = useCallback(async () => {
     setSimResult(null);
     try {
-      const result = await simulateDebugEvent({ zoneId: simZoneId, action: simAction });
+      const result = await simulateCharacteristic({
+        zoneId: simZoneId,
+        characteristic: simCharacteristic,
+        value: Number(simValue)
+      });
       const zoneName = result.zoneName ?? simZoneId;
-      setSimResult(`${zoneName}: ${result.action}`);
+      const charLabel = CHARACTERISTICS.find((c) => c.value === result.characteristic)?.label ?? result.characteristic;
+      setSimResult(`${zoneName} — ${charLabel}: ${result.action}`);
     } catch (err) {
       setSimResult(err instanceof Error ? err.message : "Failed");
     }
-  }, [simZoneId, simAction]);
+  }, [simZoneId, simCharacteristic, simValue]);
 
   if (loading) return <p className="debug-settings__loading">Loading debug config...</p>;
 
@@ -116,9 +184,9 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
 
       {enabled && zones.length > 0 && (
         <div className="debug-settings__simulate">
-          <h4>Simulate Zone Event</h4>
+          <h4>Simulate Characteristic</h4>
           <p className="debug-settings__hint">
-            Simulate a CompAI webhook — triggers the same flow as a real device event.
+            Send a characteristic value change — triggers the same flow as a real CompAI webhook.
           </p>
           <div className="debug-settings__row">
             <div className="form-group">
@@ -130,21 +198,28 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
               />
             </div>
             <div className="form-group">
-              <label>Action</label>
+              <label>Characteristic</label>
               <Dropdown
-                value={simAction}
-                options={[
-                  { value: "on", label: "Turn On" },
-                  { value: "off", label: "Turn Off" }
-                ]}
-                onChange={(v) => setSimAction(v as "on" | "off")}
+                value={simCharacteristic}
+                options={CHARACTERISTICS}
+                onChange={handleCharacteristicChange}
+              />
+            </div>
+          </div>
+          <div className="debug-settings__row">
+            <div className="form-group">
+              <label>Value</label>
+              <Dropdown
+                value={simValue}
+                options={getValueOptions(simCharacteristic)}
+                onChange={setSimValue}
               />
             </div>
             <button
               type="button"
               className="icon-btn primary-button"
               style={{ alignSelf: "flex-end" }}
-              onClick={() => void handleSimulateEvent()}
+              onClick={() => void handleSimulate()}
             >
               Send
             </button>

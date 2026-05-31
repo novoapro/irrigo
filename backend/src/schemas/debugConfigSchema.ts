@@ -11,5 +11,12 @@ export const simulateWebhookSchema = z.object({
   action: z.enum(["on", "off"])
 });
 
+export const simulateCharacteristicSchema = z.object({
+  zoneId: z.string().min(1),
+  characteristic: z.enum(["active", "inUse", "isConfigured", "setDuration", "remainingDuration"]),
+  value: z.number()
+});
+
 export type DebugConfigInput = z.infer<typeof debugConfigSchema>;
 export type SimulateWebhookInput = z.infer<typeof simulateWebhookSchema>;
+export type SimulateCharacteristicInput = z.infer<typeof simulateCharacteristicSchema>;

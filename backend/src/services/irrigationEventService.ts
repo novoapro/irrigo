@@ -5,6 +5,7 @@ import { emitRealtimeEvent } from "./realtimeService";
 import { refreshStatusCache } from "../controllers/statusController";
 import { acknowledgeCommand } from "./irrigationCommandService";
 import { onZoneOff } from "./sequentialRunService";
+import { getZoneState } from "./zoneService";
 import Heartbeat from "../models/Heartbeat";
 import Zone from "../models/Zone";
 
@@ -64,12 +65,19 @@ export const persistEvent = async (zone: string, action: "on" | "off") => {
       else if (cmdSource === "ai-schedule") recordSource = "ai-schedule";
       else if (cmdSource === "schedule") recordSource = "program";
 
+      const durationMinutes = acknowledgedCmd?.durationMinutes ?? null;
+      const remainingSeconds = durationMinutes != null && durationMinutes > 0
+        ? durationMinutes * 60
+        : null;
+
       await IrrigationRecord.create({
         zoneId,
         source: recordSource,
         status: "running",
         startedAt: now,
         pressureStart: pressure,
+        remainingSeconds,
+        remainingUpdatedAt: remainingSeconds != null ? now : null,
         commandId: acknowledgedCmd?._id ?? null,
         createdAt: now
       });
@@ -111,6 +119,9 @@ export const persistEvent = async (zone: string, action: "on" | "off") => {
       payload: refreshedStatus
     });
   }
+
+  const finalState = await getZoneState(zoneId);
+  emitRealtimeEvent({ type: "zoneState:changed", payload: finalState });
 
   return event;
 };

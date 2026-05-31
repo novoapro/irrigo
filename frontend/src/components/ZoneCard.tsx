@@ -100,12 +100,21 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
       return;
     }
 
-    const startMs = new Date(state.lastEventAt).getTime();
-    const totalMs = activeDuration * 60_000;
+    const hasServerRemaining = state.remainingSeconds != null && state.remainingUpdatedAt;
 
     const tick = () => {
-      const elapsed = Date.now() - startMs;
-      const remaining = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+      let remaining: number;
+
+      if (hasServerRemaining) {
+        const updatedAtMs = new Date(state.remainingUpdatedAt!).getTime();
+        const elapsed = (Date.now() - updatedAtMs) / 1000;
+        remaining = Math.max(0, Math.ceil(state.remainingSeconds! - elapsed));
+      } else {
+        const startMs = new Date(state.lastEventAt!).getTime();
+        const totalMs = activeDuration * 60_000;
+        remaining = Math.max(0, Math.ceil((totalMs - (Date.now() - startMs)) / 1000));
+      }
+
       setCountdown(remaining);
       if (remaining <= 0 && countdownRef.current != null) {
         window.clearInterval(countdownRef.current);
@@ -122,7 +131,7 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
         countdownRef.current = null;
       }
     };
-  }, [isActive, state?.lastEventAt, activeDuration]);
+  }, [isActive, state?.lastEventAt, state?.remainingSeconds, state?.remainingUpdatedAt, activeDuration]);
 
   const handleToggle = useCallback(() => {
     if (isActive) {
