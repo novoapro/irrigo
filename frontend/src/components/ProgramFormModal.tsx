@@ -7,10 +7,17 @@ import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton"
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekly" | "weekdays";
 
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-  value: String(i),
-  label: `${i.toString().padStart(2, "0")}:00`
-}));
+const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
+  const totalMinutes = i * 15;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const period = h < 12 ? "AM" : "PM";
+  const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return {
+    value: String(totalMinutes),
+    label: `${displayHour}:${m.toString().padStart(2, "0")} ${period}`
+  };
+});
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Every day" },
@@ -42,32 +49,36 @@ const DURATION_OPTIONS = [
   { value: "120", label: "2 hours" }
 ];
 
-const parseCron = (cron: string): { frequency: ScheduleFrequency; hour: number; selectedDays: number[] } => {
+const parseCron = (cron: string): { frequency: ScheduleFrequency; timeMinutes: number; selectedDays: number[] } => {
   const parts = cron.trim().split(/\s+/);
+  const minute = parseInt(parts[0] ?? "0", 10) || 0;
   const hour = parseInt(parts[1] ?? "6", 10) || 6;
+  const timeMinutes = hour * 60 + minute;
   const dayOfMonth = parts[2] ?? "*";
   const dayOfWeek = parts[4] ?? "*";
 
   if (dayOfWeek !== "*") {
     const days = dayOfWeek.split(",").map(Number).filter((n) => !isNaN(n));
-    if (days.length === 1) return { frequency: "weekly", hour, selectedDays: days };
-    return { frequency: "weekdays", hour, selectedDays: days };
+    if (days.length === 1) return { frequency: "weekly", timeMinutes, selectedDays: days };
+    return { frequency: "weekdays", timeMinutes, selectedDays: days };
   }
-  if (dayOfMonth === "*/3") return { frequency: "every3", hour, selectedDays: [] };
-  if (dayOfMonth === "*/2") return { frequency: "every2", hour, selectedDays: [] };
-  return { frequency: "daily", hour, selectedDays: [] };
+  if (dayOfMonth === "*/3") return { frequency: "every3", timeMinutes, selectedDays: [] };
+  if (dayOfMonth === "*/2") return { frequency: "every2", timeMinutes, selectedDays: [] };
+  return { frequency: "daily", timeMinutes, selectedDays: [] };
 };
 
-const buildCron = (frequency: ScheduleFrequency, hour: number, selectedDays: number[]): string => {
+const buildCron = (frequency: ScheduleFrequency, timeMinutes: number, selectedDays: number[]): string => {
+  const h = Math.floor(timeMinutes / 60);
+  const m = timeMinutes % 60;
   switch (frequency) {
-    case "every2": return `0 ${hour} */2 * *`;
-    case "every3": return `0 ${hour} */3 * *`;
-    case "weekly": return `0 ${hour} * * ${selectedDays[0] ?? 1}`;
+    case "every2": return `${m} ${h} */2 * *`;
+    case "every3": return `${m} ${h} */3 * *`;
+    case "weekly": return `${m} ${h} * * ${selectedDays[0] ?? 1}`;
     case "weekdays": {
       const days = selectedDays.length > 0 ? selectedDays.sort((a, b) => a - b).join(",") : "1";
-      return `0 ${hour} * * ${days}`;
+      return `${m} ${h} * * ${days}`;
     }
-    default: return `0 ${hour} * * *`;
+    default: return `${m} ${h} * * *`;
   }
 };
 
@@ -85,7 +96,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
   const [name, setName] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
-  const [hour, setHour] = useState(6);
+  const [timeMinutes, setTimeMinutes] = useState(360);
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
   const [zoneEntries, setZoneEntries] = useState<Record<string, { included: boolean; duration: number }>>({});
 
@@ -96,7 +107,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
       setEnabled(program.enabled);
       const parsed = parseCron(program.scheduleCron);
       setFrequency(parsed.frequency);
-      setHour(parsed.hour);
+      setTimeMinutes(parsed.timeMinutes);
       if (parsed.selectedDays.length > 0) setSelectedDays(parsed.selectedDays);
       const entries: Record<string, { included: boolean; duration: number }> = {};
       for (const zone of zones) {
@@ -111,7 +122,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
       setName("");
       setEnabled(true);
       setFrequency("daily");
-      setHour(6);
+      setTimeMinutes(360);
       setSelectedDays([1, 3, 5]);
       const entries: Record<string, { included: boolean; duration: number }> = {};
       for (const zone of zones) {
@@ -138,7 +149,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
         const payload = {
           name: name.trim(),
           enabled,
-          scheduleCron: buildCron(frequency, hour, selectedDays),
+          scheduleCron: buildCron(frequency, timeMinutes, selectedDays),
           zoneEntries: selectedEntries
         };
 
@@ -153,7 +164,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     }
-  }, [name, enabled, frequency, hour, selectedDays, zoneEntries, program, onSaved, wrapSave]);
+  }, [name, enabled, frequency, timeMinutes, selectedDays, zoneEntries, program, onSaved, wrapSave]);
 
   const toggleZone = (zoneId: string) => {
     setZoneEntries((prev) => ({
@@ -230,9 +241,9 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                 <div className="form-group">
                   <label>Time</label>
                   <Dropdown
-                    value={String(hour)}
-                    options={HOUR_OPTIONS}
-                    onChange={(v) => setHour(parseInt(v, 10))}
+                    value={String(timeMinutes)}
+                    options={TIME_OPTIONS}
+                    onChange={(v) => setTimeMinutes(parseInt(v, 10))}
                   />
                 </div>
               </div>

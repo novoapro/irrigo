@@ -13,10 +13,17 @@ interface ScheduledProgramsPanelProps {
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const formatCronTime = (h: number, m: number): string => {
+  const period = h < 12 ? "AM" : "PM";
+  const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${displayHour}:${m.toString().padStart(2, "0")} ${period}`;
+};
+
 const formatSchedule = (cron: string): string => {
   const parts = cron.trim().split(/\s+/);
+  const minute = parseInt(parts[0] ?? "0", 10);
   const hour = parseInt(parts[1] ?? "0", 10);
-  const timeStr = `${hour.toString().padStart(2, "0")}:00`;
+  const timeStr = formatCronTime(hour, minute);
   const dayOfMonth = parts[2] ?? "*";
   const dayOfWeek = parts[4] ?? "*";
 
