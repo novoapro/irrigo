@@ -230,6 +230,7 @@ const QueueSequenceCard = ({
           <span className={`schedule-status-pill schedule-status-pill--${seq.status === "pending" ? "planned" : seq.status}`}>
             {seq.status}
           </span>
+          <span className="queue-card__source-label muted">{seq.sourceLabel}</span>
           {seq.userModified && (
             <span className="schedule-status-pill schedule-status-pill--modified" title="Modified by user">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
@@ -503,12 +504,13 @@ const IrrigationQueuePanel = ({
     const programSeqs = buildProgramSequences(programs, getZoneName);
     if (programEntries.length === 0) return programSeqs;
 
-    const handledProgramIds = new Set(
-      programEntries.filter((e) => e.programId).map((e) => e.programId!)
-    );
-    const remainingPrograms = programSeqs.filter((ps) => !handledProgramIds.has(ps.programId!));
-
     const activeEntries = programEntries.filter((e) => e.status === "planned" || e.status === "queued" || e.status === "executing");
+
+    const activeProgramIds = new Set(
+      activeEntries.filter((e) => e.programId).map((e) => e.programId!)
+    );
+    const remainingPrograms = programSeqs.filter((ps) => !activeProgramIds.has(ps.programId!));
+
     const materializedSeqs = buildSmartSequences(activeEntries, getZoneName);
     materializedSeqs.forEach((s) => {
       const entry = activeEntries.find((e) => e.scheduleRunId === s.id);
@@ -521,7 +523,7 @@ const IrrigationQueuePanel = ({
 
     const skippedByProgram = new Map<string, ScheduleEntry[]>();
     for (const e of programEntries) {
-      if (e.status === "skipped" && e.programId && !activeEntries.some((a) => a.programId === e.programId)) {
+      if (e.status === "skipped" && e.programId && !activeProgramIds.has(e.programId)) {
         if (!skippedByProgram.has(e.programId)) skippedByProgram.set(e.programId, []);
         skippedByProgram.get(e.programId)!.push(e);
       }
@@ -530,10 +532,12 @@ const IrrigationQueuePanel = ({
     for (const [progId, skippedEntries] of skippedByProgram) {
       const prog = programs.find((p) => p.programId === progId);
       if (!prog) continue;
-      const nextRun = nextCronRun(prog.scheduleCron);
+      const earliest = skippedEntries.reduce((min, e) =>
+        new Date(e.plannedStartAt) < new Date(min.plannedStartAt) ? e : min
+      );
       skippedSeqs.push({
         id: `skipped-${progId}`,
-        scheduledAt: nextRun?.toISOString() ?? new Date().toISOString(),
+        scheduledAt: earliest.plannedStartAt,
         status: "skipped",
         source: "program",
         sourceLabel: prog.name,
