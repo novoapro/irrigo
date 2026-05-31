@@ -12,7 +12,8 @@ import {
   deferEntry,
   materializeProgramEntries,
   getMaterializedProgramEntries,
-  skipEntry
+  skipEntry,
+  rescheduleProgramEntries
 } from "../controllers/aiScheduleController";
 import { validateSchema } from "../middleware/validateSchema";
 import { aiScheduleConfigSchema } from "../schemas/aiScheduleConfigSchema";
@@ -69,6 +70,10 @@ router.patch("/entries/:id/defer", (req, res) => {
 
 router.patch("/entries/:id/skip", (req, res) => {
   void skipEntry(req, res);
+});
+
+router.post("/entries/reschedule", (req, res) => {
+  void rescheduleProgramEntries(req, res);
 });
 
 export default router;

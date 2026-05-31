@@ -186,6 +186,7 @@ export const getMaterializedProgramEntries = async (_req: Request, res: Response
   try {
     const entries = await ScheduleEntry.find({
       programId: { $ne: null },
+      status: { $nin: ["cancelled"] },
       plannedStartAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     })
       .sort({ plannedStartAt: 1 })
@@ -304,5 +305,23 @@ export const skipEntry = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Failed to skip entry:", err);
     res.status(500).json({ message: "Unable to skip entry" });
+  }
+};
+
+export const rescheduleProgramEntries = async (req: Request, res: Response) => {
+  try {
+    const { programId } = req.body as { programId?: string };
+    if (!programId) {
+      return res.status(400).json({ message: "programId is required" });
+    }
+    const result = await ScheduleEntry.deleteMany({
+      programId,
+      status: { $in: ["skipped", "cancelled"] }
+    });
+    emitRealtimeEvent({ type: "program:updated", payload: { programId } });
+    res.json({ data: { deleted: result.deletedCount } });
+  } catch (err) {
+    console.error("Failed to reschedule program entries:", err);
+    res.status(500).json({ message: "Unable to reschedule" });
   }
 };

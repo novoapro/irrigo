@@ -9,6 +9,7 @@ import {
   skipScheduleEntry,
   deferScheduleEntry,
   materializeProgramEntries,
+  rescheduleProgramEntries,
   fetchPrograms,
   updateSystemConfig
 } from "../api";
@@ -60,17 +61,48 @@ const formatDate = (iso: string) => {
   });
 };
 
+const parseDowField = (field: string): Set<number> | null => {
+  if (field === "*") return null;
+  const values = new Set<number>();
+  for (const segment of field.split(",")) {
+    const rangeParts = segment.split("-");
+    if (rangeParts.length === 2) {
+      const start = parseInt(rangeParts[0]!, 10);
+      const end = parseInt(rangeParts[1]!, 10);
+      for (let i = start; i <= end; i++) values.add(i);
+    } else {
+      const v = parseInt(segment, 10);
+      if (!isNaN(v)) values.add(v);
+    }
+  }
+  return values.size > 0 ? values : null;
+};
+
 const nextCronRun = (cron: string): Date | null => {
   const parts = cron.trim().split(/\s+/);
   if (parts.length < 5) return null;
   const minute = parseInt(parts[0]!, 10);
   const hour = parseInt(parts[1]!, 10);
   if (isNaN(minute) || isNaN(hour)) return null;
+
+  const domPart = parts[2] ?? "*";
+  const dowPart = parts[4] ?? "*";
+  const allowedDays = parseDowField(dowPart);
+  const domStep = domPart.match(/^\*\/(\d+)$/);
+  const domInterval = domStep ? parseInt(domStep[1]!, 10) : 0;
+
   const now = new Date();
   const candidate = new Date(now);
   candidate.setHours(hour, minute, 0, 0);
   if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
-  return candidate;
+
+  for (let i = 0; i < 60; i++) {
+    const dayOk = !allowedDays || allowedDays.has(candidate.getDay());
+    const domOk = !domInterval || candidate.getDate() % domInterval === 1;
+    if (dayOk && domOk) return candidate;
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return null;
 };
 
 // ── Build unified queue sequences ──
@@ -159,10 +191,12 @@ const QueueSequenceCard = ({
   seq,
   onSkip,
   onDefer,
+  onReschedule,
 }: {
   seq: QueueSequence;
   onSkip: (seq: QueueSequence) => void;
   onDefer: (seq: QueueSequence, newDate: Date) => void;
+  onReschedule?: (seq: QueueSequence) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -172,6 +206,7 @@ const QueueSequenceCard = ({
 
   const isPending = seq.status === "pending";
   const isDeferred = seq.status === "deferred";
+  const isSkipped = seq.status === "skipped";
 
   const openDefer = () => {
     setDeferValue(new Date(seq.scheduledAt));
@@ -211,6 +246,19 @@ const QueueSequenceCard = ({
         <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className={`queue-card__expand-icon${expanded ? " queue-card__chevron--open" : ""}`} onClick={() => setExpanded((v) => !v)}>
           <path d="M6.293 7.293a1 1 0 011.414 0L10 9.586l2.293-2.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
         </svg>
+        {isSkipped && onReschedule && seq.source === "program" && (
+          <div className="queue-card__actions">
+            <button
+              type="button"
+              className="ghost-button icon-btn"
+              onClick={() => onReschedule(seq)}
+              title="Reschedule"
+              aria-label="Reschedule program"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
+            </button>
+          </div>
+        )}
         {(isPending || isDeferred) && (
           <div className="queue-card__actions">
             {deferring && (
@@ -460,10 +508,10 @@ const IrrigationQueuePanel = ({
     );
     const remainingPrograms = programSeqs.filter((ps) => !handledProgramIds.has(ps.programId!));
 
-    const plannedEntries = programEntries.filter((e) => e.status === "planned");
-    const materializedSeqs = buildSmartSequences(plannedEntries, getZoneName);
+    const activeEntries = programEntries.filter((e) => e.status === "planned" || e.status === "queued" || e.status === "executing");
+    const materializedSeqs = buildSmartSequences(activeEntries, getZoneName);
     materializedSeqs.forEach((s) => {
-      const entry = plannedEntries.find((e) => e.scheduleRunId === s.id);
+      const entry = activeEntries.find((e) => e.scheduleRunId === s.id);
       if (entry?.programId) {
         const prog = programs.find((p) => p.programId === entry.programId);
         if (prog) s.sourceLabel = prog.name;
@@ -471,12 +519,51 @@ const IrrigationQueuePanel = ({
       }
     });
 
-    return [...materializedSeqs, ...remainingPrograms]
+    const skippedByProgram = new Map<string, ScheduleEntry[]>();
+    for (const e of programEntries) {
+      if (e.status === "skipped" && e.programId && !activeEntries.some((a) => a.programId === e.programId)) {
+        if (!skippedByProgram.has(e.programId)) skippedByProgram.set(e.programId, []);
+        skippedByProgram.get(e.programId)!.push(e);
+      }
+    }
+    const skippedSeqs: QueueSequence[] = [];
+    for (const [progId, skippedEntries] of skippedByProgram) {
+      const prog = programs.find((p) => p.programId === progId);
+      if (!prog) continue;
+      const nextRun = nextCronRun(prog.scheduleCron);
+      skippedSeqs.push({
+        id: `skipped-${progId}`,
+        scheduledAt: nextRun?.toISOString() ?? new Date().toISOString(),
+        status: "skipped",
+        source: "program",
+        sourceLabel: prog.name,
+        programId: progId,
+        zones: prog.zoneEntries.map((ze) => ({
+          zoneId: ze.zoneId,
+          zoneName: getZoneName(ze.zoneId),
+          durationMinutes: ze.durationMinutes,
+        })),
+        totalMinutes: prog.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
+        entryIds: skippedEntries.map((e) => e._id),
+      });
+    }
+
+    return [...materializedSeqs, ...skippedSeqs, ...remainingPrograms]
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
   })();
 
-  const pendingSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred");
-  const hasQueue = pendingSequences.length > 0;
+  const handleReschedule = useCallback(async (seq: QueueSequence) => {
+    if (!seq.programId) return;
+    try {
+      await rescheduleProgramEntries(seq.programId);
+      void loadScheduledData();
+    } catch (err) {
+      console.error("Failed to reschedule:", err);
+    }
+  }, [loadScheduledData]);
+
+  const activeSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred" || s.status === "skipped");
+  const hasQueue = activeSequences.length > 0;
 
   return (
     <section className="irrigation-queue-panel">
@@ -556,12 +643,13 @@ const IrrigationQueuePanel = ({
             <div className="schedule-entries-list">
               <h4>Queue</h4>
               <div className="schedule-entries-grid">
-                {pendingSequences.map((seq) => (
+                {activeSequences.map((seq) => (
                   <QueueSequenceCard
                     key={seq.id}
                     seq={seq}
                     onSkip={handleSkipSequence}
                     onDefer={handleDeferSequence}
+                    onReschedule={handleReschedule}
                   />
                 ))}
               </div>

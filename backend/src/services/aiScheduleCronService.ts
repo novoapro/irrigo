@@ -25,8 +25,18 @@ const cronMatchesNow = (cron: string): boolean => {
   if (now.getHours() !== hour) return false;
 
   if (dayOfWeek !== "*") {
-    const dow = parseInt(dayOfWeek, 10);
-    if (now.getDay() !== dow) return false;
+    const dowValues = new Set<number>();
+    for (const segment of dayOfWeek.split(",")) {
+      const rangeParts = segment.split("-");
+      if (rangeParts.length === 2) {
+        const start = parseInt(rangeParts[0]!, 10);
+        const end = parseInt(rangeParts[1]!, 10);
+        for (let i = start; i <= end; i++) dowValues.add(i);
+      } else {
+        dowValues.add(parseInt(segment, 10));
+      }
+    }
+    if (!dowValues.has(now.getDay())) return false;
   }
 
   if (dayOfMonth !== "*") {

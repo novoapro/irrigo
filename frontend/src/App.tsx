@@ -1264,6 +1264,13 @@ const App = () => {
           setAiRunRefreshKey((k) => k + 1);
           break;
         }
+        case "program:created":
+        case "program:updated":
+        case "program:deleted":
+        case "program:triggered": {
+          setAiRunRefreshKey((k) => k + 1);
+          break;
+        }
         case "debugMode:changed": {
           const enabled = (event.payload as { enabled?: boolean })?.enabled ?? false;
           setDebugModeActive(enabled);

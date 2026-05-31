@@ -32,7 +32,18 @@ const cronMatchesNow = (cron: string, now: Date): boolean => {
   }
 
   if (dowPart && dowPart !== "*") {
-    if (parseInt(dowPart, 10) !== dayOfWeek) return false;
+    const dowValues = new Set<number>();
+    for (const segment of dowPart.split(",")) {
+      const rangeParts = segment.split("-");
+      if (rangeParts.length === 2) {
+        const start = parseInt(rangeParts[0]!, 10);
+        const end = parseInt(rangeParts[1]!, 10);
+        for (let i = start; i <= end; i++) dowValues.add(i);
+      } else {
+        dowValues.add(parseInt(segment, 10));
+      }
+    }
+    if (!dowValues.has(dayOfWeek)) return false;
   }
 
   return true;

@@ -1,4 +1,5 @@
 import IrrigationProgram from "../models/IrrigationProgram";
+import ScheduleEntry from "../models/ScheduleEntry";
 import type { CreateProgramInput, UpdateProgramInput } from "../schemas/irrigationProgramSchema";
 import { emitRealtimeEvent } from "./realtimeService";
 
@@ -24,6 +25,10 @@ export const updateProgram = async (programId: string, data: UpdateProgramInput)
     { new: true }
   ).lean();
   if (!program) return null;
+  await ScheduleEntry.updateMany(
+    { programId, status: "planned" },
+    { status: "cancelled" }
+  );
   emitRealtimeEvent({ type: "program:updated", payload: program });
   return program;
 };
@@ -31,6 +36,10 @@ export const updateProgram = async (programId: string, data: UpdateProgramInput)
 export const deleteProgram = async (programId: string) => {
   const result = await IrrigationProgram.findOneAndDelete({ programId }).lean();
   if (result) {
+    await ScheduleEntry.updateMany(
+      { programId, status: "planned" },
+      { status: "cancelled" }
+    );
     emitRealtimeEvent({ type: "program:deleted", payload: { programId } });
   }
   return result;

@@ -62,7 +62,7 @@ const buildCron = (frequency: ScheduleFrequency, hour: number, selectedDays: num
   switch (frequency) {
     case "every2": return `0 ${hour} */2 * *`;
     case "every3": return `0 ${hour} */3 * *`;
-    case "weekly": return `0 ${hour} * * 1`;
+    case "weekly": return `0 ${hour} * * ${selectedDays[0] ?? 1}`;
     case "weekdays": {
       const days = selectedDays.length > 0 ? selectedDays.sort((a, b) => a - b).join(",") : "1";
       return `0 ${hour} * * ${days}`;
@@ -236,7 +236,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                   />
                 </div>
               </div>
-              {frequency === "weekdays" && (
+              {(frequency === "weekdays" || frequency === "weekly") && (
                 <div className="weekday-picker">
                   {DAYS_OF_WEEK.map((day) => {
                     const active = selectedDays.includes(day.value);
@@ -247,7 +247,9 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                         className={`weekday-picker__day${active ? " weekday-picker__day--active" : ""}`}
                         onClick={() =>
                           setSelectedDays((prev) =>
-                            active ? prev.filter((d) => d !== day.value) : [...prev, day.value]
+                            frequency === "weekly"
+                              ? [day.value]
+                              : active ? prev.filter((d) => d !== day.value) : [...prev, day.value]
                           )
                         }
                       >

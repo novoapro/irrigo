@@ -611,6 +611,19 @@ export const materializeProgramEntries = async (programId: string, scheduledAt: 
   return json.data;
 };
 
+export const rescheduleProgramEntries = async (programId: string): Promise<{ deleted: number }> => {
+  const response = await fetch(buildUrl("/ai-schedule/entries/reschedule"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ programId })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to reschedule (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { deleted: number } };
+  return json.data;
+};
+
 export const deferScheduleEntry = async (entryId: string, plannedStartAt: Date): Promise<ScheduleEntry> => {
   const response = await fetch(buildUrl(`/ai-schedule/entries/${entryId}/defer`), {
     method: "PATCH",
