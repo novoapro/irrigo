@@ -600,8 +600,7 @@ const LogsPage = () => {
                         <th>Received</th>
                         <th>Zone</th>
                         <th>Characteristic</th>
-                        <th>Old Value</th>
-                        <th>New Value</th>
+                        <th>Value</th>
                         <th>Processed</th>
                         <th>Result</th>
                       </tr>
@@ -611,13 +610,14 @@ const LogsPage = () => {
                         <tr key={evt._id}>
                           <td>{formatTimestamp(evt.receivedAt)}</td>
                           <td>{evt.zoneName ?? evt.zoneId ?? "—"}</td>
+                          <td>{evt.characteristicName ?? evt.characteristicType}</td>
                           <td>
-                            <span className="characteristic-chip">
-                              {evt.characteristicName ?? evt.characteristicType}
+                            <span className="value-transition">
+                              <span className="value-old">{formatValue(evt.oldValue)}</span>
+                              <span className="value-arrow">&rarr;</span>
+                              <span className="value-new">{formatValue(evt.newValue)}</span>
                             </span>
                           </td>
-                          <td>{formatValue(evt.oldValue)}</td>
-                          <td>{formatValue(evt.newValue)}</td>
                           <td>
                             <span className={`command-status command-status--${evt.processed ? "acknowledged" : "failed"}`}>
                               {evt.processed ? "yes" : "no"}
@@ -652,12 +652,14 @@ const LogsPage = () => {
                           <dd>{evt.characteristicName ?? evt.characteristicType}</dd>
                         </div>
                         <div>
-                          <dt>Old Value</dt>
-                          <dd>{formatValue(evt.oldValue)}</dd>
-                        </div>
-                        <div>
-                          <dt>New Value</dt>
-                          <dd>{formatValue(evt.newValue)}</dd>
+                          <dt>Value</dt>
+                          <dd>
+                            <span className="value-transition">
+                              <span className="value-old">{formatValue(evt.oldValue)}</span>
+                              <span className="value-arrow">&rarr;</span>
+                              <span className="value-new">{formatValue(evt.newValue)}</span>
+                            </span>
+                          </dd>
                         </div>
                         <div>
                           <dt>Result</dt>

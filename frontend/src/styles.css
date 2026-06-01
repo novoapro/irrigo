@@ -2613,15 +2613,25 @@ tbody tr:hover {
   text-align: center;
 }
 
-.characteristic-chip {
-  display: inline-block;
+.value-transition {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--text-xs);
+  font-family: var(--font-mono, monospace);
+}
+
+.value-old {
+  color: var(--color-text-tertiary);
+}
+
+.value-arrow {
+  color: var(--color-text-tertiary);
+  font-size: 0.7rem;
+}
+
+.value-new {
   font-weight: var(--weight-semibold);
-  padding: 0.2rem var(--space-3);
-  border-radius: var(--radius-full);
-  background: var(--color-primary-50);
-  color: var(--color-primary-700);
-  letter-spacing: 0.02em;
 }
 
 .history-cards {
