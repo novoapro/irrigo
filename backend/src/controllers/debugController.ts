@@ -5,7 +5,6 @@ import { persistEvent } from "../services/irrigationEventService";
 import { emitRealtimeEvent } from "../services/realtimeService";
 import { getZoneState } from "../services/zoneService";
 import IrrigationEvent from "../models/IrrigationEvent";
-import IrrigationRecord from "../models/IrrigationRecord";
 import Zone from "../models/Zone";
 
 export const getDebugConfig = async (_req: Request, res: Response) => {
@@ -107,31 +106,11 @@ export const simulateCharacteristic = async (req: Request, res: Response) => {
       action = `${minutes}min`;
     } else if (characteristic === "remainingDuration") {
       const seconds = Number(value) || 0;
-      const now = new Date();
 
-      if (seconds > 0) {
-        const existing = await IrrigationRecord.findOneAndUpdate(
-          { zoneId, status: "running" },
-          { $set: { remainingSeconds: seconds, remainingUpdatedAt: now } },
-          { new: true }
-        );
-
-        if (!existing) {
-          const lastEvent = await IrrigationEvent.findOne({ zone: zoneId })
-            .sort({ createdAt: -1 })
-            .lean();
-
-          if (lastEvent?.action !== "on") {
-            await persistEvent(zoneId, "on");
-          }
-
-          await IrrigationRecord.findOneAndUpdate(
-            { zoneId, status: "running" },
-            { $set: { remainingSeconds: seconds, remainingUpdatedAt: now } },
-            { new: true }
-          );
-        }
-      }
+      await Zone.updateOne(
+        { zoneId },
+        { $set: { remainingSeconds: seconds > 0 ? seconds : null, remainingUpdatedAt: new Date() } }
+      );
 
       const state = await getZoneState(zoneId);
       emitRealtimeEvent({ type: "zoneState:changed", payload: state });

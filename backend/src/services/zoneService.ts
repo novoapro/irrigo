@@ -2,7 +2,6 @@ import Zone from "../models/Zone";
 import type { CreateZoneInput, UpdateZoneInput } from "../schemas/zoneSchema";
 import IrrigationEvent from "../models/IrrigationEvent";
 import IrrigationCommand from "../models/IrrigationCommand";
-import IrrigationRecord from "../models/IrrigationRecord";
 
 export interface ZoneState {
   zoneId: string;
@@ -78,16 +77,15 @@ export const reorderZones = async (order: Array<{ zoneId: string; sortOrder: num
 };
 
 export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
-  const latest = await IrrigationEvent.findOne({ zone: zoneId })
-    .sort({ createdAt: -1 })
-    .lean();
+  const [latest, zone] = await Promise.all([
+    IrrigationEvent.findOne({ zone: zoneId }).sort({ createdAt: -1 }).lean(),
+    Zone.findOne({ zoneId }).select({ remainingSeconds: 1, remainingUpdatedAt: 1 }).lean()
+  ]);
 
   const isActive = latest?.action === "on";
 
   let activeCommandId: string | null = null;
   let activeDurationMinutes: number | null = null;
-  let remainingSeconds: number | null = null;
-  let remainingUpdatedAt: string | null = null;
 
   if (isActive && latest?.commandId) {
     const cmd = await IrrigationCommand.findById(latest.commandId)
@@ -99,21 +97,6 @@ export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
     }
   }
 
-  if (isActive) {
-    const runningRecord = await IrrigationRecord.findOne({
-      zoneId,
-      status: "running"
-    })
-      .sort({ startedAt: -1 })
-      .select({ remainingSeconds: 1, remainingUpdatedAt: 1 })
-      .lean();
-
-    if (runningRecord?.remainingSeconds != null && runningRecord.remainingUpdatedAt) {
-      remainingSeconds = runningRecord.remainingSeconds;
-      remainingUpdatedAt = runningRecord.remainingUpdatedAt.toISOString();
-    }
-  }
-
   return {
     zoneId,
     isActive,
@@ -121,8 +104,8 @@ export const getZoneState = async (zoneId: string): Promise<ZoneState> => {
     lastEventAt: latest?.createdAt?.toISOString() ?? null,
     activeCommandId,
     activeDurationMinutes,
-    remainingSeconds,
-    remainingUpdatedAt
+    remainingSeconds: zone?.remainingSeconds ?? null,
+    remainingUpdatedAt: zone?.remainingUpdatedAt?.toISOString() ?? null
   };
 };
 

@@ -30,6 +30,8 @@ export interface ZoneAttributes {
   sortOrder: number;
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
+  remainingSeconds?: number | null;
+  remainingUpdatedAt?: Date | null;
   metadata?: ZoneMetadata;
   compAI?: CompAIZoneConfig | null;
   createdAt?: Date;
@@ -45,6 +47,8 @@ const zoneSchema = new Schema<ZoneAttributes>({
   sortOrder: { type: Number, default: 0 },
   defaultDurationMinutes: { type: Number, required: true },
   maxDurationMinutes: { type: Number, default: 60 },
+  remainingSeconds: { type: Number, default: null },
+  remainingUpdatedAt: { type: Date, default: null },
   metadata: {
     type: new Schema(
       {

@@ -612,8 +612,8 @@ const LogsPage = () => {
                           <td>{formatTimestamp(evt.receivedAt)}</td>
                           <td>{evt.zoneName ?? evt.zoneId ?? "—"}</td>
                           <td>
-                            <span className="source-chip">
-                              {evt.characteristicType}
+                            <span className="characteristic-chip">
+                              {evt.characteristicName ?? evt.characteristicType}
                             </span>
                           </td>
                           <td>{formatValue(evt.oldValue)}</td>
@@ -649,7 +649,7 @@ const LogsPage = () => {
                         </div>
                         <div>
                           <dt>Characteristic</dt>
-                          <dd>{evt.characteristicType}</dd>
+                          <dd>{evt.characteristicName ?? evt.characteristicType}</dd>
                         </div>
                         <div>
                           <dt>Old Value</dt>

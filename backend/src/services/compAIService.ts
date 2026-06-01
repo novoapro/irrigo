@@ -1,7 +1,6 @@
 import CompAIConfig, { type CompAIConfigAttributes } from "../models/CompAIConfig";
 import Zone from "../models/Zone";
 import IrrigationEvent from "../models/IrrigationEvent";
-import IrrigationRecord from "../models/IrrigationRecord";
 import { persistEvent } from "./irrigationEventService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { getZoneState } from "./zoneService";
@@ -337,49 +336,11 @@ export const processWebhookPayload = async (payload: CompAIWebhookPayload): Prom
 
   if (characteristic === "remainingDuration") {
     const seconds = Number(payload.newValue) || 0;
-    const now = new Date();
 
-    if (seconds > 0) {
-      const existing = await IrrigationRecord.findOneAndUpdate(
-        { zoneId: zone.zoneId, status: "running" },
-        { $set: { remainingSeconds: seconds, remainingUpdatedAt: now } },
-        { new: true }
-      );
-
-      if (!existing) {
-        const lastEvent = await IrrigationEvent.findOne({ zone: zone.zoneId })
-          .sort({ createdAt: -1 })
-          .lean();
-
-        if (lastEvent?.action !== "on") {
-          await IrrigationEvent.create({
-            zone: zone.zoneId,
-            action: "on",
-            source: "external",
-            createdAt: now
-          });
-          await IrrigationRecord.create({
-            zoneId: zone.zoneId,
-            source: "manual",
-            status: "running",
-            startedAt: now,
-            remainingSeconds: seconds,
-            remainingUpdatedAt: now,
-            createdAt: now
-          });
-        } else {
-          await IrrigationRecord.create({
-            zoneId: zone.zoneId,
-            source: "manual",
-            status: "running",
-            startedAt: now,
-            remainingSeconds: seconds,
-            remainingUpdatedAt: now,
-            createdAt: now
-          });
-        }
-      }
-    }
+    await Zone.updateOne(
+      { zoneId: zone.zoneId },
+      { $set: { remainingSeconds: seconds > 0 ? seconds : null, remainingUpdatedAt: new Date() } }
+    );
 
     const state = await getZoneState(zone.zoneId);
     emitRealtimeEvent({ type: "zoneState:changed", payload: state });
