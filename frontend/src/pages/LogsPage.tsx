@@ -609,8 +609,8 @@ const LogsPage = () => {
                       {webhookEvents.map((evt) => (
                         <tr key={evt._id}>
                           <td>{formatTimestamp(evt.receivedAt)}</td>
-                          <td>{evt.zoneName ?? evt.zoneId ?? "—"}</td>
-                          <td>{evt.characteristicName ?? evt.characteristicType}</td>
+                          <td><strong>{evt.zoneName ?? evt.zoneId ?? "—"}</strong></td>
+                          <td><strong>{evt.characteristicName ?? evt.characteristicType}</strong></td>
                           <td>
                             <span className="value-transition">
                               <span className="value-old">{formatValue(evt.oldValue)}</span>
