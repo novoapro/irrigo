@@ -6,7 +6,10 @@ import {
   updateProgram,
   deleteProgram,
   runProgram,
-  handleCancelProgramRun
+  handleCancelProgramRun,
+  cancelAIProgram,
+  skipAIProgram,
+  deferAIProgram
 } from "../controllers/programController";
 import { validateSchema } from "../middleware/validateSchema";
 import { createProgramSchema, updateProgramSchema } from "../schemas/irrigationProgramSchema";
@@ -39,6 +42,18 @@ router.delete("/:programId", (req, res) => {
 
 router.post("/:programId/run", (req, res) => {
   void runProgram(req, res);
+});
+
+router.post("/:programId/cancel", (req, res) => {
+  void cancelAIProgram(req, res);
+});
+
+router.post("/:programId/skip", (req, res) => {
+  void skipAIProgram(req, res);
+});
+
+router.post("/:programId/defer", (req, res) => {
+  void deferAIProgram(req, res);
 });
 
 export default router;

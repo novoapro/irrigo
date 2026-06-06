@@ -31,6 +31,7 @@ export type RealtimeEventType =
   | "program:updated"
   | "program:deleted"
   | "program:triggered"
+  | "program:skipped"
   | "sequentialRun:started"
   | "sequentialRun:zoneProgress"
   | "sequentialRun:completed"

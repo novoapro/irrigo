@@ -6,51 +6,12 @@ import { startSequentialRun, cancelRun } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { addDeferredProgram } from "./guardDeferralService";
+import { getTimezone } from "./irrigationSettingsService";
+import { cronMatchesNow, getMinuteKeyInTimezone } from "./cronUtils";
 
 const CHECK_INTERVAL_MS = 30_000;
 let checkTimer: NodeJS.Timeout | null = null;
-const lastFiredMinute = new Map<string, number>();
-
-const cronMatchesNow = (cron: string, now: Date): boolean => {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length < 5) return false;
-
-  const [minPart, hourPart, domPart, , dowPart] = parts;
-  const minute = now.getMinutes();
-  const hour = now.getHours();
-  const dayOfWeek = now.getDay();
-
-  if (minPart !== "*" && parseInt(minPart!, 10) !== minute) return false;
-  if (hourPart !== "*" && parseInt(hourPart!, 10) !== hour) return false;
-
-  if (domPart && domPart !== "*") {
-    const stepMatch = domPart.match(/^\*\/(\d+)$/);
-    if (stepMatch) {
-      const dayOfMonth = now.getDate();
-      if (dayOfMonth % parseInt(stepMatch[1]!, 10) !== 1) return false;
-    }
-  }
-
-  if (dowPart && dowPart !== "*") {
-    const dowValues = new Set<number>();
-    for (const segment of dowPart.split(",")) {
-      const rangeParts = segment.split("-");
-      if (rangeParts.length === 2) {
-        const start = parseInt(rangeParts[0]!, 10);
-        const end = parseInt(rangeParts[1]!, 10);
-        for (let i = start; i <= end; i++) dowValues.add(i);
-      } else {
-        dowValues.add(parseInt(segment, 10));
-      }
-    }
-    if (!dowValues.has(dayOfWeek)) return false;
-  }
-
-  return true;
-};
-
-const minuteKey = (now: Date): number =>
-  now.getFullYear() * 1_000_000 + (now.getMonth() + 1) * 10_000 + now.getDate() * 100 + now.getHours() * 60 + now.getMinutes();
+const lastFiredMinute = new Map<string, string>();
 
 const buildZoneInputs = async (
   zoneEntries: { zoneId: string; durationMinutes: number }[]
@@ -88,12 +49,18 @@ const checkPrograms = async () => {
   if (!config || config.irrigationMode !== "scheduled") return;
 
   const now = new Date();
-  const programs = await IrrigationProgram.find({ enabled: true }).lean();
+  const tz = await getTimezone();
+  const programs = await IrrigationProgram.find({
+    enabled: true,
+    source: { $in: ["manual", null] },
+    scheduleCron: { $ne: null }
+  }).lean();
 
   for (const program of programs) {
-    if (!cronMatchesNow(program.scheduleCron, now)) continue;
+    if (!program.scheduleCron) continue;
+    if (!cronMatchesNow(program.scheduleCron, now, tz)) continue;
 
-    const mk = minuteKey(now);
+    const mk = getMinuteKeyInTimezone(now, tz);
     if (lastFiredMinute.get(program.programId) === mk) continue;
     lastFiredMinute.set(program.programId, mk);
 

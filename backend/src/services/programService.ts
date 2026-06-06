@@ -3,8 +3,19 @@ import ScheduleEntry from "../models/ScheduleEntry";
 import type { CreateProgramInput, UpdateProgramInput } from "../schemas/irrigationProgramSchema";
 import { emitRealtimeEvent } from "./realtimeService";
 
-export const listPrograms = async () => {
-  return IrrigationProgram.find().sort({ createdAt: 1 }).lean();
+export const listPrograms = async (filter?: { source?: string; status?: string | string[] }) => {
+  const query: Record<string, unknown> = {};
+  if (filter?.source) {
+    if (filter.source === "manual") {
+      query.source = { $in: ["manual", null] };
+    } else {
+      query.source = filter.source;
+    }
+  }
+  if (filter?.status) {
+    query.status = Array.isArray(filter.status) ? { $in: filter.status } : filter.status;
+  }
+  return IrrigationProgram.find(query).sort({ createdAt: 1 }).lean();
 };
 
 export const getProgram = async (programId: string) => {

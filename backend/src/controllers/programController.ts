@@ -1,11 +1,14 @@
 import { Request, Response } from "express";
 import type { CreateProgramInput, UpdateProgramInput } from "../schemas/irrigationProgramSchema";
+import IrrigationProgram from "../models/IrrigationProgram";
 import * as programService from "../services/programService";
 import { runProgramNow, cancelProgramRun } from "../services/programSchedulerService";
 
-export const listPrograms = async (_req: Request, res: Response) => {
+export const listPrograms = async (req: Request, res: Response) => {
   try {
-    const programs = await programService.listPrograms();
+    const source = req.query.source as string | undefined;
+    const status = req.query.status as string | string[] | undefined;
+    const programs = await programService.listPrograms({ source, status });
     res.json({ data: programs });
   } catch (error) {
     console.error("Failed to list programs:", error);
@@ -91,5 +94,60 @@ export const handleCancelProgramRun = async (_req: Request, res: Response) => {
     res.json({ data: { cancelled: true } });
   } catch (error: any) {
     res.status(500).json({ message: error?.message ?? "Failed to cancel program run" });
+  }
+};
+
+export const cancelAIProgram = async (req: Request, res: Response) => {
+  try {
+    const result = await IrrigationProgram.findOneAndUpdate(
+      { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
+      { $set: { status: "cancelled", updatedAt: new Date() } },
+      { new: true }
+    ).lean();
+    if (!result) {
+      return res.status(404).json({ message: "AI program not found or not cancellable" });
+    }
+    res.json({ data: result });
+  } catch (error) {
+    console.error("Failed to cancel AI program:", error);
+    res.status(500).json({ message: "Unable to cancel AI program" });
+  }
+};
+
+export const skipAIProgram = async (req: Request, res: Response) => {
+  try {
+    const result = await IrrigationProgram.findOneAndUpdate(
+      { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
+      { $set: { status: "skipped", updatedAt: new Date() } },
+      { new: true }
+    ).lean();
+    if (!result) {
+      return res.status(404).json({ message: "AI program not found or not skippable" });
+    }
+    res.json({ data: result });
+  } catch (error) {
+    console.error("Failed to skip AI program:", error);
+    res.status(500).json({ message: "Unable to skip AI program" });
+  }
+};
+
+export const deferAIProgram = async (req: Request, res: Response) => {
+  try {
+    const { plannedStartAt } = req.body as { plannedStartAt: string };
+    if (!plannedStartAt) {
+      return res.status(400).json({ message: "plannedStartAt is required" });
+    }
+    const result = await IrrigationProgram.findOneAndUpdate(
+      { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
+      { $set: { plannedStartAt: new Date(plannedStartAt), updatedAt: new Date() } },
+      { new: true }
+    ).lean();
+    if (!result) {
+      return res.status(404).json({ message: "AI program not found or not deferrable" });
+    }
+    res.json({ data: result });
+  } catch (error) {
+    console.error("Failed to defer AI program:", error);
+    res.status(500).json({ message: "Unable to defer AI program" });
   }
 };

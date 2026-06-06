@@ -1,5 +1,6 @@
 import SequentialRun from "../models/SequentialRun";
 import ScheduleEntry from "../models/ScheduleEntry";
+import IrrigationProgram from "../models/IrrigationProgram";
 import Heartbeat from "../models/Heartbeat";
 import { emitRealtimeEvent } from "./realtimeService";
 import {
@@ -63,48 +64,34 @@ const resumeDeferredTasks = async () => {
         });
       }
     }
-  } else {
-    const deferredRun = await SequentialRun.findOne({
-      status: "deferred",
-      deferralDeadline: { $gt: new Date() }
-    });
-    if (deferredRun) {
-      const success = await resumeDeferredRun(deferredRun._id.toString());
-      if (success) {
-        emitRealtimeEvent({
-          type: "deferral:recovered",
-          payload: {
-            type: "sequential-run",
-            runId: deferredRun._id.toString()
-          }
-        });
-      }
+    return;
+  }
+
+  const deferredRun = await SequentialRun.findOne({
+    status: "deferred",
+    deferralDeadline: { $gt: new Date() }
+  });
+  if (deferredRun) {
+    const success = await resumeDeferredRun(deferredRun._id.toString());
+    if (success) {
+      emitRealtimeEvent({
+        type: "deferral:recovered",
+        payload: {
+          type: "sequential-run",
+          runId: deferredRun._id.toString()
+        }
+      });
     }
+    return;
   }
 
   const now = new Date();
-  const deferredEntries = await ScheduleEntry.find({
-    status: "deferred",
-    deferralDeadline: { $gt: now }
-  });
 
-  for (const entry of deferredEntries) {
-    entry.status = "planned";
-    entry.deferralReason = null;
-    entry.updatedAt = new Date();
-    await entry.save();
-    emitRealtimeEvent({ type: "schedule:entryUpdated", payload: entry.toObject() });
-    emitRealtimeEvent({
-      type: "deferral:recovered",
-      payload: {
-        type: "schedule-entry",
-        entryId: entry._id.toString(),
-        zoneId: entry.zoneId
-      }
-    });
-  }
+  const { isRunActive } = await import("./sequentialRunService");
 
   for (const [programId, deferred] of deferredPrograms) {
+    if (isRunActive()) break;
+
     if (deferred.deadline > now) {
       const { startSequentialRun } = await import("./sequentialRunService");
       const { default: Zone } = await import("../models/Zone");
@@ -123,6 +110,7 @@ const resumeDeferredTasks = async () => {
 
       try {
         await startSequentialRun(inputs, "program", programId);
+        deferredPrograms.delete(programId);
         emitRealtimeEvent({
           type: "deferral:recovered",
           payload: { type: "deferred-program", programId }
@@ -130,8 +118,29 @@ const resumeDeferredTasks = async () => {
       } catch (err) {
         console.error(`[GuardDeferral] Failed to start deferred program ${programId}:`, err);
       }
+    } else {
+      deferredPrograms.delete(programId);
     }
-    deferredPrograms.delete(programId);
+  }
+
+  if (!isRunActive()) {
+    const deferredAIPrograms = await IrrigationProgram.find({
+      source: "ai-schedule",
+      status: "deferred",
+      deferralDeadline: { $gt: now }
+    }).sort({ plannedStartAt: 1 }).limit(1);
+
+    for (const program of deferredAIPrograms) {
+      program.status = "planned";
+      program.deferredAt = undefined;
+      program.deferralDeadline = undefined;
+      program.updatedAt = new Date();
+      await program.save();
+      emitRealtimeEvent({
+        type: "deferral:recovered",
+        payload: { type: "ai-program", programId: program.programId }
+      });
+    }
   }
 };
 
@@ -156,6 +165,13 @@ const hasDeferredTasks = async (): Promise<boolean> => {
 
   const deferredEntry = await ScheduleEntry.findOne({ status: "deferred", deferralDeadline: { $gt: new Date() } });
   if (deferredEntry) return true;
+
+  const deferredAIProgram = await IrrigationProgram.findOne({
+    source: "ai-schedule",
+    status: "deferred",
+    deferralDeadline: { $gt: new Date() }
+  });
+  if (deferredAIProgram) return true;
 
   return false;
 };
@@ -230,6 +246,26 @@ const checkDeadlines = async () => {
         }
       });
     }
+  }
+
+  const expiredAIPrograms = await IrrigationProgram.find({
+    source: "ai-schedule",
+    status: "deferred",
+    deferralDeadline: { $lte: now }
+  });
+
+  for (const program of expiredAIPrograms) {
+    program.status = "skipped";
+    program.updatedAt = now;
+    await program.save();
+    emitRealtimeEvent({
+      type: "deferral:expired",
+      payload: {
+        type: "ai-program",
+        programId: program.programId,
+        reason: "Deferral deadline expired — guard did not clear in time"
+      }
+    });
   }
 };
 

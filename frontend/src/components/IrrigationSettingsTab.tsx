@@ -25,6 +25,7 @@ const IrrigationSettingsTab = ({ zones, onScheduleChanged, aiRunRefreshKey }: Ir
 
   const [timeWindows, setTimeWindows] = useState<PreferredTimeWindow[]>([{ startHour: 20, endHour: 6 }]);
   const [waterSavingMode, setWaterSavingMode] = useState<WaterSavingMode>("normal");
+  const [timezone, setTimezone] = useState("America/New_York");
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -35,6 +36,7 @@ const IrrigationSettingsTab = ({ zones, onScheduleChanged, aiRunRefreshKey }: Ir
         if (cancelled) return;
         setTimeWindows(settings.preferredTimeWindows);
         setWaterSavingMode(settings.waterSavingMode);
+        setTimezone(settings.timezone ?? "America/New_York");
         setDirty(false);
       })
       .catch((err) => {
@@ -62,14 +64,15 @@ const IrrigationSettingsTab = ({ zones, onScheduleChanged, aiRunRefreshKey }: Ir
       await wrapSave(async () => {
         await updateIrrigationSettings({
           preferredTimeWindows: timeWindows,
-          waterSavingMode
+          waterSavingMode,
+          timezone
         });
         setDirty(false);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     }
-  }, [timeWindows, waterSavingMode, wrapSave]);
+  }, [timeWindows, waterSavingMode, timezone, wrapSave]);
 
   return (
     <div className="irrigation-settings-tab">
@@ -82,6 +85,22 @@ const IrrigationSettingsTab = ({ zones, onScheduleChanged, aiRunRefreshKey }: Ir
       ) : (
         <>
           {error && <p className="zone-control-panel__error">{error}</p>}
+
+          <fieldset className="form-fieldset">
+            <legend>Timezone</legend>
+            <span className="form-hint">
+              IANA timezone used for scheduling. All irrigation times are interpreted in this timezone.
+            </span>
+            <div className="form-group">
+              <input
+                type="text"
+                className="form-input"
+                value={timezone}
+                onChange={(e) => { setTimezone(e.target.value); setDirty(true); }}
+                placeholder="America/New_York"
+              />
+            </div>
+          </fieldset>
 
           <fieldset className="form-fieldset">
             <legend>Preferred Irrigation Times</legend>

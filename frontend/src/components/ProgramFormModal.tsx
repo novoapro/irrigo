@@ -105,7 +105,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     if (program) {
       setName(program.name);
       setEnabled(program.enabled);
-      const parsed = parseCron(program.scheduleCron);
+      const parsed = parseCron(program.scheduleCron ?? "0 6 * * *");
       setFrequency(parsed.frequency);
       setTimeMinutes(parsed.timeMinutes);
       if (parsed.selectedDays.length > 0) setSelectedDays(parsed.selectedDays);
@@ -149,6 +149,7 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
         const payload = {
           name: name.trim(),
           enabled,
+          source: "manual" as const,
           scheduleCron: buildCron(frequency, timeMinutes, selectedDays),
           zoneEntries: selectedEntries
         };

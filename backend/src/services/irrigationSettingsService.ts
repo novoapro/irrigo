@@ -23,21 +23,30 @@ export const getPreferredTimeWindows = async (): Promise<PreferredTimeWindow[]> 
 };
 
 export const isWithinPreferredWindow = async (date: Date): Promise<boolean> => {
-  const windows = await getPreferredTimeWindows();
-  return isTimeInWindows(date, windows);
+  const settings = await getIrrigationSettings();
+  return isTimeInWindows(date, settings.preferredTimeWindows, settings.timezone);
 };
 
-export const isTimeInWindows = (date: Date, windows: PreferredTimeWindow[]): boolean => {
+export const getHourInTimezone = (date: Date, timezone: string): number => {
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", hour12: false });
+  return parseInt(formatter.format(date), 10);
+};
+
+export const isTimeInWindows = (date: Date, windows: PreferredTimeWindow[], timezone?: string): boolean => {
   if (windows.length === 0) return true;
-  const hour = date.getHours();
+  const hour = timezone ? getHourInTimezone(date, timezone) : date.getHours();
   return windows.some((w) => {
     if (w.startHour === w.endHour) return true;
     if (w.startHour < w.endHour) {
       return hour >= w.startHour && hour < w.endHour;
     }
-    // Overnight window (e.g. 20 → 6 means hour >= 20 OR hour < 6)
     return hour >= w.startHour || hour < w.endHour;
   });
+};
+
+export const getTimezone = async (): Promise<string> => {
+  const settings = await getIrrigationSettings();
+  return settings.timezone ?? "America/New_York";
 };
 
 export const getWaterSavingFactor = async (): Promise<number> => {

@@ -555,13 +555,13 @@ export const updateAIScheduleConfig = async (
   return json.data;
 };
 
-export const triggerAIScheduleRun = async (): Promise<{ runId: string; entriesCreated: number }> => {
+export const triggerAIScheduleRun = async (): Promise<{ runId: string; programsCreated: number }> => {
   const response = await fetch(buildUrl("/ai-schedule/run"), { method: "POST" });
   if (!response.ok) {
     const json = await response.json().catch(() => ({}));
     throw new Error((json as { message?: string }).message ?? `Schedule run failed (${response.status})`);
   }
-  const json = (await response.json()) as { data: { runId: string; entriesCreated: number } };
+  const json = (await response.json()) as { data: { runId: string; programsCreated: number } };
   return json.data;
 };
 
@@ -731,13 +731,48 @@ export const updateIrrigationSettings = async (
 
 // --- Programs API ---
 
-export const fetchPrograms = async (): Promise<IrrigationProgram[]> => {
-  const response = await fetch(buildUrl("/programs"));
+export const fetchPrograms = async (filter?: { source?: string; status?: string | string[] }): Promise<IrrigationProgram[]> => {
+  const params = new URLSearchParams();
+  if (filter?.source) params.set("source", filter.source);
+  if (filter?.status) {
+    const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
+    statuses.forEach((s) => params.append("status", s));
+  }
+  const query = params.toString();
+  const response = await fetch(buildUrl(`/programs${query ? `?${query}` : ""}`));
   if (!response.ok) {
     throw new Error(`Failed to fetch programs (${response.status})`);
   }
   const json = (await response.json()) as { data: IrrigationProgram[] };
   return json.data;
+};
+
+export const cancelAIProgram = async (programId: string): Promise<void> => {
+  const response = await fetch(buildUrl(`/programs/${programId}/cancel`), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? "Failed to cancel program");
+  }
+};
+
+export const skipAIProgram = async (programId: string): Promise<void> => {
+  const response = await fetch(buildUrl(`/programs/${programId}/skip`), { method: "POST" });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? "Failed to skip program");
+  }
+};
+
+export const deferAIProgram = async (programId: string, plannedStartAt: Date): Promise<void> => {
+  const response = await fetch(buildUrl(`/programs/${programId}/defer`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plannedStartAt: plannedStartAt.toISOString() })
+  });
+  if (!response.ok) {
+    const json = await response.json().catch(() => ({}));
+    throw new Error((json as { message?: string }).message ?? "Failed to defer program");
+  }
 };
 
 export const createProgram = async (

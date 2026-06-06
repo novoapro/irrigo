@@ -118,6 +118,14 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
     payload: { ...serializeRun(run.toObject()), source: run.source }
   });
 
+  if (run.programId && run.source === "ai-schedule") {
+    const { default: IrrigationProgram } = await import("../models/IrrigationProgram");
+    await IrrigationProgram.updateOne(
+      { programId: run.programId, source: "ai-schedule", status: "executing" },
+      { $set: { status: anyFailed ? "skipped" : "completed", updatedAt: new Date() } }
+    );
+  }
+
   activeRun = null;
 };
 

@@ -11,6 +11,7 @@ export type WaterSavingMode = "normal" | "moderate" | "aggressive";
 export interface IrrigationSettingsAttributes {
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  timezone: string;
   updatedAt: Date;
 }
 
@@ -31,6 +32,10 @@ const irrigationSettingsSchema = new Schema<IrrigationSettingsAttributes>({
     type: String,
     enum: ["normal", "moderate", "aggressive"],
     default: "normal"
+  },
+  timezone: {
+    type: String,
+    default: "America/New_York"
   }
 });
 

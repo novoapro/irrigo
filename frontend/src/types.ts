@@ -498,12 +498,20 @@ export interface ProgramZoneEntry {
   durationMinutes: number;
 }
 
+export type ProgramSource = "manual" | "ai-schedule";
+export type ProgramStatus = "planned" | "executing" | "completed" | "cancelled" | "skipped" | "deferred";
+
 export interface IrrigationProgram {
   _id?: string;
   programId: string;
   name: string;
   enabled: boolean;
-  scheduleCron: string;
+  source: ProgramSource;
+  scheduleCron?: string;
+  plannedStartAt?: string;
+  status?: ProgramStatus;
+  scheduleRunId?: string;
+  aiReasoning?: string;
   zoneEntries: ProgramZoneEntry[];
   createdAt?: string;
   updatedAt?: string;
@@ -528,6 +536,7 @@ export interface IrrigationSettings {
   _id?: string;
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  timezone: string;
   updatedAt?: string;
 }
 

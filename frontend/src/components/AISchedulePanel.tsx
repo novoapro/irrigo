@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AIScheduleConfig, ScheduleEntry, ScheduleRun, Zone } from "../types";
+import type { AIScheduleConfig, IrrigationProgram, ScheduleEntry, ScheduleRun, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
-  fetchUpcomingEntries,
+  fetchPrograms,
   fetchScheduleRuns,
   fetchScheduleRun,
   triggerAIScheduleRun,
-  cancelScheduleEntry,
-  skipScheduleEntry
+  cancelAIProgram
 } from "../api";
 import AIInteractionModal from "./AIInteractionModal";
 
@@ -137,7 +136,7 @@ const EntryCard = ({
 
 const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedulePanelProps) => {
   const [config, setConfig] = useState<AIScheduleConfig | null>(null);
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+  const [aiPrograms, setAiPrograms] = useState<IrrigationProgram[]>([]);
   const [recentRuns, setRecentRuns] = useState<ScheduleRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -150,13 +149,13 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
 
   const loadData = useCallback(async () => {
     try {
-      const [cfg, upcoming, runs] = await Promise.all([
+      const [cfg, progs, runs] = await Promise.all([
         fetchAIScheduleConfig(),
-        fetchUpcomingEntries(),
+        fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred"] }),
         fetchScheduleRuns(1)
       ]);
       setConfig(cfg);
-      setEntries(upcoming);
+      setAiPrograms(progs);
       setRecentRuns(runs.data);
     } catch (err) {
       console.error("Failed to load AI schedule data:", err);
@@ -183,21 +182,12 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
     }
   }, [loadData, onScheduleChanged]);
 
-  const handleCancel = useCallback(async (entryId: string) => {
+  const handleCancelProgram = useCallback(async (programId: string) => {
     try {
-      await cancelScheduleEntry(entryId);
+      await cancelAIProgram(programId);
       void loadData();
     } catch (err) {
-      console.error("Failed to cancel entry:", err);
-    }
-  }, [loadData]);
-
-  const handleSkip = useCallback(async (entryId: string) => {
-    try {
-      await skipScheduleEntry(entryId, "Manually skipped");
-      void loadData();
-    } catch (err) {
-      console.error("Failed to skip entry:", err);
+      console.error("Failed to cancel program:", err);
     }
   }, [loadData]);
 
@@ -290,29 +280,44 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
 
       {loading ? (
         <p className="muted">Loading schedule...</p>
-      ) : !config?.enabled && entries.length === 0 && recentRuns.length === 0 ? (
+      ) : !config?.enabled && aiPrograms.length === 0 && recentRuns.length === 0 ? (
         <div className="ai-schedule-empty">
           <p className="muted">Enable AI scheduling in settings to get started.</p>
         </div>
       ) : (
         <>
-          {entries.length === 0 && recentRuns.length === 0 && (
+          {aiPrograms.length === 0 && recentRuns.length === 0 && (
             <div className="ai-schedule-empty">
-              <p className="muted">No scheduled entries yet. Run the AI scheduler to create a plan.</p>
+              <p className="muted">No scheduled programs yet. Run the AI scheduler to create a plan.</p>
             </div>
           )}
-          {entries.length > 0 && (
+          {aiPrograms.length > 0 && (
             <div className="schedule-entries-list">
-              <h4>Upcoming</h4>
+              <h4>Upcoming Programs</h4>
               <div className="schedule-entries-grid">
-                {entries.map((entry) => (
-                  <EntryCard
-                    key={entry._id}
-                    entry={entry}
-                    zoneName={getZoneName(entry.zoneId)}
-                    onSkip={handleSkip}
-                    onCancel={handleCancel}
-                  />
+                {aiPrograms.map((program) => (
+                  <div key={program.programId} className="schedule-entry-card">
+                    <div className="schedule-entry-card__header">
+                      <span className={`schedule-status-pill schedule-status-pill--${program.status === "planned" ? "planned" : program.status}`}>
+                        {program.status}
+                      </span>
+                      <span className="schedule-entry-card__zone">{program.name}</span>
+                      <span className="schedule-entry-card__time">{program.plannedStartAt ? formatTime(program.plannedStartAt) : ""}</span>
+                    </div>
+                    <div className="schedule-entry-card__zones muted">
+                      {program.zoneEntries.map((ze) => `${getZoneName(ze.zoneId)} (${ze.durationMinutes}min)`).join(", ")}
+                    </div>
+                    {program.aiReasoning && (
+                      <p className="schedule-entry-card__reasoning muted">{program.aiReasoning}</p>
+                    )}
+                    {program.status === "planned" && (
+                      <div className="schedule-entry-card__actions">
+                        <button type="button" className="ghost-button" onClick={() => void handleCancelProgram(program.programId)}>
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

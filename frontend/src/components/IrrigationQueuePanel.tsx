@@ -4,14 +4,15 @@ import { useNavigate } from "react-router-dom";
 import type { AIScheduleConfig, IrrigationMode, IrrigationProgram, ScheduleEntry, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
-  fetchUpcomingEntries,
   fetchMaterializedProgramEntries,
   skipScheduleEntry,
   deferScheduleEntry,
   materializeProgramEntries,
   rescheduleProgramEntries,
   fetchPrograms,
-  updateSystemConfig
+  updateSystemConfig,
+  cancelAIProgram,
+  deferAIProgram
 } from "../api";
 import DateTimeInput from "./DateTimeInput";
 
@@ -112,9 +113,9 @@ const buildProgramSequences = (
   getZoneName: (id: string) => string
 ): QueueSequence[] =>
   programs
-    .filter((p) => p.enabled)
+    .filter((p) => p.enabled && p.scheduleCron)
     .map((program) => {
-      const baseTime = nextCronRun(program.scheduleCron);
+      const baseTime = nextCronRun(program.scheduleCron!);
       return {
         id: program.programId,
         scheduledAt: baseTime?.toISOString() ?? new Date().toISOString(),
@@ -132,7 +133,42 @@ const buildProgramSequences = (
     })
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
+const mapProgramStatus = (status?: string): QueueSequence["status"] => {
+  switch (status) {
+    case "planned": return "pending";
+    case "executing": return "running";
+    case "completed": return "completed";
+    case "cancelled": return "skipped";
+    case "skipped": return "skipped";
+    case "deferred": return "deferred";
+    default: return "pending";
+  }
+};
+
 const buildSmartSequences = (
+  aiPrograms: IrrigationProgram[],
+  getZoneName: (id: string) => string
+): QueueSequence[] =>
+  aiPrograms
+    .filter((p) => p.source === "ai-schedule" && p.status !== "cancelled")
+    .map((program) => ({
+      id: program.programId,
+      scheduledAt: program.plannedStartAt ?? program.createdAt ?? new Date().toISOString(),
+      status: mapProgramStatus(program.status),
+      source: "ai-schedule" as const,
+      sourceLabel: program.name,
+      programId: program.programId,
+      zones: program.zoneEntries.map((ze) => ({
+        zoneId: ze.zoneId,
+        zoneName: getZoneName(ze.zoneId),
+        durationMinutes: ze.durationMinutes,
+      })),
+      totalMinutes: program.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
+      aiReasoning: program.aiReasoning,
+    }))
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+const buildScheduledEntrySequences = (
   entries: ScheduleEntry[],
   getZoneName: (id: string) => string
 ): QueueSequence[] => {
@@ -397,7 +433,7 @@ const IrrigationQueuePanel = ({
 }: IrrigationQueuePanelProps) => {
   const navigate = useNavigate();
   const [config, setConfig] = useState<AIScheduleConfig | null>(null);
-  const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+  const [aiPrograms, setAiPrograms] = useState<IrrigationProgram[]>([]);
   const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -413,12 +449,12 @@ const IrrigationQueuePanel = ({
 
   const loadSmartData = useCallback(async () => {
     try {
-      const [cfg, upcoming] = await Promise.all([
+      const [cfg, progs] = await Promise.all([
         fetchAIScheduleConfig(),
-        fetchUpcomingEntries(),
+        fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred", "skipped"] }),
       ]);
       setConfig(cfg);
-      setEntries(upcoming);
+      setAiPrograms(progs);
     } catch (err) {
       console.error("Failed to load AI schedule data:", err);
     } finally {
@@ -431,7 +467,7 @@ const IrrigationQueuePanel = ({
   const loadScheduledData = useCallback(async () => {
     try {
       const [data, matEntries] = await Promise.all([
-        fetchPrograms(),
+        fetchPrograms({ source: "manual" }),
         fetchMaterializedProgramEntries(),
       ]);
       setPrograms(data);
@@ -476,30 +512,38 @@ const IrrigationQueuePanel = ({
 
   const handleSkipSequence = useCallback(async (seq: QueueSequence) => {
     try {
-      const ids = await materializeIfNeeded(seq);
-      await Promise.all(ids.map((id) => skipScheduleEntry(id, "Manually skipped")));
-      if (activeMode === "smart") void loadSmartData();
-      else void loadScheduledData();
+      if (activeMode === "smart" && seq.programId) {
+        await cancelAIProgram(seq.programId);
+        void loadSmartData();
+      } else {
+        const ids = await materializeIfNeeded(seq);
+        await Promise.all(ids.map((id) => skipScheduleEntry(id, "Manually skipped")));
+        void loadScheduledData();
+      }
     } catch (err) {
-      console.error("Failed to skip entries:", err);
+      console.error("Failed to skip:", err);
     }
   }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
 
   const handleDeferSequence = useCallback(async (seq: QueueSequence, newDate: Date) => {
     try {
-      const ids = await materializeIfNeeded(seq);
-      await Promise.all(ids.map((id) => deferScheduleEntry(id, newDate)));
-      if (activeMode === "smart") void loadSmartData();
-      else void loadScheduledData();
+      if (activeMode === "smart" && seq.programId) {
+        await deferAIProgram(seq.programId, newDate);
+        void loadSmartData();
+      } else {
+        const ids = await materializeIfNeeded(seq);
+        await Promise.all(ids.map((id) => deferScheduleEntry(id, newDate)));
+        void loadScheduledData();
+      }
     } catch (err) {
-      console.error("Failed to defer entries:", err);
+      console.error("Failed to defer:", err);
     }
   }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
 
   const enabledPrograms = programs.filter((p) => p.enabled);
 
   const queueSequences = (() => {
-    if (activeMode === "smart") return buildSmartSequences(entries, getZoneName);
+    if (activeMode === "smart") return buildSmartSequences(aiPrograms, getZoneName);
 
     const programSeqs = buildProgramSequences(programs, getZoneName);
     if (programEntries.length === 0) return programSeqs;
@@ -510,7 +554,7 @@ const IrrigationQueuePanel = ({
       activeEntries.filter((e) => e.programId).map((e) => e.programId!)
     );
 
-    const materializedSeqs = buildSmartSequences(activeEntries, getZoneName);
+    const materializedSeqs = buildScheduledEntrySequences(activeEntries, getZoneName);
     materializedSeqs.forEach((s) => {
       const entry = activeEntries.find((e) => e.scheduleRunId === s.id);
       if (entry?.programId) {
@@ -557,7 +601,7 @@ const IrrigationQueuePanel = ({
       const latest = skippedEntries.reduce((max, e) =>
         new Date(e.plannedStartAt) > new Date(max.plannedStartAt) ? e : max
       );
-      const nextRun = nextCronRun(prog.scheduleCron, new Date(latest.plannedStartAt));
+      const nextRun = prog.scheduleCron ? nextCronRun(prog.scheduleCron, new Date(latest.plannedStartAt)) : null;
       if (nextRun) {
         skippedSeqs.push({
           id: prog.programId,
@@ -660,7 +704,7 @@ const IrrigationQueuePanel = ({
           <p className="muted">
             {activeMode === "smart"
               ? config?.enabled
-                ? "No scheduled entries yet. The AI scheduler will run automatically."
+                ? "No scheduled programs yet. The AI scheduler will run automatically."
                 : "Enable AI scheduling in settings to get started."
               : "No active programs. Add and enable programs in Settings."}
           </p>

@@ -1,53 +1,12 @@
 import AIScheduleConfig from "../models/AIScheduleConfig";
 import SystemConfig from "../models/SystemConfig";
 import { runScheduleEvaluation } from "./aiSchedulingService";
+import { getTimezone } from "./irrigationSettingsService";
+import { cronMatchesNow, getMinuteKeyInTimezone } from "./cronUtils";
 
 const CHECK_INTERVAL_MS = 30_000;
 let cronTimer: NodeJS.Timeout | null = null;
 let lastFiredMinute: string | null = null;
-
-const getCurrentMinuteKey = (): string => {
-  const now = new Date();
-  return `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
-};
-
-const cronMatchesNow = (cron: string): boolean => {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length < 5) return false;
-
-  const now = new Date();
-  const minute = parseInt(parts[0]!, 10);
-  const hour = parseInt(parts[1]!, 10);
-  const dayOfMonth = parts[2]!;
-  const dayOfWeek = parts[4]!;
-
-  if (now.getMinutes() !== minute) return false;
-  if (now.getHours() !== hour) return false;
-
-  if (dayOfWeek !== "*") {
-    const dowValues = new Set<number>();
-    for (const segment of dayOfWeek.split(",")) {
-      const rangeParts = segment.split("-");
-      if (rangeParts.length === 2) {
-        const start = parseInt(rangeParts[0]!, 10);
-        const end = parseInt(rangeParts[1]!, 10);
-        for (let i = start; i <= end; i++) dowValues.add(i);
-      } else {
-        dowValues.add(parseInt(segment, 10));
-      }
-    }
-    if (!dowValues.has(now.getDay())) return false;
-  }
-
-  if (dayOfMonth !== "*") {
-    if (dayOfMonth.startsWith("*/")) {
-      const interval = parseInt(dayOfMonth.slice(2), 10);
-      if (interval > 0 && now.getDate() % interval !== 1) return false;
-    }
-  }
-
-  return true;
-};
 
 const checkCronTrigger = async () => {
   try {
@@ -57,9 +16,10 @@ const checkCronTrigger = async () => {
     const config = await AIScheduleConfig.findOne().lean();
     if (!config?.enabled || !config.scheduleCron || !config.apiKey) return;
 
-    if (!cronMatchesNow(config.scheduleCron)) return;
+    const tz = await getTimezone();
+    if (!cronMatchesNow(config.scheduleCron, new Date(), tz)) return;
 
-    const minuteKey = getCurrentMinuteKey();
+    const minuteKey = getMinuteKeyInTimezone(new Date(), tz);
     if (lastFiredMinute === minuteKey) return;
     lastFiredMinute = minuteKey;
 
