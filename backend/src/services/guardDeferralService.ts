@@ -17,9 +17,12 @@ interface DeferredProgramEntry {
   zoneEntries: { zoneId: string; durationMinutes: number }[];
 }
 
+const GUARD_GRACE_PERIOD_MS = 60_000;
+
 let monitorActive = false;
 let lastGuardState: boolean | null = null;
 const deferredPrograms = new Map<string, DeferredProgramEntry>();
+let pendingGraceDeferral: { runId: string; zoneStartedAt: number } | null = null;
 
 export const isGuardDeferralActive = () => monitorActive;
 
@@ -29,22 +32,40 @@ export const addDeferredProgram = (entry: DeferredProgramEntry) => {
   deferredPrograms.set(entry.programId, entry);
 };
 
+const deferActiveRun = async () => {
+  const active = getActiveRun();
+  if (!active) return;
+
+  const success = await deferCurrentZone();
+  if (success) {
+    const run = await SequentialRun.findById(active.runId).lean();
+    emitRealtimeEvent({
+      type: "deferral:triggered",
+      payload: {
+        type: "sequential-run",
+        runId: active.runId,
+        reason: "Guard activated — conditions not suitable for irrigation",
+        deadline: run?.deferralDeadline?.toISOString() ?? null
+      }
+    });
+  }
+};
+
 const onGuardActivated = async () => {
   const active = getActiveRun();
   if (active) {
-    const success = await deferCurrentZone();
-    if (success) {
-      const run = await SequentialRun.findById(active.runId).lean();
-      emitRealtimeEvent({
-        type: "deferral:triggered",
-        payload: {
-          type: "sequential-run",
-          runId: active.runId,
-          reason: "Guard activated — conditions not suitable for irrigation",
-          deadline: run?.deferralDeadline?.toISOString() ?? null
-        }
-      });
+    const run = await SequentialRun.findById(active.runId).lean();
+    const currentZone = run?.zones[active.currentZoneIndex];
+    if (currentZone?.startedAt) {
+      const elapsed = Date.now() - new Date(currentZone.startedAt).getTime();
+      if (elapsed < GUARD_GRACE_PERIOD_MS) {
+        pendingGraceDeferral = { runId: active.runId, zoneStartedAt: new Date(currentZone.startedAt).getTime() };
+        console.log(`[GuardDeferral] Guard activated but zone started ${Math.round(elapsed / 1000)}s ago — within grace period, deferral pending`);
+        return;
+      }
     }
+
+    await deferActiveRun();
   }
 };
 
@@ -185,14 +206,16 @@ const checkDeadlines = async () => {
   });
 
   if (expiredRun) {
+    const reason = "Deferral deadline expired — guard did not clear in time";
     for (const zone of expiredRun.zones) {
       if (zone.status === "queued" || zone.status === "deferred") {
         zone.status = "skipped";
         zone.completedAt = now;
-        zone.error = "Deferral deadline expired — guard did not clear in time";
+        zone.error = reason;
       }
     }
     expiredRun.status = "failed";
+    expiredRun.statusReason = reason;
     expiredRun.completedAt = now;
     await expiredRun.save();
 
@@ -201,7 +224,7 @@ const checkDeadlines = async () => {
       payload: {
         type: "sequential-run",
         runId: expiredRun._id.toString(),
-        reason: "Deferral deadline expired — guard did not clear in time"
+        reason
       }
     });
     emitRealtimeEvent({
@@ -255,7 +278,9 @@ const checkDeadlines = async () => {
   });
 
   for (const program of expiredAIPrograms) {
+    const reason = "Deferral deadline expired — guard did not clear in time";
     program.status = "skipped";
+    program.statusReason = reason;
     program.updatedAt = now;
     await program.save();
     emitRealtimeEvent({
@@ -263,7 +288,7 @@ const checkDeadlines = async () => {
       payload: {
         type: "ai-program",
         programId: program.programId,
-        reason: "Deferral deadline expired — guard did not clear in time"
+        reason
       }
     });
   }
@@ -284,10 +309,28 @@ export const handleHeartbeatForDeferral = async (heartbeat: { guard: boolean }) 
     }
 
     if (currentGuard === false && previousGuard === true) {
+      if (pendingGraceDeferral) {
+        console.log("[GuardDeferral] Guard cleared during grace period — no deferral needed");
+        pendingGraceDeferral = null;
+      }
       await onGuardDeactivated();
     }
 
     if (currentGuard === true) {
+      if (pendingGraceDeferral) {
+        const elapsed = Date.now() - pendingGraceDeferral.zoneStartedAt;
+        if (elapsed >= GUARD_GRACE_PERIOD_MS) {
+          const active = getActiveRun();
+          if (active && active.runId === pendingGraceDeferral.runId) {
+            console.log("[GuardDeferral] Grace period expired, guard still active — deferring now");
+            pendingGraceDeferral = null;
+            await deferActiveRun();
+          } else {
+            pendingGraceDeferral = null;
+          }
+        }
+      }
+
       await checkDeadlines();
     }
 
@@ -307,6 +350,7 @@ export const startGuardDeferralMonitor = async () => {
   monitorActive = true;
   lastGuardState = null;
   deferredPrograms.clear();
+  pendingGraceDeferral = null;
 
   try {
     const latest = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
@@ -332,14 +376,16 @@ export const startGuardDeferralMonitor = async () => {
       deferralDeadline: { $lte: now }
     });
     for (const run of expiredRuns) {
+      const reason = "Deferral deadline expired during server restart";
       for (const zone of run.zones) {
         if (zone.status === "queued" || zone.status === "deferred") {
           zone.status = "skipped";
           zone.completedAt = now;
-          zone.error = "Deferral deadline expired during server restart";
+          zone.error = reason;
         }
       }
       run.status = "failed";
+      run.statusReason = reason;
       run.completedAt = now;
       await run.save();
       console.log(`[GuardDeferral] Expired deferred run ${run._id} from before restart`);
@@ -355,5 +401,6 @@ export const stopGuardDeferralMonitor = () => {
   monitorActive = false;
   lastGuardState = null;
   deferredPrograms.clear();
+  pendingGraceDeferral = null;
   console.log("[GuardDeferral] Monitor stopped");
 };

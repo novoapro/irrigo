@@ -18,6 +18,7 @@ export interface IrrigationProgramAttributes {
   scheduleCron?: string;
   plannedStartAt?: Date;
   status: ProgramStatus;
+  statusReason?: string;
   scheduleRunId?: string;
   aiReasoning?: string;
   weatherContext?: WeatherContext;
@@ -58,6 +59,7 @@ const irrigationProgramSchema = new Schema<IrrigationProgramAttributes>({
     default: "planned",
     index: true
   },
+  statusReason: { type: String, default: null },
   scheduleRunId: { type: String, default: null, index: true },
   aiReasoning: { type: String, default: null },
   weatherContext: { type: weatherContextSchema, default: null },

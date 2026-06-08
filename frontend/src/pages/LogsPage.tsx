@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { deleteControllerLogs, deleteWebhookEvents, fetchControllerLogs, fetchWebhookEvents, fetchZones, type ControllerLogQuery, type WebhookEventQuery } from "../api";
-import type { IrrigationCommand, WebhookEvent, Zone } from "../types";
+import { deleteControllerLogs, deleteWebhookEvents, fetchControllerLogs, fetchSequentialRuns, fetchWebhookEvents, fetchZones, type ControllerLogQuery, type SequentialRunQuery, type WebhookEventQuery } from "../api";
+import type { IrrigationCommand, SequentialRun, WebhookEvent, Zone } from "../types";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
 import { formatTimestamp, toQueryDateTime } from "../utils/date";
@@ -39,7 +39,7 @@ const sourceLabel = (source: string) => {
 const formatDuration = (minutes: number | null | undefined) =>
   minutes != null ? `${minutes} min` : "—";
 
-type LogTab = "commands" | "events";
+type LogTab = "commands" | "events" | "runs";
 
 const CHARACTERISTIC_OPTIONS = [
   { value: "all", label: "All" },
@@ -83,6 +83,13 @@ const LogsPage = () => {
   const [webhookEndDate, setWebhookEndDate] = useState<Date | null>(null);
   const [webhookZoneFilter, setWebhookZoneFilter] = useState("all");
   const [webhookTypeFilter, setWebhookTypeFilter] = useState("all");
+
+  const [runs, setRuns] = useState<SequentialRun[]>([]);
+  const [runsMeta, setRunsMeta] = useState<{ page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean } | null>(null);
+  const [runsPage, setRunsPage] = useState(1);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsSourceFilter, setRunsSourceFilter] = useState("all");
+  const [runsStatusFilter, setRunsStatusFilter] = useState("all");
 
   const mountedRef = useRef(true);
 
@@ -161,6 +168,34 @@ const LogsPage = () => {
       loadWebhookEvents(webhookPage, webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter);
     }
   }, [webhookPage, webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter, loadWebhookEvents, activeTab]);
+
+  const loadRuns = useCallback(
+    async (p: number, source: string, status: string) => {
+      setRunsLoading(true);
+      setError(null);
+      try {
+        const query: SequentialRunQuery = { page: p, pageSize: PAGE_SIZE };
+        if (source !== "all") query.source = source;
+        if (status !== "all") query.status = status;
+        const result = await fetchSequentialRuns(query);
+        if (!mountedRef.current) return;
+        setRuns(result.data);
+        setRunsMeta(result.meta);
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setError(err instanceof Error ? err.message : "Failed to load runs");
+      } finally {
+        if (mountedRef.current) setRunsLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (activeTab === "runs") {
+      loadRuns(runsPage, runsSourceFilter, runsStatusFilter);
+    }
+  }, [runsPage, runsSourceFilter, runsStatusFilter, loadRuns, activeTab]);
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? logs.length;
@@ -261,10 +296,9 @@ const LogsPage = () => {
         <div>
           <h2>Controller Logs</h2>
           <p className="muted">
-            {activeTab === "commands"
-              ? `${totalCount} command${totalCount === 1 ? "" : "s"} found`
-              : `${webhookTotalCount} event${webhookTotalCount === 1 ? "" : "s"} received`
-            }
+            {activeTab === "commands" && `${totalCount} command${totalCount === 1 ? "" : "s"} found`}
+            {activeTab === "events" && `${webhookTotalCount} event${webhookTotalCount === 1 ? "" : "s"} received`}
+            {activeTab === "runs" && `${runsMeta?.totalCount ?? 0} run${(runsMeta?.totalCount ?? 0) === 1 ? "" : "s"} found`}
           </p>
         </div>
         {((activeTab === "commands" && totalCount > 0) || (activeTab === "events" && webhookTotalCount > 0)) && (
@@ -302,6 +336,13 @@ const LogsPage = () => {
           onClick={() => setActiveTab("events")}
         >
           Incoming Events
+        </button>
+        <button
+          type="button"
+          className={`logs-tab${activeTab === "runs" ? " logs-tab--active" : ""}`}
+          onClick={() => setActiveTab("runs")}
+        >
+          Program Runs
         </button>
       </div>
 
@@ -687,6 +728,181 @@ const LogsPage = () => {
                     className="ghost-button"
                     onClick={() => setWebhookPage((p) => p + 1)}
                     disabled={!(webhookMeta?.hasNextPage ?? webhookPage < webhookTotalPages)}
+                  >
+                    &gt;
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {activeTab === "runs" && (
+        <>
+          <div className="records-filters records-filters--no-border">
+            <div className="records-filters__row records-filters__row--selects">
+              <div className="records-filter-group">
+                <label>Source</label>
+                <Dropdown
+                  value={runsSourceFilter}
+                  options={SOURCE_OPTIONS}
+                  onChange={(v) => { setRunsSourceFilter(v); setRunsPage(1); }}
+                />
+              </div>
+              <div className="records-filter-group">
+                <label>Status</label>
+                <Dropdown
+                  value={runsStatusFilter}
+                  options={[
+                    { value: "all", label: "All" },
+                    { value: "running", label: "Running" },
+                    { value: "completed", label: "Completed" },
+                    { value: "failed", label: "Failed" },
+                    { value: "cancelled", label: "Cancelled" },
+                    { value: "deferred", label: "Deferred" }
+                  ]}
+                  onChange={(v) => { setRunsStatusFilter(v); setRunsPage(1); }}
+                />
+              </div>
+            </div>
+
+            {(runsSourceFilter !== "all" || runsStatusFilter !== "all") && (
+              <div className="records-filters__actions">
+                <button
+                  type="button"
+                  className="filter-reset-icon"
+                  onClick={() => { setRunsSourceFilter("all"); setRunsStatusFilter("all"); setRunsPage(1); }}
+                  title="Reset filters"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <section className="history-panel">
+            <header className="history-header">
+              <h3>Program Runs</h3>
+              <span className="history-header-subtitle muted">
+                Showing {runs.length} of {runsMeta?.totalCount ?? 0} run
+                {(runsMeta?.totalCount ?? 0) === 1 ? "" : "s"} &bull; Page {runsPage} of {runsMeta?.totalPages ?? 1}
+              </span>
+            </header>
+
+            {(runsMeta?.totalCount ?? 0) === 0 ? (
+              <p className="muted">No program runs recorded yet.</p>
+            ) : (
+              <div className={`history-content${runsLoading ? " history-content--loading" : ""}`}>
+                <div className="table-wrapper history-table-wrapper">
+                  <table className="history-table">
+                    <thead>
+                      <tr>
+                        <th>Started</th>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Zones</th>
+                        <th>Reason</th>
+                        <th>Completed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runs.map((run) => (
+                        <tr key={run._id}>
+                          <td>{formatTimestamp(run.startedAt)}</td>
+                          <td>
+                            <span className={`source-chip source-chip--${run.source}`}>
+                              {sourceLabel(run.source)}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`command-status command-status--${run.status}`}>
+                              {run.status}
+                            </span>
+                          </td>
+                          <td>
+                            {run.zones.map((z) => (
+                              <div key={z.zoneId} className="run-zone-entry">
+                                <span className="run-zone-name">{z.name}</span>
+                                <span className={`command-status command-status--${z.status}`}>{z.status}</span>
+                                {z.error && <span className="run-zone-error">{z.error}</span>}
+                              </div>
+                            ))}
+                          </td>
+                          <td className={run.statusReason ? "text-reason" : ""}>
+                            {run.statusReason ?? "—"}
+                          </td>
+                          <td>{run.completedAt ? formatTimestamp(run.completedAt) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="history-cards">
+                  {runs.map((run) => (
+                    <article key={`card-${run._id}`} className="history-card">
+                      <header className="history-card-header">
+                        <div>
+                          <span className="history-card-label">Started</span>
+                          <span className="history-card-timestamp">{formatTimestamp(run.startedAt)}</span>
+                        </div>
+                        <span className={`command-status command-status--${run.status}`}>
+                          {run.status}
+                        </span>
+                      </header>
+                      <dl className="history-card-metrics">
+                        <div>
+                          <dt>Source</dt>
+                          <dd>
+                            <span className={`source-chip source-chip--${run.source}`}>
+                              {sourceLabel(run.source)}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Completed</dt>
+                          <dd>{run.completedAt ? formatTimestamp(run.completedAt) : "—"}</dd>
+                        </div>
+                        {run.statusReason && (
+                          <div>
+                            <dt>Reason</dt>
+                            <dd className="text-reason">{run.statusReason}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      <div className="run-zones-list">
+                        {run.zones.map((z) => (
+                          <div key={z.zoneId} className="run-zone-entry">
+                            <span className="run-zone-name">{z.name}</span>
+                            <span className={`command-status command-status--${z.status}`}>{z.status}</span>
+                            {z.error && <span className="run-zone-error">{z.error}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="pagination-controls">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => setRunsPage((p) => Math.max(1, p - 1))}
+                    disabled={!(runsMeta?.hasPreviousPage ?? runsPage > 1)}
+                  >
+                    &lt;
+                  </button>
+                  <span className="muted pagination-status">
+                    Page {runsPage} of {runsMeta?.totalPages ?? 1}
+                  </span>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => setRunsPage((p) => p + 1)}
+                    disabled={!(runsMeta?.hasNextPage ?? runsPage < (runsMeta?.totalPages ?? 1))}
                   >
                     &gt;
                   </button>

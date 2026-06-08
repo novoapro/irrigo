@@ -23,6 +23,7 @@ import {
   triggerAIScheduleRun,
   fetchWeatherForecast,
   fetchDebugConfig,
+  fetchStateSnapshot,
   fetchZones,
   fetchZoneStates,
   getManualRunStatus
@@ -1179,6 +1180,30 @@ const App = () => {
   const handleRealtimeEvent = useCallback(
     (event: RealtimeEvent) => {
       switch (event.type) {
+        case "connection:ready": {
+          void fetchStateSnapshot().then((snapshot) => {
+            if (snapshot.status) {
+              setStatus(snapshot.status);
+            }
+            if (snapshot.activeRun) {
+              setManualRun(snapshot.activeRun as SequentialRun);
+            } else {
+              setManualRun(null);
+            }
+            if (snapshot.irrigationMode) {
+              setIrrigationMode(snapshot.irrigationMode as IrrigationMode);
+            }
+            if (snapshot.zoneStates) {
+              const stateMap: Record<string, ZoneState> = {};
+              for (const zs of snapshot.zoneStates) {
+                stateMap[zs.zoneId] = zs;
+              }
+              zoneStateVersionRef.current++;
+              setZoneStates(stateMap);
+            }
+          }).catch(() => {});
+          break;
+        }
         case "forceHeartbeat:queued": {
           if (activeRefreshIdRef.current !== null) {
             setRefreshPhase("waiting-device");

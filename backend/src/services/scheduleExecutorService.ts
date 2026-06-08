@@ -32,8 +32,10 @@ const executeAIProgram = async (programId: string) => {
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
   if (latestHeartbeat?.guard) {
+    const reason = "Guard active — conditions not suitable for irrigation";
     const deadline = new Date(Date.now() + 24 * 60 * 60_000);
     program.status = "deferred";
+    program.statusReason = reason;
     program.deferredAt = new Date();
     program.deferralDeadline = deadline;
     program.updatedAt = new Date();
@@ -43,7 +45,7 @@ const executeAIProgram = async (programId: string) => {
       payload: {
         type: "ai-program",
         programId: program.programId,
-        reason: "Guard active — conditions not suitable for irrigation",
+        reason,
         deadline: deadline.toISOString()
       }
     });
@@ -52,29 +54,35 @@ const executeAIProgram = async (programId: string) => {
 
   const config = await AIScheduleConfig.findOne().lean();
   if (!config?.enabled) {
+    const reason = "AI scheduling disabled";
     program.status = "skipped";
+    program.statusReason = reason;
     program.updatedAt = new Date();
     await program.save();
-    emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason: "AI scheduling disabled" } });
+    emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
     return;
   }
 
   if (config.preferences.conservativeWatering) {
     if (latestHeartbeat?.sensors?.rain) {
+      const reason = "Rain detected — rain sensor active";
       program.status = "skipped";
+      program.statusReason = reason;
       program.updatedAt = new Date();
       await program.save();
-      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason: "Rain detected" } });
+      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
       return;
     }
 
     const forecast = await WeatherForecastSnapshot.findOne().sort({ fetchedAt: -1 }).lean();
     const precipProb = forecast?.precipitationProbability ?? 0;
     if (precipProb >= config.preferences.rainThresholdPercent) {
+      const reason = `Precipitation probability ${precipProb}% exceeds threshold (${config.preferences.rainThresholdPercent}%)`;
       program.status = "skipped";
+      program.statusReason = reason;
       program.updatedAt = new Date();
       await program.save();
-      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason: `Precipitation ${precipProb}% exceeds threshold` } });
+      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
       return;
     }
   }
@@ -94,7 +102,9 @@ const executeAIProgram = async (programId: string) => {
     const inputs = await buildZoneInputs(adjustedEntries);
     await startSequentialRun(inputs, "ai-schedule", program.programId);
   } catch (err: any) {
+    const reason = `Execution failed — ${err?.message ?? "unknown error"}`;
     program.status = "skipped";
+    program.statusReason = reason;
     program.updatedAt = new Date();
     await program.save();
     console.error(`[ScheduleExecutor] Failed to start AI program ${program.programId}:`, err);

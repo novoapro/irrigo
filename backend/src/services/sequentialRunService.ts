@@ -110,6 +110,10 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
   clearSafetyTimeout();
   const anyFailed = run.zones.some((z) => z.status === "failed");
   run.status = anyFailed ? "failed" : "completed";
+  if (anyFailed) {
+    const failedZone = run.zones.find((z) => z.status === "failed");
+    run.statusReason = failedZone?.error ?? "One or more zones failed";
+  }
   run.completedAt = new Date();
   await run.save();
 
@@ -120,9 +124,14 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
 
   if (run.programId && run.source === "ai-schedule") {
     const { default: IrrigationProgram } = await import("../models/IrrigationProgram");
+    const newStatus = anyFailed ? "skipped" : "completed";
+    const update: Record<string, unknown> = { status: newStatus, updatedAt: new Date() };
+    if (anyFailed) {
+      update.statusReason = run.statusReason ?? "One or more zones failed during execution";
+    }
     await IrrigationProgram.updateOne(
       { programId: run.programId, source: "ai-schedule", status: "executing" },
-      { $set: { status: anyFailed ? "skipped" : "completed", updatedAt: new Date() } }
+      { $set: update }
     );
   }
 
@@ -229,6 +238,7 @@ export const cancelRun = async (): Promise<boolean> => {
   }
 
   run.status = "cancelled";
+  run.statusReason = "Manually cancelled by user";
   run.completedAt = new Date();
   await run.save();
 
@@ -281,6 +291,7 @@ export const deferCurrentZone = async (): Promise<boolean> => {
 
   currentZone.status = "deferred";
   run.status = "deferred";
+  run.statusReason = "Guard activated — conditions not suitable for irrigation";
   run.deferredAt = new Date();
   run.deferralDeadline = new Date(Date.now() + DEFERRAL_SAFETY_CAP_MS);
   await run.save();
@@ -304,6 +315,7 @@ export const resumeDeferredRun = async (runIdOverride?: string): Promise<boolean
   if (deferredIndex === -1) return false;
 
   run.status = "running";
+  run.statusReason = null;
   run.deferredAt = null;
   run.deferralDeadline = null;
   run.zones[deferredIndex]!.status = "queued";

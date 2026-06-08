@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import type { CreateProgramInput, UpdateProgramInput } from "../schemas/irrigationProgramSchema";
 import IrrigationProgram from "../models/IrrigationProgram";
+import SequentialRun from "../models/SequentialRun";
 import * as programService from "../services/programService";
 import { runProgramNow, cancelProgramRun } from "../services/programSchedulerService";
 
@@ -101,7 +102,7 @@ export const cancelAIProgram = async (req: Request, res: Response) => {
   try {
     const result = await IrrigationProgram.findOneAndUpdate(
       { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
-      { $set: { status: "cancelled", updatedAt: new Date() } },
+      { $set: { status: "cancelled", statusReason: "Manually cancelled by user", updatedAt: new Date() } },
       { new: true }
     ).lean();
     if (!result) {
@@ -116,9 +117,10 @@ export const cancelAIProgram = async (req: Request, res: Response) => {
 
 export const skipAIProgram = async (req: Request, res: Response) => {
   try {
+    const reason = (req.body as { reason?: string })?.reason ?? "Manually skipped by user";
     const result = await IrrigationProgram.findOneAndUpdate(
       { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
-      { $set: { status: "skipped", updatedAt: new Date() } },
+      { $set: { status: "skipped", statusReason: reason, updatedAt: new Date() } },
       { new: true }
     ).lean();
     if (!result) {
@@ -149,5 +151,49 @@ export const deferAIProgram = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Failed to defer AI program:", error);
     res.status(500).json({ message: "Unable to defer AI program" });
+  }
+};
+
+export const listSequentialRuns = async (req: Request, res: Response) => {
+  try {
+    const pageCandidate = Number.parseInt((req.query.page as string) ?? "", 10);
+    const page = Number.isInteger(pageCandidate) && pageCandidate > 0 ? pageCandidate : 1;
+    const pageSizeCandidate = Number.parseInt((req.query.pageSize as string) ?? "", 10);
+    const pageSize = Number.isInteger(pageSizeCandidate) && pageSizeCandidate > 0
+      ? Math.min(pageSizeCandidate, 100)
+      : 25;
+
+    const filter: Record<string, unknown> = {};
+    const source = req.query.source as string | undefined;
+    if (source && source !== "all") filter.source = source;
+    const status = req.query.status as string | undefined;
+    if (status && status !== "all") filter.status = status;
+
+    const skip = (page - 1) * pageSize;
+    const [totalCount, runs] = await Promise.all([
+      SequentialRun.countDocuments(filter),
+      SequentialRun.find(filter)
+        .sort({ startedAt: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .lean()
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+    res.json({
+      data: runs,
+      meta: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1
+      }
+    });
+  } catch (error) {
+    console.error("Failed to list sequential runs:", error);
+    res.status(500).json({ message: "Unable to fetch sequential runs" });
   }
 };

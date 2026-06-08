@@ -19,6 +19,7 @@ export interface SequentialRunAttributes {
   source: SequentialRunSource;
   programId?: string | null;
   status: SequentialRunStatus;
+  statusReason?: string | null;
   zones: SequentialRunZoneEntry[];
   currentZoneIndex: number;
   startedAt: Date;
@@ -59,6 +60,7 @@ const sequentialRunSchema = new Schema<SequentialRunAttributes>({
     default: "running",
     index: true
   },
+  statusReason: { type: String, default: null },
   zones: { type: [sequentialRunZoneSchema], default: [] },
   currentZoneIndex: { type: Number, default: 0 },
   startedAt: { type: Date, default: () => new Date() },

@@ -287,6 +287,7 @@ export interface SequentialRun {
   source: SequentialRunSource;
   programId?: string | null;
   status: "running" | "deferred" | "completed" | "cancelled" | "failed";
+  statusReason?: string | null;
   zones: SequentialRunZoneEntry[];
   currentZoneIndex: number;
   startedAt: string;

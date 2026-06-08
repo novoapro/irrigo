@@ -743,6 +743,60 @@ select {
   color: var(--color-danger-text);
 }
 
+.text-reason {
+  color: var(--color-warning-text, var(--color-danger-text));
+  font-style: italic;
+  font-size: var(--text-sm);
+}
+
+.run-zone-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--text-sm);
+  padding: 0.125rem 0;
+}
+
+.run-zone-name {
+  font-weight: var(--weight-medium);
+}
+
+.run-zone-error {
+  color: var(--color-danger-text);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
+.run-zones-list {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.command-status--deferred {
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
+}
+
+.command-status--cancelled {
+  background: var(--color-neutral-bg, #f3f4f6);
+  color: var(--color-text-secondary);
+}
+
+.command-status--running {
+  background: var(--color-info-bg, #dbeafe);
+  color: var(--color-info-text, #1d4ed8);
+}
+
+.command-status--completed {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.command-status--skipped {
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
+}
+
 @media (max-width: 640px) {
   .records-filters__row {
     flex-direction: column;

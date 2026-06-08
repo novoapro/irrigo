@@ -868,6 +868,34 @@ export const getManualRunStatus = async () => {
   return json.data;
 };
 
+// --- Sequential Runs API ---
+
+export interface SequentialRunQuery {
+  page?: number;
+  pageSize?: number;
+  source?: string;
+  status?: string;
+}
+
+export const fetchSequentialRuns = async (query?: SequentialRunQuery) => {
+  const response = await fetch(
+    buildUrl("/programs/runs", {
+      page: query?.page?.toString(),
+      pageSize: query?.pageSize?.toString(),
+      source: query?.source,
+      status: query?.status
+    })
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sequential runs (${response.status})`);
+  }
+  const json = (await response.json()) as {
+    data: import("./types").SequentialRun[];
+    meta: { page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean };
+  };
+  return json;
+};
+
 // --- Controller Logs API ---
 
 export interface ControllerLogQuery {
@@ -963,6 +991,32 @@ export const simulateCharacteristic = async (payload: {
   if (!response.ok) throw new Error(`Characteristic simulation failed (${response.status})`);
   const json = await response.json();
   return json.data;
+};
+
+export interface StateSnapshot {
+  guard: boolean;
+  irrigationMode: string;
+  zoneStates: Array<{
+    zoneId: string;
+    isActive: boolean;
+    lastAction: "on" | "off" | null;
+    lastEventAt: string | null;
+    activeCommandId?: string | null;
+    activeDurationMinutes?: number | null;
+    remainingSeconds?: number | null;
+    remainingUpdatedAt?: string | null;
+  }>;
+  activeRun: import("./types").SequentialRun | null;
+  status: import("./types").StatusPayload | null;
+  timestamp: string;
+}
+
+export const fetchStateSnapshot = async (): Promise<StateSnapshot> => {
+  const response = await fetch(buildUrl("/status/snapshot"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch state snapshot (${response.status})`);
+  }
+  return (await response.json()) as StateSnapshot;
 };
 
 export const buildRealtimeUrl = () => {
