@@ -451,7 +451,7 @@ const IrrigationQueuePanel = ({
     try {
       const [cfg, progs] = await Promise.all([
         fetchAIScheduleConfig(),
-        fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred", "skipped"] }),
+        fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred"] }),
       ]);
       setConfig(cfg);
       setAiPrograms(progs);
@@ -564,63 +564,9 @@ const IrrigationQueuePanel = ({
       }
     });
 
-    const skippedByProgram = new Map<string, ScheduleEntry[]>();
-    for (const e of programEntries) {
-      if (e.status === "skipped" && e.programId && !activeProgramIds.has(e.programId)) {
-        if (!skippedByProgram.has(e.programId)) skippedByProgram.set(e.programId, []);
-        skippedByProgram.get(e.programId)!.push(e);
-      }
-    }
+    const remainingPrograms = programSeqs.filter((ps) => !activeProgramIds.has(ps.programId!));
 
-    const handledProgramIds = new Set([...activeProgramIds, ...skippedByProgram.keys()]);
-    const remainingPrograms = programSeqs.filter((ps) => !handledProgramIds.has(ps.programId!));
-
-    const skippedSeqs: QueueSequence[] = [];
-    for (const [progId, skippedEntries] of skippedByProgram) {
-      const prog = programs.find((p) => p.programId === progId);
-      if (!prog) continue;
-      const earliest = skippedEntries.reduce((min, e) =>
-        new Date(e.plannedStartAt) < new Date(min.plannedStartAt) ? e : min
-      );
-      skippedSeqs.push({
-        id: `skipped-${progId}`,
-        scheduledAt: earliest.plannedStartAt,
-        status: "skipped",
-        source: "program",
-        sourceLabel: prog.name,
-        programId: progId,
-        zones: prog.zoneEntries.map((ze) => ({
-          zoneId: ze.zoneId,
-          zoneName: getZoneName(ze.zoneId),
-          durationMinutes: ze.durationMinutes,
-        })),
-        totalMinutes: prog.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
-        entryIds: skippedEntries.map((e) => e._id),
-      });
-
-      const latest = skippedEntries.reduce((max, e) =>
-        new Date(e.plannedStartAt) > new Date(max.plannedStartAt) ? e : max
-      );
-      const nextRun = prog.scheduleCron ? nextCronRun(prog.scheduleCron, new Date(latest.plannedStartAt)) : null;
-      if (nextRun) {
-        skippedSeqs.push({
-          id: prog.programId,
-          scheduledAt: nextRun.toISOString(),
-          status: "pending",
-          source: "program",
-          sourceLabel: prog.name,
-          programId: progId,
-          zones: prog.zoneEntries.map((ze) => ({
-            zoneId: ze.zoneId,
-            zoneName: getZoneName(ze.zoneId),
-            durationMinutes: ze.durationMinutes,
-          })),
-          totalMinutes: prog.zoneEntries.reduce((s, e) => s + e.durationMinutes, 0),
-        });
-      }
-    }
-
-    return [...materializedSeqs, ...skippedSeqs, ...remainingPrograms]
+    return [...materializedSeqs, ...remainingPrograms]
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
   })();
 
@@ -634,7 +580,7 @@ const IrrigationQueuePanel = ({
     }
   }, [loadScheduledData]);
 
-  const activeSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred" || s.status === "skipped");
+  const activeSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred");
   const hasQueue = activeSequences.length > 0;
 
   return (
