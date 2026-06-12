@@ -2,20 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AIScheduleConfig, AISchedulePreferences, ScheduleEntry, ScheduleRun, Zone } from "../types";
 import { fetchAIScheduleConfig, updateAIScheduleConfig, triggerAIScheduleRun, fetchScheduleRuns, fetchScheduleRun } from "../api";
+import { HOUR_OPTIONS } from "../utils/date";
 import Dropdown from "./Dropdown";
 import AIInteractionModal from "./AIInteractionModal";
 import ActionButton, { useActionStatus, CheckIcon, XIcon, PlayIcon, ErrorCircleIcon } from "./ActionButton";
 
 const PROVIDER_OPTIONS = [
-  { value: "anthropic", label: "Anthropics" },
+  { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
   { value: "google", label: "Google Gemini" },
 ];
-
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-  value: String(i),
-  label: `${i.toString().padStart(2, "0")}:00`,
-}));
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Every day" },
@@ -30,7 +26,9 @@ const EVAL_WINDOW_OPTIONS = [
   { value: "24", label: "24 hours" },
   { value: "48", label: "48 hours" },
   { value: "72", label: "72 hours" },
-  { value: "168", label: "1 week" },
+  { value: "96", label: "96 hours (4 days)" },
+  { value: "120", label: "120 hours (5 days)" },
+  { value: "168", label: "168 hours (1 week)" },
 ];
 
 const RAIN_THRESHOLD_OPTIONS = [
@@ -43,27 +41,28 @@ const RAIN_THRESHOLD_OPTIONS = [
   { value: "80", label: "80% — only skip if rain is almost certain" },
 ];
 
-const RAIN_LOOKBACK_OPTIONS = [
-  { value: "12", label: "12 hours" },
-  { value: "24", label: "24 hours" },
-  { value: "48", label: "48 hours (default)" },
-  { value: "72", label: "72 hours" },
-];
 
 const MAX_DAILY_OPTIONS = [
+  { value: "15", label: "15 min" },
   { value: "30", label: "30 min" },
+  { value: "45", label: "45 min" },
   { value: "60", label: "1 hour" },
   { value: "90", label: "1.5 hours" },
   { value: "120", label: "2 hours" },
+  { value: "150", label: "2.5 hours" },
   { value: "180", label: "3 hours" },
   { value: "240", label: "4 hours" },
+  { value: "360", label: "6 hours" },
 ];
 
-const MIN_DAYS_OPTIONS = [
+const MIN_REST_OPTIONS = [
   { value: "0", label: "No minimum" },
   { value: "1", label: "1 day" },
   { value: "2", label: "2 days" },
   { value: "3", label: "3 days" },
+  { value: "4", label: "4 days" },
+  { value: "5", label: "5 days" },
+  { value: "7", label: "1 week" },
 ];
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekdays" | "weekly";
@@ -120,7 +119,6 @@ interface AIScheduleConfigModalProps {
 const DEFAULT_PREFS: AISchedulePreferences = {
   conservativeWatering: true,
   rainThresholdPercent: 40,
-  recentRainWindowHours: 48,
   maxDailyRunMinutes: 120,
   minDaysBetweenRuns: 1
 };
@@ -396,15 +394,6 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
               />
               <span className="form-hint">Skip irrigation when the chance of rain exceeds this.</span>
             </div>
-            <div className="form-group">
-              <label>Recent rain lookback</label>
-              <Dropdown
-                value={String(prefs.recentRainWindowHours)}
-                options={RAIN_LOOKBACK_OPTIONS}
-                onChange={(v) => updatePref("recentRainWindowHours", parseInt(v, 10))}
-              />
-              <span className="form-hint">How far back to check for recent rain before scheduling.</span>
-            </div>
           </fieldset>
 
           <fieldset className="form-fieldset">
@@ -423,7 +412,7 @@ const AIScheduleConfigModal = ({ open, onClose, onSaved, inline = false, zones =
                 <label>Min rest between runs</label>
                 <Dropdown
                   value={String(prefs.minDaysBetweenRuns)}
-                  options={MIN_DAYS_OPTIONS}
+                  options={MIN_REST_OPTIONS}
                   onChange={(v) => updatePref("minDaysBetweenRuns", parseInt(v, 10))}
                 />
               </div>

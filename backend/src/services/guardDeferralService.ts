@@ -208,7 +208,7 @@ const checkDeadlines = async () => {
   if (expiredRun) {
     const reason = "Deferral deadline expired — guard did not clear in time";
     for (const zone of expiredRun.zones) {
-      if (zone.status === "queued" || zone.status === "deferred") {
+      if (zone.status === "queued" || zone.status === "deferred" || zone.status === "activating" || zone.status === "running") {
         zone.status = "skipped";
         zone.completedAt = now;
         zone.error = reason;
@@ -378,7 +378,7 @@ export const startGuardDeferralMonitor = async () => {
     for (const run of expiredRuns) {
       const reason = "Deferral deadline expired during server restart";
       for (const zone of run.zones) {
-        if (zone.status === "queued" || zone.status === "deferred") {
+        if (zone.status === "queued" || zone.status === "deferred" || zone.status === "activating" || zone.status === "running") {
           zone.status = "skipped";
           zone.completedAt = now;
           zone.error = reason;

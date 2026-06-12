@@ -4,6 +4,8 @@ import IrrigationProgram from "../models/IrrigationProgram";
 import SequentialRun from "../models/SequentialRun";
 import * as programService from "../services/programService";
 import { runProgramNow, cancelProgramRun } from "../services/programSchedulerService";
+import { clearActiveRun, getActiveRun } from "../services/sequentialRunService";
+import { emitRealtimeEvent } from "../services/realtimeService";
 
 export const listPrograms = async (req: Request, res: Response) => {
   try {
@@ -100,15 +102,61 @@ export const handleCancelProgramRun = async (_req: Request, res: Response) => {
 
 export const cancelAIProgram = async (req: Request, res: Response) => {
   try {
-    const result = await IrrigationProgram.findOneAndUpdate(
-      { programId: req.params.programId, source: "ai-schedule", status: { $in: ["planned", "deferred"] } },
-      { $set: { status: "cancelled", statusReason: "Manually cancelled by user", updatedAt: new Date() } },
-      { new: true }
-    ).lean();
-    if (!result) {
+    const program = await IrrigationProgram.findOne({
+      programId: req.params.programId,
+      source: "ai-schedule",
+      status: { $in: ["planned", "deferred", "executing"] }
+    });
+    if (!program) {
       return res.status(404).json({ message: "AI program not found or not cancellable" });
     }
-    res.json({ data: result });
+
+    const previousStatus = program.status;
+
+    program.status = "cancelled";
+    program.statusReason = "Manually cancelled by user";
+    program.updatedAt = new Date();
+    await program.save();
+
+    if (previousStatus === "executing") {
+      await cancelProgramRun();
+    }
+
+    if (previousStatus === "deferred" || previousStatus === "executing") {
+      const activeRunInfo = getActiveRun();
+      const run = activeRunInfo?.programId === program.programId
+        ? await SequentialRun.findById(activeRunInfo.runId)
+        : await SequentialRun.findOne({
+            programId: program.programId,
+            status: { $in: ["running", "deferred"] }
+          });
+
+      if (run && run.status !== "cancelled" && run.status !== "completed" && run.status !== "failed") {
+        for (const zone of run.zones) {
+          if (zone.status === "queued" || zone.status === "deferred" || zone.status === "activating") {
+            zone.status = "skipped";
+            zone.completedAt = new Date();
+            zone.error = "Program cancelled";
+          }
+        }
+        run.status = "cancelled";
+        run.statusReason = "Manually cancelled by user";
+        run.completedAt = new Date();
+        await run.save();
+
+        if (activeRunInfo?.programId === program.programId) {
+          clearActiveRun();
+        }
+
+        const runObj = run.toObject() as Record<string, unknown>;
+        emitRealtimeEvent({
+          type: "sequentialRun:cancelled",
+          payload: { ...runObj, source: run.source }
+        });
+      }
+    }
+
+    res.json({ data: program.toObject() });
   } catch (error) {
     console.error("Failed to cancel AI program:", error);
     res.status(500).json({ message: "Unable to cancel AI program" });

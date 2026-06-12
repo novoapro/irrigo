@@ -729,6 +729,35 @@ export const updateIrrigationSettings = async (
   return json.data;
 };
 
+export const confirmRain = async (intensity: "light" | "moderate" | "heavy"): Promise<{ confirmedAt: string; intensity: string }> => {
+  const response = await fetch(buildUrl("/irrigation-settings/confirm-rain"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intensity })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to confirm rain (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { confirmedAt: string; intensity: string } };
+  return json.data;
+};
+
+export interface RainAlert {
+  alert: boolean;
+  probability?: number;
+  periodStart?: string;
+  threshold?: number;
+}
+
+export const fetchRainAlert = async (): Promise<RainAlert> => {
+  const response = await fetch(buildUrl("/irrigation-settings/rain-alert"));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch rain alert (${response.status})`);
+  }
+  const json = (await response.json()) as { data: RainAlert };
+  return json.data;
+};
+
 // --- Programs API ---
 
 export const fetchPrograms = async (filter?: { source?: string; status?: string | string[] }): Promise<IrrigationProgram[]> => {
@@ -993,6 +1022,14 @@ export const simulateCharacteristic = async (payload: {
   return json.data;
 };
 
+export interface RainPauseStatus {
+  active: boolean;
+  source?: string;
+  triggeredAt?: string;
+  expiresAt?: string;
+  remainingHours?: number;
+}
+
 export interface StateSnapshot {
   guard: boolean;
   irrigationMode: string;
@@ -1007,6 +1044,7 @@ export interface StateSnapshot {
     remainingUpdatedAt?: string | null;
   }>;
   activeRun: import("./types").SequentialRun | null;
+  rainPause: RainPauseStatus;
   status: import("./types").StatusPayload | null;
   timestamp: string;
 }

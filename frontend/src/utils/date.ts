@@ -1,5 +1,16 @@
 import { format, formatDistanceToNowStrict, isValid, parseISO } from "date-fns";
 
+const formatHour12 = (hour: number): string => {
+  const period = hour < 12 ? "AM" : "PM";
+  const display = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${display}:00 ${period}`;
+};
+
+export const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i),
+  label: formatHour12(i),
+}));
+
 export const formatTimestamp = (value: string) =>
   format(parseISO(value), "MM/d/yy hh:mm a");
 

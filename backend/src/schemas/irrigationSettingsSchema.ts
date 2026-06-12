@@ -8,6 +8,7 @@ const preferredTimeWindowSchema = z.object({
 export const irrigationSettingsSchema = z.object({
   preferredTimeWindows: z.array(preferredTimeWindowSchema).min(1).optional(),
   waterSavingMode: z.enum(["normal", "moderate", "aggressive"]).optional(),
+  rainPauseHours: z.number().int().min(0).max(168).optional(),
   timezone: z.string().min(1).optional()
 }).strict();
 

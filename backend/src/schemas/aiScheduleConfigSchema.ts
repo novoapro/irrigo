@@ -3,7 +3,6 @@ import { z } from "zod";
 const preferencesSchema = z.object({
   conservativeWatering: z.boolean().optional(),
   rainThresholdPercent: z.number().min(0).max(100).optional(),
-  recentRainWindowHours: z.number().int().positive().optional(),
   maxDailyRunMinutes: z.number().int().positive().optional(),
   minDaysBetweenRuns: z.number().int().nonnegative().optional()
 }).optional();

@@ -7,10 +7,14 @@ export interface PreferredTimeWindow {
 }
 
 export type WaterSavingMode = "normal" | "moderate" | "aggressive";
+export type RainIntensity = "light" | "moderate" | "heavy";
 
 export interface IrrigationSettingsAttributes {
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  rainPauseHours: number;
+  lastConfirmedRainAt: Date | null;
+  lastConfirmedRainIntensity: RainIntensity | null;
   timezone: string;
   updatedAt: Date;
 }
@@ -32,6 +36,21 @@ const irrigationSettingsSchema = new Schema<IrrigationSettingsAttributes>({
     type: String,
     enum: ["normal", "moderate", "aggressive"],
     default: "normal"
+  },
+  rainPauseHours: {
+    type: Number,
+    default: 48,
+    min: 0,
+    max: 168
+  },
+  lastConfirmedRainAt: {
+    type: Date,
+    default: null
+  },
+  lastConfirmedRainIntensity: {
+    type: String,
+    enum: ["light", "moderate", "heavy", null],
+    default: null
   },
   timezone: {
     type: String,

@@ -452,6 +452,11 @@ export type RealtimeEvent =
       type: "debugMode:changed";
       payload?: { enabled: boolean };
       at?: string;
+    }
+  | {
+      type: "rain:confirmed";
+      payload?: { confirmedAt: string; intensity: string };
+      at?: string;
     };
 
 export interface CompAIConfig {
@@ -526,17 +531,21 @@ export interface PreferredTimeWindow {
 export interface AISchedulePreferences {
   conservativeWatering: boolean;
   rainThresholdPercent: number;
-  recentRainWindowHours: number;
   maxDailyRunMinutes: number;
   minDaysBetweenRuns: number;
 }
 
 export type WaterSavingMode = "normal" | "moderate" | "aggressive";
 
+export type RainIntensity = "light" | "moderate" | "heavy";
+
 export interface IrrigationSettings {
   _id?: string;
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  rainPauseHours: number;
+  lastConfirmedRainAt?: string | null;
+  lastConfirmedRainIntensity?: RainIntensity | null;
   timezone: string;
   updatedAt?: string;
 }

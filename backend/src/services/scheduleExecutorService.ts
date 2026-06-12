@@ -7,6 +7,7 @@ import Zone from "../models/Zone";
 import { startSequentialRun, isRunActive } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
+import { isWithinPreferredWindow } from "./irrigationSettingsService";
 
 const LOOKAHEAD_MS = 60_000;
 const CHECK_INTERVAL_MS = 30_000;
@@ -118,6 +119,29 @@ const checkPendingAIPrograms = async () => {
   if (isRunActive()) return;
 
   const now = new Date();
+
+  const inWindow = await isWithinPreferredWindow(now);
+
+  if (!inWindow) {
+    const expiredPrograms = await IrrigationProgram.find({
+      source: "ai-schedule",
+      status: "planned",
+      enabled: true,
+      plannedStartAt: { $lte: now }
+    });
+
+    for (const program of expiredPrograms) {
+      const reason = "Irrigation window closed — conditions were never met during the eligible window";
+      program.status = "skipped";
+      program.statusReason = reason;
+      program.updatedAt = new Date();
+      await program.save();
+      console.warn(`[ScheduleExecutor] Skipped expired program "${program.name}" (${program.programId})`);
+      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
+    }
+    return;
+  }
+
   const cutoff = new Date(now.getTime() + LOOKAHEAD_MS);
 
   const duePrograms = await IrrigationProgram.find({

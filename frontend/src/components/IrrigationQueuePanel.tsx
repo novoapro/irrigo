@@ -12,7 +12,8 @@ import {
   fetchPrograms,
   updateSystemConfig,
   cancelAIProgram,
-  deferAIProgram
+  cancelProgramRun,
+  deferAIProgram,
 } from "../api";
 import DateTimeInput from "./DateTimeInput";
 
@@ -228,20 +229,24 @@ const QueueSequenceCard = ({
   onSkip,
   onDefer,
   onReschedule,
+  onCancel,
 }: {
   seq: QueueSequence;
   onSkip: (seq: QueueSequence) => void;
   onDefer: (seq: QueueSequence, newDate: Date) => void;
   onReschedule?: (seq: QueueSequence) => void;
+  onCancel?: (seq: QueueSequence) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [deferring, setDeferring] = useState(false);
   const [deferValue, setDeferValue] = useState<Date | null>(null);
   const [confirmSkip, setConfirmSkip] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const isPending = seq.status === "pending";
   const isDeferred = seq.status === "deferred";
+  const isRunning = seq.status === "running";
   const isSkipped = seq.status === "skipped";
 
   const openDefer = () => {
@@ -293,6 +298,19 @@ const QueueSequenceCard = ({
               aria-label="Reschedule program"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
+            </button>
+          </div>
+        )}
+        {isRunning && onCancel && (
+          <div className="queue-card__actions">
+            <button
+              type="button"
+              className="danger-button icon-btn"
+              onClick={() => setConfirmCancel(true)}
+              title="Cancel run"
+              aria-label="Cancel running irrigation"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
             </button>
           </div>
         )}
@@ -409,6 +427,37 @@ const QueueSequenceCard = ({
                 onClick={() => { setConfirmSkip(false); onSkip(seq); }}
               >
                 Skip
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {confirmCancel && onCancel && createPortal(
+        <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
+          <div className="confirm-dialog">
+            <div className="confirm-dialog__icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+            </div>
+            <h3 className="confirm-dialog__title">Cancel irrigation</h3>
+            <p className="confirm-dialog__message">
+              Stop this irrigation run? The active zone will be turned off and remaining zones will be skipped.
+            </p>
+            <div className="confirm-dialog__actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setConfirmCancel(false)}
+              >
+                Keep running
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => { setConfirmCancel(false); onCancel(seq); }}
+              >
+                Cancel run
               </button>
             </div>
           </div>
@@ -540,6 +589,20 @@ const IrrigationQueuePanel = ({
     }
   }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
 
+  const handleCancelSequence = useCallback(async (seq: QueueSequence) => {
+    try {
+      if (activeMode === "smart" && seq.programId) {
+        await cancelAIProgram(seq.programId);
+        void loadSmartData();
+      } else {
+        await cancelProgramRun();
+        void loadScheduledData();
+      }
+    } catch (err) {
+      console.error("Failed to cancel:", err);
+    }
+  }, [activeMode, loadSmartData, loadScheduledData]);
+
   const enabledPrograms = programs.filter((p) => p.enabled);
 
   const queueSequences = (() => {
@@ -668,6 +731,7 @@ const IrrigationQueuePanel = ({
                     onSkip={handleSkipSequence}
                     onDefer={handleDeferSequence}
                     onReschedule={handleReschedule}
+                    onCancel={handleCancelSequence}
                   />
                 ))}
               </div>

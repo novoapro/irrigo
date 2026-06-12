@@ -1,5 +1,6 @@
 import SequentialRun from "../models/SequentialRun";
 import type { SequentialRunSource, SequentialRunZoneEntry } from "../models/SequentialRun";
+import Zone from "../models/Zone";
 import { createCommand } from "./irrigationCommandService";
 import { emitRealtimeEvent } from "./realtimeService";
 
@@ -50,6 +51,18 @@ const setSafetyTimeout = (zoneId: string, durationMinutes: number) => {
 
 const startZone = async (run: InstanceType<typeof SequentialRun>, index: number) => {
   const zone = run.zones[index]!;
+
+  const zoneDoc = await Zone.findOne({ zoneId: zone.zoneId }).select({ enabled: 1 }).lean();
+  if (zoneDoc && !zoneDoc.enabled) {
+    zone.status = "skipped";
+    zone.completedAt = new Date();
+    zone.error = "Zone is disabled";
+    run.currentZoneIndex = index;
+    await run.save();
+    emitProgress(serializeRun(run.toObject()), run.source);
+    await advanceToNextZone();
+    return;
+  }
 
   zone.status = "activating";
   zone.startedAt = new Date();
@@ -108,6 +121,14 @@ const advanceToNextZone = async () => {
 
 const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
   clearSafetyTimeout();
+
+  for (const zone of run.zones) {
+    if (zone.status === "queued" || zone.status === "activating" || zone.status === "deferred") {
+      zone.status = "skipped";
+      zone.completedAt = new Date();
+    }
+  }
+
   const anyFailed = run.zones.some((z) => z.status === "failed");
   run.status = anyFailed ? "failed" : "completed";
   if (anyFailed) {
@@ -231,9 +252,11 @@ export const cancelRun = async (): Promise<boolean> => {
     currentZone.error = "Run cancelled";
   }
 
-  for (let i = activeRun.currentZoneIndex + 1; i < run.zones.length; i++) {
-    if (run.zones[i]!.status === "queued") {
-      run.zones[i]!.status = "skipped";
+  for (const zone of run.zones) {
+    if (zone.status === "queued" || zone.status === "deferred" || zone.status === "activating") {
+      zone.status = "skipped";
+      zone.completedAt = new Date();
+      zone.error = "Run cancelled";
     }
   }
 
@@ -270,6 +293,29 @@ export const getActiveRun = () => activeRun;
 export const clearActiveRun = () => {
   clearSafetyTimeout();
   activeRun = null;
+};
+
+export const cleanupOrphanedRuns = async (): Promise<number> => {
+  const orphaned = await SequentialRun.find({ status: { $in: ["running", "deferred"] } });
+  let cleaned = 0;
+  for (const run of orphaned) {
+    for (const zone of run.zones) {
+      if (zone.status === "queued" || zone.status === "deferred" || zone.status === "activating" || zone.status === "running") {
+        zone.status = "skipped";
+        zone.completedAt = new Date();
+        zone.error = "Run orphaned during server restart";
+      }
+    }
+    run.status = "failed";
+    run.statusReason = "Run orphaned during server restart";
+    run.completedAt = new Date();
+    await run.save();
+    cleaned++;
+  }
+  if (cleaned > 0) {
+    console.log(`[SequentialRun] Cleaned up ${cleaned} orphaned run(s) from before restart`);
+  }
+  return cleaned;
 };
 
 const DEFERRAL_SAFETY_CAP_MS = 24 * 60 * 60_000;

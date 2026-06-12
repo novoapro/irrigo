@@ -12,6 +12,7 @@ import {
 import { startRealtimeService } from "./services/realtimeService";
 import { getSystemConfig, applyModeServices } from "./services/systemConfigService";
 import { migrateIrrigationSettings } from "./services/irrigationSettingsService";
+import { cleanupOrphanedRuns } from "./services/sequentialRunService";
 
 const loadEnvironment = () => {
   const env =
@@ -40,6 +41,7 @@ const start = async () => {
   try {
     await connectToDatabase();
     await migrateIrrigationSettings();
+    await cleanupOrphanedRuns();
     await ensureForecastSnapshot();
     await scheduleForecastPeriodPush();
     startForecastAutoRefresh();

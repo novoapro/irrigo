@@ -1,13 +1,15 @@
 import sprinklerSvg from "../assets/sprinkler.svg?raw";
 import guardOnSvg from "../assets/guard_on.svg?raw";
 import guardBypassedSvg from "../assets/guard_bypassed.svg?raw";
+import rainPauseSvg from "../assets/rain_pause.svg?raw";
 
-type SystemStatusIconType = "sprinkler" | "guard-on" | "guard-bypassed";
+type SystemStatusIconType = "sprinkler" | "guard-on" | "guard-bypassed" | "rain-pause";
 
 const ICON_MAP: Record<SystemStatusIconType, string> = {
   sprinkler: sprinklerSvg,
   "guard-on": guardOnSvg,
-  "guard-bypassed": guardBypassedSvg
+  "guard-bypassed": guardBypassedSvg,
+  "rain-pause": rainPauseSvg
 };
 
 const enhanceSvgMarkup = (svgMarkup: string) =>

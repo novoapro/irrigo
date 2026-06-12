@@ -721,7 +721,6 @@ async function seed() {
     preferences: {
       conservativeWatering: true,
       rainThresholdPercent: 40,
-      recentRainWindowHours: 48,
       maxDailyRunMinutes: 120,
       minDaysBetweenRuns: 1,
     },

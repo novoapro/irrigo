@@ -51,6 +51,7 @@ import "./modal.css";
 import WeatherWidget, { type PrecipitationPoint } from "./components/WeatherWidget";
 import ZoneControlPanel from "./components/ZoneControlPanel";
 import IrrigationQueuePanel from "./components/IrrigationQueuePanel";
+import RainAlertBanner from "./components/RainAlertBanner";
 import SettingsPanel from "./components/SettingsPanel";
 import OverviewSection, {
   type OverviewCardDefinition
@@ -195,6 +196,8 @@ const App = () => {
   const [aiRunRefreshKey, setAiRunRefreshKey] = useState(0);
   const [dashboardRunningAI, setDashboardRunningAI] = useState(false);
   const [debugModeActive, setDebugModeActive] = useState(false);
+  const [rainPause, setRainPause] = useState<import("./api").RainPauseStatus>({ active: false });
+  const [rainAlertKey, setRainAlertKey] = useState(0);
 
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
@@ -1143,6 +1146,13 @@ const App = () => {
     [toggleRealtimePreference]
   );
 
+  const refreshRainPause = useCallback(() => {
+    fetchStateSnapshot()
+      .then((snapshot) => { if (snapshot.rainPause) setRainPause(snapshot.rainPause); })
+      .catch(() => {});
+    setRainAlertKey((k) => k + 1);
+  }, []);
+
   const syncDataAfterHeartbeat = useCallback(
     async (shouldMarkRefresh: boolean) => {
       try {
@@ -1153,6 +1163,7 @@ const App = () => {
           loadIrrigationRecords(),
           loadForecastData(false)
         ]);
+        refreshRainPause();
         if (shouldMarkRefresh) {
           markRefreshSuccess();
         } else {
@@ -1171,6 +1182,7 @@ const App = () => {
       loadIrrigationEvents,
       loadIrrigationRecords,
       loadForecastData,
+      refreshRainPause,
       markRefreshSuccess,
       markRefreshError,
       scheduleRefreshMarkers
@@ -1192,6 +1204,9 @@ const App = () => {
             }
             if (snapshot.irrigationMode) {
               setIrrigationMode(snapshot.irrigationMode as IrrigationMode);
+            }
+            if (snapshot.rainPause) {
+              setRainPause(snapshot.rainPause);
             }
             if (snapshot.zoneStates) {
               const stateMap: Record<string, ZoneState> = {};
@@ -1315,6 +1330,11 @@ const App = () => {
         case "debugMode:changed": {
           const enabled = (event.payload as { enabled?: boolean })?.enabled ?? false;
           setDebugModeActive(enabled);
+          break;
+        }
+        case "rain:confirmed": {
+          refreshRainPause();
+          setAiRunRefreshKey((k) => k + 1);
           break;
         }
         default:
@@ -1487,6 +1507,8 @@ const App = () => {
           <>
             {error ? <div className="error-banner">{error}</div> : null}
 
+            <RainAlertBanner refreshKey={rainAlertKey} />
+
             <WeatherWidget
         loading={forecastLoading}
         error={forecastError}
@@ -1511,6 +1533,7 @@ const App = () => {
         soilStatus={soilStatus}
         soilTone={soilStatusTone}
         soilActive={connectedSensors.includes("SOIL")}
+        rainPause={rainPause}
       />
 
       <ZoneControlPanel

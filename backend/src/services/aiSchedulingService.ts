@@ -31,26 +31,17 @@ interface GatheredData {
     metadata?: Record<string, unknown>;
   }>;
   currentConditions: {
-    baselinePsi: number | null;
     rainDetected: boolean | null;
     soilSaturated: boolean | null;
     temperatureF: number | null;
     humidity: number | null;
-    connectedSensors: Array<"PRESSURE" | "RAIN" | "SOIL">;
   };
-  historicalPsi: Array<{
-    timestamp: string;
-    psi: number;
-  }>;
-  forecast: Array<{
+  forecastRainPeriods: Array<{
     startTime: string;
-    endTime: string;
-    temperature: number | null;
-    precipitationProbability: number | null;
-    isDaytime: boolean | null;
+    precipitationProbability: number;
     shortForecast: string | null;
   }>;
-  recentPrecipitation: Array<{
+  recentPrecipAboveThreshold: Array<{
     periodStart: string;
     probability: number;
   }>;
@@ -60,6 +51,10 @@ interface GatheredData {
     createdAt: string;
   }>>;
   pendingPrograms: PendingProgram[];
+  lastRainDetectedAt: string | null;
+  lastSoilSaturatedAt: string | null;
+  lastConfirmedRainAt: string | null;
+  lastConfirmedRainIntensity: "light" | "moderate" | "heavy" | null;
   locationName: string;
 }
 
@@ -86,57 +81,39 @@ const getTimezoneOffset = (date: Date, tz: string): string => {
 
 const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredData> => {
   const zones = await Zone.find({ enabled: true }).sort({ sortOrder: 1 }).lean();
-
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
   const connected = latestHeartbeat?.device?.connectedSensors ?? [];
-
-  const forecastSnapshot = await WeatherForecastSnapshot.findOne()
-    .sort({ fetchedAt: -1 })
-    .lean();
+  const rainThreshold = config.preferences.rainThresholdPercent;
 
   const now = new Date();
-  const windowEnd = new Date(now.getTime() + config.evaluationWindowHours * 3600_000);
-  const futurePeriods: ForecastPeriodSnapshot[] = (forecastSnapshot?.periods ?? [])
-    .filter((p) => new Date(p.endTime) > now && new Date(p.startTime) < windowEnd);
+  const windowMs = config.evaluationWindowHours * 3600_000;
+  const windowEnd = new Date(now.getTime() + windowMs);
+  const lookbackStart = new Date(now.getTime() - windowMs);
 
-  const recentRainCutoff = new Date(now.getTime() - 24 * 3600_000);
-  const recentPrecip = await PrecipitationHistory.find({
-    periodStart: { $gte: recentRainCutoff, $lte: now },
-    probability: { $gt: 0 }
-  })
-    .sort({ periodStart: -1 })
-    .lean();
+  const forecastSnapshot = await WeatherForecastSnapshot.findOne().sort({ fetchedAt: -1 }).lean();
+  const forecastRainPeriods = (forecastSnapshot?.periods ?? [])
+    .filter((p) => new Date(p.endTime) > now && new Date(p.startTime) < windowEnd)
+    .filter((p) => (p.precipitationProbability ?? 0) >= rainThreshold)
+    .map((p) => ({
+      startTime: new Date(p.startTime).toISOString(),
+      precipitationProbability: p.precipitationProbability!,
+      shortForecast: p.shortForecast ?? null
+    }));
 
-  const historicalPsiCutoff = new Date(now.getTime() - 20 * 24 * 3600_000);
-  const historicalHeartbeats = await Heartbeat.find({
-    timestamp: { $gte: historicalPsiCutoff },
-    "sensors.waterPsi": { $exists: true, $ne: null }
-  })
-    .sort({ timestamp: -1 })
-    .limit(200)
-    .lean();
-
-  const historicalPsi = historicalHeartbeats.map((h) => ({
-    timestamp: new Date(h.timestamp).toISOString(),
-    psi: h.sensors?.waterPsi as number
+  const recentPrecipAboveThreshold = (await PrecipitationHistory.find({
+    periodStart: { $gte: lookbackStart, $lte: now },
+    probability: { $gte: rainThreshold }
+  }).sort({ periodStart: -1 }).lean()).map((p) => ({
+    periodStart: p.periodStart.toISOString(),
+    probability: p.probability
   }));
 
-  const irrigationCutoff = new Date(now.getTime() - 7 * 24 * 3600_000);
-  const recentEvents = await IrrigationEvent.find({
-    createdAt: { $gte: irrigationCutoff }
-  })
-    .sort({ createdAt: -1 })
-    .lean();
-
+  const recentEvents = await IrrigationEvent.find({ createdAt: { $gte: lookbackStart } }).sort({ createdAt: -1 }).lean();
   const irrigationByZone: Record<string, Array<{ action: string; source: string; createdAt: string }>> = {};
   for (const event of recentEvents) {
     const key = event.zone;
     if (!irrigationByZone[key]) irrigationByZone[key] = [];
-    irrigationByZone[key].push({
-      action: event.action,
-      source: event.source ?? "unknown",
-      createdAt: event.createdAt?.toISOString() ?? ""
-    });
+    irrigationByZone[key].push({ action: event.action, source: event.source ?? "unknown", createdAt: event.createdAt?.toISOString() ?? "" });
   }
 
   const pendingDbPrograms = await IrrigationProgram.find({
@@ -151,6 +128,16 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     status: p.status
   }));
 
+  const lastRainHeartbeat = connected.includes("RAIN")
+    ? await Heartbeat.findOne({ "sensors.rain": true }).sort({ timestamp: -1 }).lean()
+    : null;
+  const lastSoilHeartbeat = connected.includes("SOIL")
+    ? await Heartbeat.findOne({ "sensors.soil": true }).sort({ timestamp: -1 }).lean()
+    : null;
+
+  const { default: IrrigationSettingsModel } = await import("../models/configs/IrrigationSettings");
+  const irrigSettings = await IrrigationSettingsModel.findOne().lean();
+
   return {
     zones: zones.map((z) => ({
       zoneId: z.zoneId,
@@ -160,28 +147,19 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
       metadata: z.metadata as Record<string, unknown> | undefined
     })),
     currentConditions: {
-      baselinePsi: latestHeartbeat?.device?.baselinePsi ?? null,
       rainDetected: connected.includes("RAIN") ? (latestHeartbeat?.sensors?.rain ?? false) : null,
       soilSaturated: connected.includes("SOIL") ? (latestHeartbeat?.sensors?.soil ?? false) : null,
       temperatureF: latestHeartbeat?.device?.tempF ?? null,
-      humidity: latestHeartbeat?.device?.humidity ?? null,
-      connectedSensors: connected
+      humidity: latestHeartbeat?.device?.humidity ?? null
     },
-    historicalPsi,
-    forecast: futurePeriods.map((p) => ({
-      startTime: new Date(p.startTime).toISOString(),
-      endTime: new Date(p.endTime).toISOString(),
-      temperature: p.temperature,
-      precipitationProbability: p.precipitationProbability,
-      isDaytime: p.isDaytime,
-      shortForecast: p.shortForecast
-    })),
-    recentPrecipitation: recentPrecip.map((p) => ({
-      periodStart: p.periodStart.toISOString(),
-      probability: p.probability
-    })),
+    forecastRainPeriods,
+    recentPrecipAboveThreshold,
     recentIrrigationByZone: irrigationByZone,
     pendingPrograms,
+    lastRainDetectedAt: lastRainHeartbeat ? new Date(lastRainHeartbeat.timestamp).toISOString() : null,
+    lastSoilSaturatedAt: lastSoilHeartbeat ? new Date(lastSoilHeartbeat.timestamp).toISOString() : null,
+    lastConfirmedRainAt: irrigSettings?.lastConfirmedRainAt ? new Date(irrigSettings.lastConfirmedRainAt).toISOString() : null,
+    lastConfirmedRainIntensity: (irrigSettings?.lastConfirmedRainIntensity as "light" | "moderate" | "heavy") ?? null,
     locationName: forecastSnapshot?.locationName ?? process.env.WEATHER_LOCATION_NAME ?? "Unknown"
   };
 };
@@ -192,193 +170,171 @@ const buildPrompt = (
   now: Date,
   preferredTimeWindows: PreferredTimeWindow[],
   waterSavingMode: WaterSavingMode,
+  rainPauseHours: number,
   timezone: string
 ): { system: string; user: string } => {
   const prefs = config.preferences;
   const offset = getTimezoneOffset(now, timezone);
-
-  const system = `You are an irrigation scheduling assistant for a residential lawn and garden system. You manage the full irrigation schedule by creating, modifying, or cancelling irrigation programs. Your goal is to conserve water while keeping the landscape healthy.
-
-A program groups one or more zones that should run together at a specific time. Zones within a program run sequentially (one after another), not in parallel. You can create separate programs for different times of day (e.g., a morning program and an evening program).
-
-IMPORTANT: All times in this prompt are in the ${timezone} timezone (UTC${offset}). Return all plannedStartAt values as ISO 8601 with the timezone offset (e.g., 2025-06-07T20:00:00${offset}).
-
-You MUST respond with valid JSON only — no markdown, no explanation outside the JSON. Use this exact schema:
-{
-  "newPrograms": [
-    {
-      "name": "string (descriptive name, e.g., 'Morning Lawn Care', 'Evening Garden')",
-      "plannedStartAt": "ISO 8601 with timezone offset",
-      "zones": [
-        {
-          "zoneId": "string",
-          "durationMinutes": number
-        }
-      ],
-      "reasoning": "1-2 sentence explanation"
-    }
-  ],
-  "modifyPrograms": [
-    {
-      "programId": "string (from pending programs)",
-      "plannedStartAt": "ISO 8601 with timezone offset (optional, include to change time)",
-      "zones": [{ "zoneId": "string", "durationMinutes": number }],
-      "reasoning": "1-2 sentence explanation"
-    }
-  ],
-  "cancelPrograms": [
-    {
-      "programId": "string (from pending programs)",
-      "reasoning": "1-2 sentence explanation"
-    }
-  ],
-  "keepPrograms": ["programId1", "programId2"],
-  "skippedZones": [
-    {
-      "zoneId": "string",
-      "reason": "1-2 sentence explanation"
-    }
-  ],
-  "summary": "1-3 sentence overall summary of the scheduling decision"
-}`;
-
   const fmt = (d: Date) => formatForPrompt(d, timezone);
 
+  const INTENSITY_MULTIPLIERS: Record<string, number> = { light: 0.25, moderate: 0.5, heavy: 1.0 };
+
+  const rainAt = data.lastRainDetectedAt ? new Date(data.lastRainDetectedAt) : null;
+  const soilAt = data.lastSoilSaturatedAt ? new Date(data.lastSoilSaturatedAt) : null;
+  const confirmedAt = data.lastConfirmedRainAt ? new Date(data.lastConfirmedRainAt) : null;
+  const confirmedMultiplier = INTENSITY_MULTIPLIERS[data.lastConfirmedRainIntensity ?? "heavy"] ?? 1.0;
+  const confirmedEffectiveMs = confirmedAt ? rainPauseHours * 3600_000 * confirmedMultiplier : 0;
+  const sensorIntervalMs = rainPauseHours * 3600_000;
+
+  const sensorPause = rainPauseHours > 0 && (
+    (rainAt !== null && (now.getTime() - rainAt.getTime()) < sensorIntervalMs) ||
+    (soilAt !== null && (now.getTime() - soilAt.getTime()) < sensorIntervalMs)
+  );
+  const confirmedPause = rainPauseHours > 0 && confirmedAt !== null
+    && (now.getTime() - confirmedAt.getTime()) < confirmedEffectiveMs;
+  const rainPauseActive = sensorPause || confirmedPause;
+
+  const latestMoistureEvent = [rainAt, soilAt, confirmedAt].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
+
+  const system = `You are an irrigation scheduling assistant. Respond with valid JSON only — no markdown, no text outside the JSON.
+${rainPauseActive ? `
+RAIN PAUSE IS ACTIVE. You MUST return:
+{"newPrograms":[],"modifyPrograms":[],"cancelPrograms":[<cancel every pending program>],"keepPrograms":[],"skippedZones":[<skip every zone>],"summary":"Rain pause active — no irrigation allowed."}
+` : ""}
+All times are in ${timezone} (UTC${offset}). Return plannedStartAt as ISO 8601 with offset.
+
+JSON schema:
+{
+  "newPrograms": [{"name":"string","plannedStartAt":"ISO 8601","zones":[{"zoneId":"string","durationMinutes":number}],"reasoning":"string"}],
+  "modifyPrograms": [{"programId":"string","plannedStartAt":"ISO 8601 (optional)","zones":[{"zoneId":"string","durationMinutes":number}],"reasoning":"string"}],
+  "cancelPrograms": [{"programId":"string","reasoning":"string"}],
+  "keepPrograms": ["programId"],
+  "skippedZones": [{"zoneId":"string","reason":"string"}],
+  "summary": "string"
+}`;
+
   const timeWindowsDesc = preferredTimeWindows.length > 0
-    ? preferredTimeWindows
-        .map((w) => `${w.startHour}:00 – ${w.endHour}:00`)
-        .join(", ")
+    ? preferredTimeWindows.map((w) => `${w.startHour}:00–${w.endHour}:00`).join(", ")
     : "any time";
 
-  const forecastLines = data.forecast.slice(0, 48).map((p) => {
-    const time = fmt(new Date(p.startTime));
-    return `  ${time}: ${p.temperature ?? "?"}°F, precip ${p.precipitationProbability ?? 0}%, ${p.shortForecast ?? ""}`;
-  }).join("\n");
+  const localNow = now.toLocaleString("en-US", {
+    timeZone: timezone, weekday: "long", year: "numeric", month: "long",
+    day: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short"
+  });
 
-  const recentPrecipLines = data.recentPrecipitation.length > 0
-    ? data.recentPrecipitation.map((p) => {
-        const time = fmt(new Date(p.periodStart));
-        return `  ${time}: ${p.probability}% chance`;
-      }).join("\n")
+  // ── Rules section ──
+  const rules: string[] = [];
+
+  if (rainPauseHours > 0) {
+    const effectiveHours = confirmedPause && !sensorPause
+      ? Math.round(rainPauseHours * confirmedMultiplier)
+      : rainPauseHours;
+    const expiresAt = latestMoistureEvent
+      ? new Date(latestMoistureEvent.getTime() + (sensorPause ? sensorIntervalMs : confirmedEffectiveMs))
+      : null;
+    const status = rainPauseActive
+      ? `ACTIVE — last event: ${fmt(latestMoistureEvent!)}${confirmedPause && !sensorPause ? ` (user-confirmed ${data.lastConfirmedRainIntensity})` : " (sensor)"}, pause: ${effectiveHours}h, expires: ${expiresAt ? fmt(expiresAt) : "unknown"}`
+      : latestMoistureEvent
+        ? `CLEAR — last event: ${fmt(latestMoistureEvent)}, interval expired`
+        : "CLEAR — no rain/saturation on record";
+    rules.push(`1. Rain pause (${rainPauseHours}h base): ${status}. If ACTIVE: create no programs, cancel all pending, skip all zones.`);
+  }
+  rules.push(`${rules.length + 1}. Rain forecast: if precipitation probability >= ${prefs.rainThresholdPercent}% is forecast within the planning window, skip irrigation for affected periods.`);
+  rules.push(`${rules.length + 1}. Irrigation windows: only schedule within ${timeWindowsDesc} (${timezone}).`);
+  rules.push(`${rules.length + 1}. Water saving: ${waterSavingMode}${waterSavingMode === "moderate" ? " — reduce durations ~25-40%" : waterSavingMode === "aggressive" ? " — reduce durations ~40-60%, skip zones not critically dry" : ""}.`);
+  rules.push(`${rules.length + 1}. Max daily irrigation: ${prefs.maxDailyRunMinutes} min. Min days between runs per zone: ${prefs.minDaysBetweenRuns}.`);
+  rules.push(`${rules.length + 1}. Zones run sequentially within a program — account for total duration.`);
+  rules.push(`${rules.length + 1}. A zone irrigated recently (manually or scheduled) may not need another run — check history before scheduling.`);
+
+  // ── Conditions section ──
+  const conditions: string[] = [];
+  if (data.currentConditions.rainDetected === true) {
+    conditions.push(`- Rain sensor: ACTIVE (currently raining)`);
+  } else if (data.currentConditions.rainDetected === false) {
+    conditions.push(`- Rain sensor: inactive${rainAt ? ` (last triggered: ${fmt(rainAt)}, ${((now.getTime() - rainAt.getTime()) / 3600_000).toFixed(0)}h ago)` : ""}`);
+  }
+  if (data.currentConditions.soilSaturated === true) {
+    conditions.push(`- Soil moisture: SATURATED`);
+  } else if (data.currentConditions.soilSaturated === false) {
+    conditions.push(`- Soil moisture: dry${soilAt ? ` (last saturated: ${fmt(soilAt)}, ${((now.getTime() - soilAt.getTime()) / 3600_000).toFixed(0)}h ago)` : ""}`);
+  }
+  if (confirmedAt) {
+    conditions.push(`- User-confirmed rain: ${fmt(confirmedAt)} (${((now.getTime() - confirmedAt.getTime()) / 3600_000).toFixed(0)}h ago)`);
+  }
+  conditions.push(`- Temperature: ${data.currentConditions.temperatureF?.toFixed(0) ?? "unknown"}°F, Humidity: ${data.currentConditions.humidity?.toFixed(0) ?? "unknown"}%`);
+
+  // ── Forecast (only periods above rain threshold) ──
+  const forecastSection = data.forecastRainPeriods.length > 0
+    ? data.forecastRainPeriods.map((p) => `  ${fmt(new Date(p.startTime))}: ${p.precipitationProbability}% — ${p.shortForecast ?? ""}`).join("\n")
+    : "  None above threshold.";
+
+  // ── Recent precipitation (only above threshold) ──
+  const precipSection = data.recentPrecipAboveThreshold.length > 0
+    ? data.recentPrecipAboveThreshold.map((p) => `  ${fmt(new Date(p.periodStart))}: ${p.probability}%`).join("\n")
     : "";
 
-  const historicalPsiLines = data.historicalPsi.slice(0, 40).map((h) => {
-    const time = new Date(h.timestamp).toLocaleString("en-US", { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", hour12: true });
-    return `  ${time}: ${h.psi.toFixed(1)} PSI`;
-  }).join("\n");
-
-  const zoneLines = data.zones.map((z) => {
-    const meta = z.metadata
-      ? Object.entries(z.metadata)
-          .filter(([, v]) => v != null)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(", ")
-      : "none";
-    return `  - ${z.zoneId} ("${z.name}"): default ${z.defaultDurationMinutes}min, max ${z.maxDurationMinutes}min, metadata: [${meta}]`;
-  }).join("\n");
-
-  const irrigationHistoryLines = data.zones.map((z) => {
+  // ── Irrigation history (within planning window) ──
+  const historyLines = data.zones.map((z) => {
     const events = data.recentIrrigationByZone[z.zoneId];
-    if (!events || events.length === 0) return `  - ${z.zoneId} ("${z.name}"): no irrigation in last 7 days`;
+    if (!events || events.length === 0) return `  - ${z.name}: no recent irrigation`;
     const paired: string[] = [];
     for (let i = 0; i < events.length; i++) {
       const ev = events[i]!;
       if (ev.action !== "on") continue;
       const onTime = new Date(ev.createdAt);
       const offEvent = events.slice(i + 1).find((e) => e.action === "off");
-      const fmtOn = onTime.toLocaleString("en-US", { timeZone: timezone, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
       if (offEvent) {
-        const offTime = new Date(offEvent.createdAt);
-        const durationMin = Math.round((offTime.getTime() - onTime.getTime()) / 60_000);
-        const fmtOff = offTime.toLocaleString("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true });
-        paired.push(`    ${fmtOn}: ON (${ev.source}) → OFF ${fmtOff} (~${durationMin}min)`);
+        const durationMin = Math.round((new Date(offEvent.createdAt).getTime() - onTime.getTime()) / 60_000);
+        paired.push(`    ${fmt(onTime)}: ${ev.source}, ~${durationMin}min`);
       } else {
-        paired.push(`    ${fmtOn}: ON (${ev.source})`);
+        paired.push(`    ${fmt(onTime)}: ${ev.source} (still running)`);
       }
     }
-    return `  - ${z.zoneId} ("${z.name}"):\n${paired.join("\n")}`;
+    return paired.length > 0 ? `  - ${z.name}:\n${paired.join("\n")}` : `  - ${z.name}: no recent irrigation`;
   }).join("\n");
 
-  const pendingProgramsLines = data.pendingPrograms.length > 0
+  // ── Zones ──
+  const zoneLines = data.zones.map((z) => {
+    const meta = z.metadata
+      ? Object.entries(z.metadata).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`).join(", ")
+      : "";
+    return `  - ${z.zoneId} ("${z.name}"): ${z.defaultDurationMinutes}min default, ${z.maxDurationMinutes}min max${meta ? `, ${meta}` : ""}`;
+  }).join("\n");
+
+  // ── Pending programs ──
+  const pendingLines = data.pendingPrograms.length > 0
     ? data.pendingPrograms.map((p) => {
-        const time = fmt(new Date(p.plannedStartAt));
-        const zonesDesc = p.zones.map((z) => `${z.zoneId} (${z.durationMinutes}min)`).join(", ");
-        return `  - ${p.programId}: ${time}, zones: [${zonesDesc}], status: ${p.status}`;
+        const zonesDesc = p.zones.map((z) => `${z.zoneId}(${z.durationMinutes}m)`).join(", ");
+        return `  - ${p.programId}: ${fmt(new Date(p.plannedStartAt))}, [${zonesDesc}], ${p.status}`;
       }).join("\n")
-    : "  No pending programs — create new programs as needed.";
+    : "  None.";
 
-  const localNow = now.toLocaleString("en-US", {
-    timeZone: timezone,
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZoneName: "short"
-  });
-
-  const user = `## System Context
+  const user = `## Context
 - Location: ${data.locationName}
-- Current time: ${localNow} (timezone: ${timezone})
-- Planning window: next ${config.evaluationWindowHours} hours
+- Now: ${localNow}
+- Planning window: ${config.evaluationWindowHours}h forward, ${config.evaluationWindowHours}h lookback
+
+## Rules
+${rules.join("\n")}
+
+## Current Conditions
+${conditions.join("\n")}
+
+## Rain Forecast (>= ${prefs.rainThresholdPercent}% precipitation, next ${config.evaluationWindowHours}h)
+${forecastSection}
+${precipSection ? `\n## Recent Precipitation (>= ${prefs.rainThresholdPercent}%, last ${config.evaluationWindowHours}h)\n${precipSection}\n` : ""}
+## Irrigation History (last ${config.evaluationWindowHours}h)
+${historyLines}
+
+## Pending Programs
+Every program must appear in exactly one of: keepPrograms, modifyPrograms, or cancelPrograms.
+${pendingLines}
 
 ## Zones
 ${zoneLines}
-
-## Current Sensor Conditions
-- Baseline water pressure: ${data.currentConditions.baselinePsi?.toFixed(1) ?? "unknown"} PSI (minimum system pressure required for proper sprinkler operation — avoid scheduling irrigation when pressure drops near or below this value)
-- Rain sensor: ${data.currentConditions.rainDetected === null ? "not connected" : data.currentConditions.rainDetected ? "RAIN DETECTED" : "no rain"}
-- Soil moisture: ${data.currentConditions.soilSaturated === null ? "not connected" : data.currentConditions.soilSaturated ? "SATURATED" : "dry"}
-- Temperature: ${data.currentConditions.temperatureF?.toFixed(1) ?? "unknown"}°F
-- Humidity: ${data.currentConditions.humidity?.toFixed(0) ?? "unknown"}%
-
-## Historical Water Pressure (last 20 days)
-Use this data to detect pressure patterns throughout the day. Prefer scheduling irrigation during times when pressure is consistently well above the baseline minimum. Avoid hours when pressure regularly dips.
-${historicalPsiLines || "  No historical pressure data available"}
-
-## Weather Forecast (next ${config.evaluationWindowHours}h)
-${forecastLines || "  No forecast data available"}
-
-${recentPrecipLines ? `## Recent Precipitation (last 24h)\n${recentPrecipLines}\n` : ""}## Irrigation History (last 7 days)
-All irrigation events with source (manual = user-triggered, schedule = AI-scheduled, external = triggered externally). Factor manual runs into your decisions — a zone watered manually today may not need its scheduled run.
-${irrigationHistoryLines}
-
-## Pending AI Programs
-Programs currently scheduled that have NOT yet executed. You have full control: keep, modify, or cancel.
-Every pending program MUST appear in exactly one of: keepPrograms, modifyPrograms, or cancelPrograms. Modify existing programs instead of creating duplicates.
-A "deferred" program was delayed by the system because conditions were unsuitable (e.g., low water pressure) — it will resume automatically, so leave it in keepPrograms.
-${pendingProgramsLines}
-
-## User Preferences
-- Conservative watering: ${prefs.conservativeWatering ? "YES — skip irrigation if rain is expected" : "no"}
-- Rain skip threshold: ${prefs.rainThresholdPercent}% precipitation probability
-- Preferred irrigation windows: ${timeWindowsDesc} (${timezone})
-- Max daily irrigation: ${prefs.maxDailyRunMinutes} minutes total
-- Minimum days between runs per zone: ${prefs.minDaysBetweenRuns}
-- Water saving mode: ${waterSavingMode}${waterSavingMode === "moderate" ? " — reduce zone durations by ~25-40% from defaults, prefer shorter more frequent runs" : waterSavingMode === "aggressive" ? " — minimize water usage, reduce zone durations by ~40-60% from defaults, skip zones that are not critically dry" : ""}
-${config.userContext ? `\n## Additional User Instructions\n${config.userContext}` : ""}
-
+${config.userContext ? `\n## Additional Instructions\n${config.userContext}\n` : ""}
 ## Task
-You manage the irrigation schedule. Review sensor data, weather forecast, irrigation history (including manual runs), and pending programs, then produce the optimal schedule for the planning window.
-
-1. Review each pending program and decide:
-   - KEEP as-is → add its programId to keepPrograms
-   - MODIFY (change time/zones/durations) → add to modifyPrograms with new values
-   - CANCEL (no longer needed) → add to cancelPrograms with reason
-   Every pending program MUST appear in exactly one of these three.
-2. Identify gaps where zones need watering but have no pending program — create new programs in newPrograms.
-   - Group zones that should run at the same time into a single program (e.g., all lawn zones in one morning program).
-   - Use separate programs for different time slots (e.g., morning vs evening).
-3. Zones that need no watering at all → add to skippedZones with explanation.
-
-Decision factors:
-- A zone watered manually today may not need its scheduled run — cancel or defer it
-- Use historical water pressure patterns to prefer times when PSI is consistently well above the baseline minimum
-- Factor in temperature and precipitation — prefer cooler hours (after sunset, before sunrise), skip if rain above ${prefs.rainThresholdPercent}% is forecast within 24-48h
-- Remember: zones within a program run sequentially, so account for total program duration when scheduling
-- Respect max daily irrigation minutes and minimum days between runs per zone${waterSavingMode === "moderate" ? "\n- Water saving mode is MODERATE: use noticeably shorter run times per zone than the defaults" : waterSavingMode === "aggressive" ? "\n- Water saving mode is AGGRESSIVE: minimize run times, use the shortest durations that keep plants alive, skip any zone that isn't critically in need" : ""}`;
+Evaluate pending programs (keep/modify/cancel). Create new programs if zones need water and no rule blocks it. Skip zones that don't need irrigation. Respond with JSON only.`;
 
   return { system, user };
 };
@@ -507,7 +463,7 @@ export const runScheduleEvaluation = async (
     }
 
     const irrigationSettings = await getIrrigationSettings();
-    const { system, user } = buildPrompt(config, data, now, irrigationSettings.preferredTimeWindows, irrigationSettings.waterSavingMode, timezone);
+    const { system, user } = buildPrompt(config, data, now, irrigationSettings.preferredTimeWindows, irrigationSettings.waterSavingMode, irrigationSettings.rainPauseHours, timezone);
 
     run.systemPrompt = system;
     run.userPrompt = user;
@@ -554,7 +510,7 @@ export const runScheduleEvaluation = async (
       );
     }
 
-    const newPrograms = parsed.newPrograms.map((p) => ({
+    const allNewPrograms = parsed.newPrograms.map((p) => ({
       programId: randomUUID(),
       name: p.name,
       enabled: true,
@@ -566,6 +522,14 @@ export const runScheduleEvaluation = async (
       weatherContext: weatherCtx,
       zoneEntries: p.zones.map((z) => ({ zoneId: z.zoneId, durationMinutes: z.durationMinutes }))
     }));
+
+    const newPrograms = allNewPrograms.filter((p) => {
+      if (p.plannedStartAt <= now) {
+        console.warn(`[AIScheduling] Discarding program "${p.name}" — plannedStartAt ${p.plannedStartAt.toISOString()} is in the past`);
+        return false;
+      }
+      return true;
+    });
 
     if (newPrograms.length > 0) {
       await IrrigationProgram.insertMany(newPrograms);

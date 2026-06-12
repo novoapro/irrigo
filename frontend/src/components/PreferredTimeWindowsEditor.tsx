@@ -1,10 +1,6 @@
 import type { PreferredTimeWindow } from "../types";
+import { HOUR_OPTIONS } from "../utils/date";
 import Dropdown from "./Dropdown";
-
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
-  value: String(i),
-  label: `${i.toString().padStart(2, "0")}:00`,
-}));
 
 interface PreferredTimeWindowsEditorProps {
   windows: PreferredTimeWindow[];

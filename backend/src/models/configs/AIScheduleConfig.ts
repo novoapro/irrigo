@@ -4,7 +4,6 @@ import Config from "../Config";
 export interface AISchedulePreferences {
   conservativeWatering: boolean;
   rainThresholdPercent: number;
-  recentRainWindowHours: number;
   maxDailyRunMinutes: number;
   minDaysBetweenRuns: number;
 }
@@ -28,7 +27,6 @@ const preferencesSchema = new Schema(
   {
     conservativeWatering: { type: Boolean, default: true },
     rainThresholdPercent: { type: Number, default: 40, min: 0, max: 100 },
-    recentRainWindowHours: { type: Number, default: 48, min: 1 },
     maxDailyRunMinutes: { type: Number, default: 120, min: 1 },
     minDaysBetweenRuns: { type: Number, default: 1, min: 0 }
   },
@@ -41,7 +39,7 @@ const aiScheduleConfigSchema = new Schema<AIScheduleConfigAttributes>({
   model: { type: String, default: "claude-sonnet-4-20250514" },
   apiKey: { type: String, default: "" },
   scheduleCron: { type: String, default: "0 4 * * *" },
-  evaluationWindowHours: { type: Number, default: 24, min: 1, max: 72 },
+  evaluationWindowHours: { type: Number, default: 24, min: 1, max: 168 },
   userContext: { type: String, default: "" },
   preferences: { type: preferencesSchema, default: () => ({}) },
   lastRunAt: { type: Date, default: null },
