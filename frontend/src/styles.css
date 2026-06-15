@@ -1583,6 +1583,50 @@ html[data-theme="dark"] .app-header-actions-row > button {
   opacity: 0.7;
 }
 
+.status-tile--pressable {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.status-tile--pressable:active {
+  transform: scale(0.97);
+}
+
+.rain-report-dialog {
+  width: min(380px, 88vw);
+}
+
+.rain-report-dialog__icon {
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #d97706);
+}
+
+.rain-report-dialog .rain-intensity-picker {
+  width: 100%;
+}
+
+.rain-intensity-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rain-intensity-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.rain-intensity-picker__actions .primary-button {
+  flex: 1;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-4);
+}
+
 .status-panel__footer {
   display: flex;
   align-items: center;

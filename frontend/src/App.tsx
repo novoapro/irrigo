@@ -1507,7 +1507,7 @@ const App = () => {
           <>
             {error ? <div className="error-banner">{error}</div> : null}
 
-            <RainAlertBanner refreshKey={rainAlertKey} />
+            <RainAlertBanner refreshKey={rainAlertKey} onConfirmed={refreshRainPause} />
 
             <WeatherWidget
         loading={forecastLoading}
@@ -1534,6 +1534,7 @@ const App = () => {
         soilTone={soilStatusTone}
         soilActive={connectedSensors.includes("SOIL")}
         rainPause={rainPause}
+        onRainReported={refreshRainPause}
       />
 
       <ZoneControlPanel

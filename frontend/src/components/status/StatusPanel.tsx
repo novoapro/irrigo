@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Zone } from "../../types";
 import type { RainPauseStatus } from "../../api";
 import type { StatusTone } from "./SensorWidgets";
 import { formatElapsedDuration, formatRelativeTime } from "../../utils/date";
 import { getSensorIcon } from "../../utils/sensors";
 import SystemStatusIcon from "../SystemStatusIcon";
+import RainIntensityPicker from "../RainIntensityPicker";
 
 type IrrigationStatus = {
   zone: string | null;
@@ -27,6 +29,7 @@ interface StatusPanelProps {
   soilActive: boolean;
   zones?: Zone[];
   rainPause?: RainPauseStatus;
+  onRainReported?: () => void;
 }
 
 const toneColorClass = (tone: StatusTone) => `status-tile--${tone}`;
@@ -76,8 +79,19 @@ export const StatusPanel = ({
   soilTone,
   soilActive,
   zones,
-  rainPause
+  rainPause,
+  onRainReported
 }: StatusPanelProps) => {
+  const [rainDialogOpen, setRainDialogOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startLongPress = useCallback(() => {
+    longPressTimer.current = setTimeout(() => { setRainDialogOpen(true); }, 600);
+  }, []);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }, []);
   const isIrrigating = irrigation?.action === "on";
 
   const resolveZoneName = (zoneId: string | null | undefined): string => {
@@ -159,7 +173,16 @@ export const StatusPanel = ({
           detail={pressureDetail}
           active={pressureActive}
         />
-        <div className={`status-tile ${toneColorClass(rainPause?.active ? "negative" : rainTone)}`}>
+        <div
+          className={`status-tile status-tile--pressable ${toneColorClass(rainPause?.active ? "negative" : rainTone)}`}
+          onMouseDown={startLongPress}
+          onMouseUp={cancelLongPress}
+          onMouseLeave={cancelLongPress}
+          onTouchStart={startLongPress}
+          onTouchEnd={cancelLongPress}
+          onTouchCancel={cancelLongPress}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div className="status-tile__header">
             <span className="status-tile__icon">{getSensorIcon("rain", "sensor-icon--rain")}</span>
             <span className="status-tile__label">Rain</span>
@@ -183,6 +206,23 @@ export const StatusPanel = ({
             </span>
           )}
         </div>
+
+        {rainDialogOpen && createPortal(
+          <div className="modal-overlay confirm-dialog-overlay" role="dialog" aria-modal="true" onClick={() => setRainDialogOpen(false)}>
+            <div className="confirm-dialog rain-report-dialog" onClick={(e) => e.stopPropagation()}>
+              <div className="confirm-dialog__icon rain-report-dialog__icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 17.58A5 5 0 0018 8h-1.26A8 8 0 104 16.25" /><path d="M12 14l-1 3" /><path d="M8 15l-1 3" /><path d="M16 15l-1 3" /></svg>
+              </div>
+              <h3 className="confirm-dialog__title">Report rain</h3>
+              <p className="confirm-dialog__message">How heavy was the rain?</p>
+              <RainIntensityPicker
+                onConfirmed={() => { setRainDialogOpen(false); onRainReported?.(); }}
+                onDismiss={() => setRainDialogOpen(false)}
+              />
+            </div>
+          </div>,
+          document.body
+        )}
         <StatusTile
           label="Soil"
           icon={getSensorIcon("soil", "sensor-icon--soil")}
