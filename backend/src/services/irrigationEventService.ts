@@ -4,7 +4,7 @@ import type { IrrigationSource } from "../models/IrrigationRecord";
 import { emitRealtimeEvent } from "./realtimeService";
 import { refreshStatusCache } from "../controllers/statusController";
 import { acknowledgeCommand } from "./irrigationCommandService";
-import { onZoneOff } from "./sequentialRunService";
+import { onZoneOff, isSpuriousOffForActiveRun } from "./sequentialRunService";
 import { getZoneState } from "./zoneService";
 import Heartbeat from "../models/Heartbeat";
 import Zone from "../models/Zone";
@@ -42,6 +42,15 @@ export const serializeEvent = (event: {
 export const persistEvent = async (zone: string, action: "on" | "off") => {
   const now = new Date();
   const zoneId = await resolveZoneId(zone.trim());
+
+  // Drop a spurious "off" (controller echo within an active run's startup grace) before
+  // it is recorded. Recording it would close the run's record, poison the webhook de-dup
+  // (so the genuine off is later ignored), and the run would only finish via the safety
+  // timeout. Returning null here keeps lastEvent = "on" so the real off completes normally.
+  if (action === "off" && (await isSpuriousOffForActiveRun(zoneId))) {
+    console.warn(`[IrrigationEvent] Ignoring spurious off for zone ${zoneId} — within the startup grace of an active run; not recording.`);
+    return null;
+  }
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
   const pressure = latestHeartbeat?.sensors?.waterPsi ?? null;

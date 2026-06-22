@@ -4,11 +4,11 @@ WORKDIR /app
 ARG VITE_API_BASE_URL=/api
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY tsconfig.json tsconfig.json
 COPY tsconfig.node.json tsconfig.node.json
 COPY vite.config.ts vite.config.ts
-RUN npm install
+RUN npm ci
 
 COPY index.html index.html
 COPY src ./src

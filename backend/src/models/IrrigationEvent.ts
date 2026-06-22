@@ -6,7 +6,11 @@ export interface IrrigationEventAttributes {
   action: "on" | "off";
   waterPressure?: number | null;
   commandId?: Types.ObjectId | null;
-  source?: "manual" | "schedule" | "external" | null;
+  // Must accept every IrrigationCommand source (a webhook-confirmed event copies the
+  // acknowledged command's source) plus "external" for events with no owning command.
+  // If a scheduled/AI source is missing here, persistEvent throws on create and the
+  // run's events/records are lost and onZoneOff never fires — see CommandSource.
+  source?: "manual" | "schedule" | "program" | "ai-schedule" | "external" | null;
   createdAt?: Date;
 }
 
@@ -32,7 +36,7 @@ const irrigationEventSchema = new Schema<IrrigationEventAttributes>({
   },
   source: {
     type: String,
-    enum: ["manual", "schedule", "external", null],
+    enum: ["manual", "schedule", "program", "ai-schedule", "external", null],
     default: null
   },
   createdAt: {

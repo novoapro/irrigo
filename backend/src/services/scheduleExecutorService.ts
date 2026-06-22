@@ -13,21 +13,46 @@ const LOOKAHEAD_MS = 60_000;
 const CHECK_INTERVAL_MS = 30_000;
 let checkTimer: NodeJS.Timeout | null = null;
 
-const buildZoneInputs = async (
+export const buildZoneInputs = async (
   zoneEntries: { zoneId: string; durationMinutes: number }[]
 ): Promise<StartRunZoneInput[]> => {
   const zoneIds = zoneEntries.map((e) => e.zoneId);
   const zones = await Zone.find({ zoneId: { $in: zoneIds } }).lean();
   const nameMap = new Map(zones.map((z) => [z.zoneId, z.name]));
+  const maxMap = new Map(zones.map((z) => [z.zoneId, z.maxDurationMinutes ?? 60]));
+  const known = new Set(zones.map((z) => z.zoneId));
 
-  return zoneEntries.map((e) => ({
-    zoneId: e.zoneId,
-    name: nameMap.get(e.zoneId) ?? e.zoneId,
-    durationMinutes: e.durationMinutes
-  }));
+  const inputs: StartRunZoneInput[] = [];
+  for (const e of zoneEntries) {
+    // Skip a zone the AI invented (e.g. "lateral" instead of "laterals"). Letting an
+    // unknown zoneId through makes createCommand throw "Zone not found" and fails the run;
+    // dropping it lets the remaining valid zones still water.
+    if (!known.has(e.zoneId)) {
+      console.warn(`[ScheduleExecutor] Skipping unknown zone "${e.zoneId}" — not in zone config (bad AI zoneId).`);
+      continue;
+    }
+    // AI-generated durations are not constrained by the program zod schema the way
+    // user-entered programs are, so clamp them to a sane [1, zoneMax] range here.
+    // An out-of-range value (0/negative/NaN → "few instants"; over-max → createCommand
+    // throws and the zone fails) would otherwise make the run diverge from the plan.
+    const max = maxMap.get(e.zoneId) ?? 60;
+    const raw = Math.round(Number(e.durationMinutes));
+    const clamped = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), max) : 1;
+    if (clamped !== e.durationMinutes) {
+      console.warn(
+        `[ScheduleExecutor] Clamped zone ${e.zoneId} duration ${e.durationMinutes} → ${clamped}m (max ${max}m)`
+      );
+    }
+    inputs.push({
+      zoneId: e.zoneId,
+      name: nameMap.get(e.zoneId) ?? e.zoneId,
+      durationMinutes: clamped
+    });
+  }
+  return inputs;
 };
 
-const executeAIProgram = async (programId: string) => {
+export const executeAIProgram = async (programId: string) => {
   const program = await IrrigationProgram.findOne({ programId });
   if (!program || program.status !== "planned") return;
 
@@ -94,13 +119,11 @@ const executeAIProgram = async (programId: string) => {
   emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
 
   try {
-    const { getWaterSavingFactor } = await import("./irrigationSettingsService");
-    const factor = await getWaterSavingFactor();
-    const adjustedEntries = factor < 1
-      ? program.zoneEntries.map((e) => ({ zoneId: e.zoneId, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
-      : program.zoneEntries;
-
-    const inputs = await buildZoneInputs(adjustedEntries);
+    // Do NOT re-apply the water-saving factor here. The AI planner already accounts
+    // for waterSavingMode when it chooses each zone's durationMinutes (see the
+    // "Water saving" rule in aiSchedulingService.buildPrompt), so multiplying again
+    // double-counts the reduction and makes runs far shorter than what was scheduled.
+    const inputs = await buildZoneInputs(program.zoneEntries);
     await startSequentialRun(inputs, "ai-schedule", program.programId);
   } catch (err: any) {
     const reason = `Execution failed — ${err?.message ?? "unknown error"}`;

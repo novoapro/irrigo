@@ -197,12 +197,23 @@ export const sendCommand = async (
 
   const { serviceId, characteristics } = zone.compAI;
 
-  if (action === "on" && durationMinutes != null && durationMinutes > 0 && characteristics?.setDuration) {
-    const durationResult = await setCharacteristic(
-      config, serviceId, characteristics.setDuration,
-      durationMinutes * 60
-    );
-    if (!durationResult.success) return durationResult;
+  if (action === "on" && durationMinutes != null && durationMinutes > 0) {
+    if (characteristics?.setDuration) {
+      const durationResult = await setCharacteristic(
+        config, serviceId, characteristics.setDuration,
+        durationMinutes * 60
+      );
+      if (!durationResult.success) return durationResult;
+    } else {
+      // No setDuration mapping → CompAI runs on its own stale/default timer, so the
+      // zone can stop after "a few instants" regardless of the scheduled duration.
+      // Surface the misconfiguration loudly instead of failing silently.
+      console.warn(
+        `[CompAI] Zone ${zoneId} turned on for ${durationMinutes}m but has no setDuration ` +
+        `characteristic mapped — the controller will use its own default duration and the ` +
+        `run may not match the schedule. Re-run CompAI service discovery for this zone.`
+      );
+    }
   }
 
   const activeCharId = characteristics?.active;

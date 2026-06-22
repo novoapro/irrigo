@@ -214,6 +214,41 @@ export const startSequentialRun = async (
   return runId;
 };
 
+// A zone scheduled to run for minutes that reports "off" within seconds is almost
+// always a controller echo/flap on startup (e.g. CompAI's inUse/active settling),
+// not a real completion. Advancing on it makes the zone "run for a few instants".
+export const MIN_LEGIT_RUNTIME_MS = 30_000;
+
+// Pure decision helper (exported for testing): should an incoming "off" for the
+// current zone be treated as spurious and ignored? Only very-early offs on a zone
+// with a non-trivial planned duration are suppressed — a genuine early stop from
+// CompAI (the source of truth) past the floor is still honored.
+export const isPrematureOff = (
+  durationMinutes: number | undefined,
+  startedAt: Date | string | null | undefined,
+  now: number = Date.now()
+): boolean => {
+  const plannedMs = (durationMinutes ?? 0) * 60_000;
+  if (plannedMs < 60_000) return false; // short/unknown planned runs: trust the off
+  if (!startedAt) return false;
+  const elapsed = now - new Date(startedAt).getTime();
+  return elapsed >= 0 && elapsed < MIN_LEGIT_RUNTIME_MS;
+};
+
+// Should an incoming "off" for this zone be dropped entirely (not even recorded as an
+// event)? True only when there is an active, running run whose current zone is this one
+// and it just started — i.e. a spurious controller echo. Recording such an off would both
+// truncate the run AND poison the webhook de-dup so the *real* off later gets swallowed,
+// so the decision has to happen before the event is persisted (see persistEvent).
+export const isSpuriousOffForActiveRun = async (zoneId: string): Promise<boolean> => {
+  if (!activeRun) return false;
+  const run = await SequentialRun.findById(activeRun.runId);
+  if (!run || run.status !== "running") return false;
+  const z = run.zones[activeRun.currentZoneIndex];
+  if (!z || z.zoneId !== zoneId || z.status !== "running") return false;
+  return isPrematureOff(z.durationMinutes, z.startedAt);
+};
+
 export const onZoneOff = async (zoneId: string) => {
   if (!activeRun) return;
 
@@ -226,6 +261,18 @@ export const onZoneOff = async (zoneId: string) => {
   const currentZone = run.zones[activeRun.currentZoneIndex];
   if (!currentZone || currentZone.zoneId !== zoneId) return;
   if (currentZone.status !== "running") return;
+
+  if (isPrematureOff(currentZone.durationMinutes, currentZone.startedAt)) {
+    const elapsed = currentZone.startedAt
+      ? Math.round((Date.now() - new Date(currentZone.startedAt).getTime()) / 1000)
+      : 0;
+    console.warn(
+      `[SequentialRun] Ignoring premature off for zone ${zoneId} after ${elapsed}s ` +
+      `(planned ${currentZone.durationMinutes}m) — treating as a spurious controller echo. ` +
+      `Auto-off / CompAI duration timer / safety timeout will govern real completion.`
+    );
+    return;
+  }
 
   await advanceToNextZone();
 };

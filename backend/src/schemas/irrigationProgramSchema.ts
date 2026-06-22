@@ -9,6 +9,7 @@ export const createProgramSchema = z
   .object({
     name: z.string().trim().min(1, "name is required").max(128),
     enabled: z.boolean().optional(),
+    source: z.enum(["manual", "ai-schedule"]).optional(),
     scheduleCron: z.string().trim().min(1, "scheduleCron is required"),
     zoneEntries: z.array(zoneEntrySchema).min(1, "At least one zone entry is required")
   })

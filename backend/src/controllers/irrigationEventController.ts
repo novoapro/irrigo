@@ -21,6 +21,9 @@ export const createIrrigationEvent = async (req: Request, res: Response) => {
 
   try {
     const event = await persistEvent(payload.zone, payload.state);
+    if (!event) {
+      return res.status(200).json({ message: `Irrigation ${payload.state} ignored (spurious off during active run)` });
+    }
     res.status(200).json({
       message: `Irrigation ${payload.state} processed`,
       ...serializeEvent(event)
@@ -43,6 +46,9 @@ export const createIrrigationEventFromPath = async (req: Request, res: Response)
 
   try {
     const event = await persistEvent(zoneParam, stateParam as "on" | "off");
+    if (!event) {
+      return res.status(200).json({ message: `Irrigation ${stateParam} ignored (spurious off during active run)` });
+    }
     res.status(200).json({
       message: `Irrigation ${stateParam} processed`,
       ...serializeEvent(event)

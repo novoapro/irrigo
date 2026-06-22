@@ -7,17 +7,21 @@ import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton"
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekly" | "weekdays";
 
-const TIME_OPTIONS = Array.from({ length: 96 }, (_, i) => {
-  const totalMinutes = i * 15;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  const period = h < 12 ? "AM" : "PM";
-  const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return {
-    value: String(totalMinutes),
-    label: `${displayHour}:${m.toString().padStart(2, "0")} ${period}`
-  };
-});
+const minutesToTimeValue = (totalMinutes: number): string => {
+  const clamped = Math.max(0, Math.min(1439, totalMinutes));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+};
+
+const timeValueToMinutes = (value: string): number | null => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const h = parseInt(match[1]!, 10);
+  const m = parseInt(match[2]!, 10);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Every day" },
@@ -35,18 +39,6 @@ const DAYS_OF_WEEK = [
   { value: 5, label: "Fri" },
   { value: 6, label: "Sat" },
   { value: 0, label: "Sun" },
-];
-
-const DURATION_OPTIONS = [
-  { value: "5", label: "5 min" },
-  { value: "10", label: "10 min" },
-  { value: "15", label: "15 min" },
-  { value: "20", label: "20 min" },
-  { value: "30", label: "30 min" },
-  { value: "45", label: "45 min" },
-  { value: "60", label: "1 hour" },
-  { value: "90", label: "1.5 hours" },
-  { value: "120", label: "2 hours" }
 ];
 
 const parseCron = (cron: string): { frequency: ScheduleFrequency; timeMinutes: number; selectedDays: number[] } => {
@@ -141,6 +133,11 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
 
     if (selectedEntries.length === 0) {
       setError("Select at least one zone");
+      return;
+    }
+
+    if (selectedEntries.some((e) => !Number.isInteger(e.durationMinutes) || e.durationMinutes < 1 || e.durationMinutes > 480)) {
+      setError("Each selected zone needs a duration between 1 and 480 minutes");
       return;
     }
 
@@ -241,10 +238,13 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                 </div>
                 <div className="form-group">
                   <label>Time</label>
-                  <Dropdown
-                    value={String(timeMinutes)}
-                    options={TIME_OPTIONS}
-                    onChange={(v) => setTimeMinutes(parseInt(v, 10))}
+                  <input
+                    type="time"
+                    value={minutesToTimeValue(timeMinutes)}
+                    onChange={(e) => {
+                      const parsed = timeValueToMinutes(e.target.value);
+                      if (parsed !== null) setTimeMinutes(parsed);
+                    }}
                   />
                 </div>
               </div>
@@ -291,11 +291,19 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
                         <span>{zone.name}</span>
                       </label>
                       {entry.included && (
-                        <Dropdown
-                          value={String(entry.duration)}
-                          options={DURATION_OPTIONS}
-                          onChange={(v) => setZoneDuration(zone.zoneId, parseInt(v, 10))}
-                        />
+                        <div className="program-zone-row__duration">
+                          <input
+                            type="number"
+                            min={1}
+                            max={480}
+                            value={entry.duration}
+                            onChange={(e) => {
+                              const next = parseInt(e.target.value, 10);
+                              setZoneDuration(zone.zoneId, Number.isNaN(next) ? 0 : next);
+                            }}
+                          />
+                          <span className="program-zone-row__duration-unit">min</span>
+                        </div>
                       )}
                     </div>
                   );
