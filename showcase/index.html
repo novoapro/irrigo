@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Irrigo — Engineering &amp; LLM Integration Showcase</title>
+  <meta name="description" content="A walkthrough of the Irrigo smart-irrigation platform: architecture, entry points, and its multi-provider LLM scheduling integration." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <button class="menu-btn" id="menuBtn" aria-label="Toggle navigation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="layout">
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand__mark">
+          <!-- water drop mark -->
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c-.4 0-.77.2-1 .53C8.4 6.6 5 11.4 5 15a7 7 0 0 0 14 0c0-3.6-3.4-8.4-6-11.97a1.2 1.2 0 0 0-1-.53z"/></svg>
+        </div>
+        <div>
+          <div class="brand__name">Irrigo</div>
+          <div class="brand__tag">Engineering Showcase</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <span class="nav__group-label">The System</span>
+        <a class="nav__link" href="#overview"><span class="nav__num">01</span> Overview</a>
+        <a class="nav__link" href="#architecture"><span class="nav__num">02</span> Architecture</a>
+        <a class="nav__link" href="#entrypoints"><span class="nav__num">03</span> Entry Points</a>
+        <a class="nav__link" href="#domain"><span class="nav__num">04</span> Domain &amp; Data</a>
+
+        <span class="nav__group-label">The AI Layer</span>
+        <a class="nav__link" href="#llm"><span class="nav__num">05</span> LLM Integration</a>
+        <a class="nav__link" href="#llm-considerations"><span class="nav__num">06</span> LLM Considerations</a>
+
+        <span class="nav__group-label">Production</span>
+        <a class="nav__link" href="#security"><span class="nav__num">07</span> Security</a>
+        <a class="nav__link" href="#realtime"><span class="nav__num">08</span> Realtime &amp; Reliability</a>
+        <a class="nav__link" href="#talking-points"><span class="nav__num">09</span> Talking Points</a>
+      </nav>
+
+      <div class="sidebar__footer">
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle color theme">
+          <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <span id="themeLabel">Dark</span>
+        </button>
+        <p style="margin-top:var(--space-3)">Full-stack IoT · TypeScript · Multi-provider LLM scheduling.</p>
+      </div>
+    </aside>
+
+    <!-- ============ CONTENT ============ -->
+    <main class="content">
+
+      <!-- ============ 01 OVERVIEW ============ -->
+      <section class="section" id="overview">
+        <div class="hero">
+          <div class="hero__badges">
+            <span class="chip chip--cyan">Full-Stack</span>
+            <span class="chip chip--primary">TypeScript</span>
+            <span class="chip chip--info">React · Vite</span>
+            <span class="chip chip--success">Express · MongoDB</span>
+            <span class="chip chip--warning">Arduino IoT</span>
+            <span class="chip chip--cyan">Anthropic · OpenAI · Gemini</span>
+          </div>
+          <h1>Irrigo is a smart-irrigation platform where a <span class="grad">Large Language Model plans the watering schedule</span>.</h1>
+          <p class="hero__sub">
+            Physical sensors on an Arduino read water pressure, rain, and soil moisture; a TypeScript backend
+            tracks every event, protects the lawn with deterministic guards, and — once a day — hands the full
+            situational picture to an LLM that returns a structured irrigation plan the system then executes on real hardware.
+          </p>
+          <div class="hero__meta">
+            <div class="hero__meta-item"><span class="hero__meta-value">3</span><span class="hero__meta-label">Backend layers</span></div>
+            <div class="hero__meta-item"><span class="hero__meta-value">3</span><span class="hero__meta-label">LLM providers</span></div>
+            <div class="hero__meta-item"><span class="hero__meta-value">1</span><span class="hero__meta-label">AI call / day</span></div>
+            <div class="hero__meta-item"><span class="hero__meta-value">JSON</span><span class="hero__meta-label">Structured I/O</span></div>
+          </div>
+        </div>
+
+        <div class="section__eyebrow" style="margin-top:var(--space-8)"><span class="dot"></span> How to read this document</div>
+        <p class="lead">
+          This is an interview walkthrough. It starts at the highest level — what the system is and how the pieces fit —
+          and then drills into the part that matters most for an LLM-integration role: <strong>how a non-deterministic
+          model is wired safely into a system that turns real valves on and off.</strong>
+        </p>
+
+        <div class="grid grid--3" style="margin-top:var(--space-6)">
+          <div class="feature">
+            <div class="feature__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3v4M8 3v4M2 11h20"/></svg></div>
+            <div class="feature__title">What it does</div>
+            <p class="feature__body">Monitors sensors in real time, decides when it is safe to water, and executes multi-zone irrigation runs — manually, on a cron schedule, or from an AI-generated plan.</p>
+          </div>
+          <div class="feature">
+            <div class="feature__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg></div>
+            <div class="feature__title">Why LLM here</div>
+            <p class="feature__body">Scheduling is a fuzzy, many-variable judgement call — weather, soil, recent history, plant needs. A model reasons over all of it in one shot and returns a plan; code enforces the hard limits.</p>
+          </div>
+          <div class="feature">
+            <div class="feature__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+            <div class="feature__title">The hard part</div>
+            <p class="feature__body">The model can be wrong, slow, or adversarially steered. Everything interesting is in the <em>guardrails</em>: validation, bounds enforcement, deterministic overrides, and a full audit trail.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--interview">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="4" y="9" width="16" height="12" rx="2"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">Interview framing</span>
+            <p>The one-line pitch: <em>"Irrigo is a real, physically-actuating system where an LLM has authority — bounded by deterministic code — over hardware. It's a small system, but it hits every hard LLM-integration problem: provider abstraction, structured output, validation, prompt injection, cost, latency, and human-in-the-loop safety."</em></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 02 ARCHITECTURE ============ -->
+      <section class="section" id="architecture">
+        <div class="section__eyebrow"><span class="dot"></span> 02 · The big picture</div>
+        <h2>System architecture</h2>
+        <p class="lead">Four cooperating tiers. Data flows <strong>up</strong> from hardware to the UI; control flows <strong>down</strong> from schedulers and the AI planner back to the valves — through one choke point.</p>
+
+        <div class="xfig">
+          <div class="xfig__frame"><img src="diagrams/architecture.png" alt="Irrigo system architecture: edge device, backend, client, and external services with data and control flows" loading="lazy" /></div>
+          <div class="xfig__cap">
+            <span>Overall architecture — edge, backend, client, and external services. Green = telemetry up · orange = control &amp; actuation down.</span>
+            <a href="diagrams/architecture.excalidraw" download>Open editable .excalidraw ↗</a>
+          </div>
+        </div>
+
+        <div class="xfig">
+          <div class="xfig__frame"><img src="diagrams/collaboration.png" alt="Smart-mode component collaboration: how the AI planner, LLM provider, guard, run engine, and CompAI cooperate across a plan and execute phase" loading="lazy" /></div>
+          <div class="xfig__cap">
+            <span>Component collaboration — the smart-mode lifecycle: plan with the LLM (steps 1–5), then execute on real valves (steps 6–13).</span>
+            <a href="diagrams/collaboration.excalidraw" download>Open editable .excalidraw ↗</a>
+          </div>
+        </div>
+
+        <p class="small muted">Both diagrams are editable Excalidraw source (open at <a href="https://excalidraw.com" target="_blank" rel="noopener">excalidraw.com</a> or the Excalidraw VS Code extension). The CSS diagram below is an interactive, theme-aware alternate of the same architecture.</p>
+
+        <div class="diagram">
+          <div class="arch">
+            <div class="arch__tier">
+              <div class="arch__tier-label">Edge · IoT device (Arduino UNO R4 WiFi · C++)</div>
+              <div class="arch__row grid--4">
+                <div class="node node--iot"><div class="node__title">Sensors</div><div class="node__sub">Pressure · Rain · Soil</div></div>
+                <div class="node node--iot"><div class="node__title">Relay</div><div class="node__sub">Cuts controller power</div></div>
+                <div class="node node--iot"><div class="node__title">Modulinos</div><div class="node__sub">Knob · Thermo · Pixels</div></div>
+                <div class="node node--iot"><div class="node__title">Heartbeat</div><div class="node__sub">HTTP POST every ~60s</div></div>
+              </div>
+            </div>
+
+            <div class="arch__flow">↑ heartbeats &nbsp;·&nbsp; ↓ device config poll</div>
+
+            <div class="arch__tier">
+              <div class="arch__tier-label">Core · Backend (Node.js · Express · TypeScript · Mongoose)</div>
+              <div class="arch__row grid--4">
+                <div class="node node--server"><div class="node__title">REST API</div><div class="node__sub">16 route groups /api/*</div></div>
+                <div class="node node--server"><div class="node__title">WebSocket bus</div><div class="node__sub">/ws · ~40 event types</div></div>
+                <div class="node node--server"><div class="node__title">Schedulers</div><div class="node__sub">smart · scheduled · manual</div></div>
+                <div class="node node--ai"><div class="node__title">AI Planner</div><div class="node__sub">aiSchedulingService</div></div>
+              </div>
+              <div class="arch__row grid--4" style="margin-top:var(--space-3)">
+                <div class="node node--server"><div class="node__title">Guard engine</div><div class="node__sub">hardware + rain pause</div></div>
+                <div class="node node--server"><div class="node__title">SequentialRun</div><div class="node__sub">one run at a time</div></div>
+                <div class="node node--server"><div class="node__title">Command service</div><div class="node__sub">the actuation choke point</div></div>
+                <div class="node node--server"><div class="node__title">MongoDB</div><div class="node__sub">Mongoose · TTL indexes</div></div>
+              </div>
+            </div>
+
+            <div class="arch__flow">↕ REST + WebSocket &nbsp;·&nbsp; ↔ HTTP + webhooks &nbsp;·&nbsp; → HTTPS to model APIs</div>
+
+            <div class="arch__row grid--2">
+              <div class="arch__tier" style="margin:0">
+                <div class="arch__tier-label">Client · Dashboard (React 18 · Vite)</div>
+                <div class="arch__row grid--3">
+                  <div class="node node--client"><div class="node__title">Mobile-first UI</div><div class="node__sub">Status · zones · queue</div></div>
+                  <div class="node node--client"><div class="node__title">Realtime hook</div><div class="node__sub">useRealtimeChannel</div></div>
+                  <div class="node node--client"><div class="node__title">Recharts</div><div class="node__sub">Pressure · analytics</div></div>
+                </div>
+              </div>
+              <div class="arch__tier" style="margin:0">
+                <div class="arch__tier-label">External services</div>
+                <div class="arch__row grid--2">
+                  <div class="node node--ext"><div class="node__title">CompAI</div><div class="node__sub">Valve controller (HomeKit-style)</div></div>
+                  <div class="node node--ext"><div class="node__title">weather.gov</div><div class="node__sub">Hourly forecast</div></div>
+                  <div class="node node--ai"><div class="node__title">LLM APIs</div><div class="node__sub">Anthropic · OpenAI · Google</div></div>
+                  <div class="node node--ext"><div class="node__title">Guard relay</div><div class="node__sub">Optional HomeKit switch</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="diagram__caption">Data flows up (sensor → DB → UI). Control flows down (scheduler/AI → command service → CompAI → valve). Every actuation passes through one service.</div>
+        </div>
+
+        <h3>Tech stack, by layer</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Layer</th><th>Technology</th><th>Notable choices</th></tr></thead>
+            <tbody>
+              <tr><td>IoT firmware</td><td>Arduino UNO R4 WiFi · C++</td><td>Pushes HTTP heartbeats; polls device config for remote control</td></tr>
+              <tr><td>Backend</td><td>Node.js 20 · Express 4 · TypeScript 5 · Mongoose 7</td><td>Zod validation · <code>ws</code> WebSockets · Jest + ts-jest</td></tr>
+              <tr><td>Database</td><td>MongoDB</td><td>Discriminator-based <code>configs</code> collection · TTL retention indexes</td></tr>
+              <tr><td>Frontend</td><td>React 18 · Vite 7 · TypeScript</td><td>No Redux — local hooks + one theme context · Recharts · react-router 7</td></tr>
+              <tr><td>AI</td><td>@anthropic-ai/sdk · openai · @google/generative-ai</td><td>Three SDKs behind one <code>callAI()</code> abstraction</td></tr>
+              <tr><td>Infra</td><td>Docker Compose · Nginx</td><td>Single-process backend (important — see Reliability)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">"CompAI" is not AI</span>
+            <p>Despite the name, CompAI is a HomeKit-style smart-home <em>device bridge</em> — it exposes HomeKit valve characteristics (<code class="inline">Active</code>, <code class="inline">SetDuration</code>, <code class="inline">RemainingDuration</code>) over plain HTTP + signed webhooks. It is the <strong>source of truth for physical valve state</strong>, but contains no model calls. The only real LLM in the system is the scheduler. Worth pre-empting in the interview so it doesn't confuse the story.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 03 ENTRY POINTS ============ -->
+      <section class="section" id="entrypoints">
+        <div class="section__eyebrow"><span class="dot"></span> 03 · Ways in</div>
+        <h2>Entry points</h2>
+        <p class="lead">Anything that can put data into the system or make it act. Grouping them this way is also how you start a threat model — every entry point is an attack surface.</p>
+
+        <div class="grid grid--2">
+          <div class="card card--flat">
+            <span class="chip chip--success">Ingress · data</span>
+            <h4>1 · Device heartbeats</h4>
+            <p class="small muted"><span class="method method--post">POST</span> <code class="inline">/api/heartbeats</code> — the Arduino posts sensor readings (~60s). This drives the guard state, deferral logic, and realtime fan-out. Validated with Zod.</p>
+          </div>
+          <div class="card card--flat">
+            <span class="chip chip--info">Ingress · control callback</span>
+            <h4>2 · CompAI webhook</h4>
+            <p class="small muted"><span class="method method--post">POST</span> <code class="inline">/api/webhook/compai</code> — the valve controller reports state changes (valve on/off, remaining time). <strong>The only HMAC-authenticated endpoint.</strong></p>
+          </div>
+          <div class="card card--flat">
+            <span class="chip chip--warning">Ingress · human</span>
+            <h4>3 · Dashboard REST</h4>
+            <p class="small muted">The React app drives ~80 REST endpoints — zone control, manual runs, program CRUD, settings, and AI config. Plain <code class="inline">fetch</code> + JSON.</p>
+          </div>
+          <div class="card card--flat">
+            <span class="chip chip--cyan">Egress · push</span>
+            <h4>4 · WebSocket <code class="inline">/ws</code></h4>
+            <p class="small muted">Server → client broadcast bus. On connect the client gets <code class="inline">connection:ready</code>, then a stream of ~40 typed domain events. When live, polling suspends.</p>
+          </div>
+          <div class="card card--flat">
+            <span class="chip chip--primary">Internal · time</span>
+            <h4>5 · Schedulers (cron)</h4>
+            <p class="small muted">Three <code class="inline">setInterval</code> pollers (30s) with timezone-aware cron matching trigger scheduled programs, execute AI plans, and fire the daily AI evaluation.</p>
+          </div>
+          <div class="card card--flat">
+            <span class="chip chip--danger">Internal · dev</span>
+            <h4>6 · Debug router</h4>
+            <p class="small muted"><code class="inline">/api/debug/*</code> can simulate webhook events and characteristics without hardware — powerful, and (like everything) unauthenticated. A talking point for the security section.</p>
+          </div>
+        </div>
+
+        <h3>The full REST surface, by domain</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Base path</th><th>Purpose</th><th>Representative endpoints</th></tr></thead>
+            <tbody>
+              <tr><td><code>/api/heartbeats</code></td><td>Device telemetry + analytics</td><td><span class="method method--post">POST</span> ingest · <span class="method method--get">GET</span> <code>/series</code> · <span class="method method--get">GET</span> <code>/overview</code></td></tr>
+              <tr><td><code>/api/status</code></td><td>Live system status</td><td><span class="method method--get">GET</span> <code>/</code> · <span class="method method--get">GET</span> <code>/snapshot</code> (bootstrap/reconnect)</td></tr>
+              <tr><td><code>/api/zones</code></td><td>Zone CRUD + control</td><td><span class="method method--post">POST</span> <code>/:id/command</code> · <span class="method method--get">GET</span> <code>/states</code> · <span class="method method--put">PUT</span> <code>/reorder</code></td></tr>
+              <tr><td><code>/api/manual-run</code></td><td>Run all zones now</td><td><span class="method method--post">POST</span> <code>/</code> · <span class="method method--del">DEL</span> <code>/</code> · <span class="method method--get">GET</span> <code>/status</code></td></tr>
+              <tr><td><code>/api/programs</code></td><td>Scheduled + AI programs</td><td><span class="method method--post">POST</span> <code>/:id/run</code> · <span class="method method--post">POST</span> <code>/:id/defer</code></td></tr>
+              <tr><td><code>/api/ai-schedule</code></td><td>AI config, runs, entries</td><td><span class="method method--put">PUT</span> <code>/config</code> · <span class="method method--post">POST</span> <code>/run</code> · <span class="method method--get">GET</span> <code>/runs/:id</code></td></tr>
+              <tr><td><code>/api/irrigation-settings</code></td><td>Windows, water-saving, rain</td><td><span class="method method--post">POST</span> <code>/confirm-rain</code> · <span class="method method--post">POST</span> <code>/clear-rain-pause</code></td></tr>
+              <tr><td><code>/api/compai</code></td><td>Controller config + webhook</td><td><span class="method method--post">POST</span> <code>/webhook/compai</code> 🔒 · <span class="method method--get">GET</span> <code>/services</code></td></tr>
+              <tr><td><code>/api/weather</code></td><td>Forecast cache</td><td><span class="method method--get">GET</span> <code>/forecast</code></td></tr>
+              <tr><td><code>/ws</code></td><td>Realtime stream</td><td><span class="method method--ws">WS</span> server→client broadcast</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">🔒 = authenticated (HMAC signature). Everything else is open on the LAN — see Security.</p>
+      </section>
+
+      <!-- ============ 04 DOMAIN ============ -->
+      <section class="section" id="domain">
+        <div class="section__eyebrow"><span class="dot"></span> 04 · Domain logic</div>
+        <h2>Domain &amp; data model</h2>
+        <p class="lead">Three concepts do most of the work: the <strong>SequentialRun</strong> execution engine, the <strong>guard</strong> that decides when it is safe to water, and the three mutually-exclusive <strong>modes</strong> that decide who is in charge.</p>
+
+        <h3>The SequentialRun engine — one run at a time</h3>
+        <p>Every watering job — manual, scheduled, or AI-planned — becomes a <em>SequentialRun</em>: an ordered list of zones, each watered for a duration, <strong>never concurrently</strong> (water pressure is shared). A module-level singleton enforces exactly one active run per process.</p>
+
+        <div class="diagram">
+          <div class="states">
+            <span class="state state--start">queued</span>
+            <span class="state__arrow">→</span>
+            <span class="state">activating</span>
+            <span class="state__arrow">→</span>
+            <span class="state">running</span>
+            <span class="state__arrow">→<small>zone off</small></span>
+            <span class="state state--ok">completed</span>
+            <span class="state__arrow">↺<small>next zone</small></span>
+            <span class="state state--warn">deferred</span>
+            <span class="state__arrow">→<small>timeout</small></span>
+            <span class="state state--end">failed</span>
+          </div>
+          <div class="diagram__caption">Per-zone lifecycle inside a SequentialRun. Advancement is event-driven (the controller reports the valve off), with a duration + 2 min safety timer as backstop.</div>
+        </div>
+
+        <div class="grid grid--3">
+          <div class="tile"><span class="tile__label">Spurious-off guard</span><span class="tile__value">30s</span><span class="tile__detail">Off events under <code class="inline">MIN_LEGIT_RUNTIME</code> are treated as controller startup echoes, not a real stop.</span></div>
+          <div class="tile"><span class="tile__label">Defer with credit</span><span class="tile__value">24h</span><span class="tile__detail">Deferred zones bank delivered time in <code class="inline">accumulatedMs</code> — on resume only the remainder runs.</span></div>
+          <div class="tile"><span class="tile__label">Crash recovery</span><span class="tile__value">boot</span><span class="tile__detail"><code class="inline">cleanupOrphanedRuns()</code> fails any run left <code class="inline">running</code> after a restart.</span></div>
+        </div>
+
+        <h3>The guard — deterministic "don't water now"</h3>
+        <p><code class="inline">getEffectiveGuard()</code> is the single source of truth, OR-ing two layers:</p>
+        <div class="compare">
+          <div class="compare__col">
+            <h4>Hardware guard</h4>
+            <ul>
+              <li>A boolean on the latest heartbeat</li>
+              <li>Physical low-pressure / gate sensor</li>
+              <li>Mid-run, an intelligent twist: a pressure dip <em>after</em> a zone starts is attributed to that zone (it may just be a slow valve), confirmed via a forced heartbeat 60s later before deferring.</li>
+            </ul>
+          </div>
+          <div class="compare__col">
+            <h4>Software guard — rain pause</h4>
+            <ul>
+              <li>Rain/soil sensor reading, or a user-confirmed rain report</li>
+              <li>Inside a configurable window (default 48h)</li>
+              <li>User-confirmed intensity scales the window: light ×0.25, moderate ×0.5, heavy ×1.0</li>
+              <li>Proactively cancels AI/scheduled runs that fall inside the pause.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout callout--interview">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="4" y="9" width="16" height="12" rx="2"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">Why this matters for the AI story</span>
+            <p>The guard is <em>deterministic code that outranks the model</em>. The AI proposes a plan, but the guard (and the executor's re-check at run time) can veto or defer it. This is the core pattern: <strong>an LLM inside a deterministic safety envelope.</strong></p>
+          </div>
+        </div>
+
+        <h3>Three modes decide who's in charge</h3>
+        <div class="grid grid--3">
+          <div class="feature"><div class="feature__title"><span class="chip chip--warning">manual</span></div><p class="feature__body">No schedulers run. The user triggers runs by hand. Manual commands even bypass the guard by design.</p></div>
+          <div class="feature"><div class="feature__title"><span class="chip chip--info">scheduled</span></div><p class="feature__body">Classic cron programs fire on their <code class="inline">scheduleCron</code>, applying the water-saving factor and guard checks.</p></div>
+          <div class="feature"><div class="feature__title"><span class="chip chip--cyan">smart</span></div><p class="feature__body">The AI planner owns scheduling. A cron triggers a daily evaluation; the executor runs the plan it produced.</p></div>
+        </div>
+        <p class="small muted">Switching modes swaps the running schedulers at runtime via <code class="inline">applyModeServices(mode)</code>.</p>
+
+        <h3>Key collections</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Model</th><th>Role</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>Heartbeat</code></td><td>Device telemetry</td><td>guard, sensors {psi, rain, soil}, temp, humidity · TTL 90d</td></tr>
+              <tr><td><code>Zone</code></td><td>An irrigation zone</td><td>durations, plant/sun/soil metadata, CompAI characteristic map</td></tr>
+              <tr><td><code>SequentialRun</code></td><td>Live/historical run</td><td>ordered zones, <code>accumulatedMs</code>, defer fields</td></tr>
+              <tr><td><code>IrrigationProgram</code></td><td>A plan to water</td><td>source manual/ai-schedule · <code>plannedStartAt</code> · <code>aiReasoning</code></td></tr>
+              <tr><td><code>ScheduleRun</code></td><td>One AI evaluation</td><td>provider, model, tokens, <strong>full prompt + raw response</strong> (audit)</td></tr>
+              <tr><td><code>IrrigationCommand</code></td><td>On/off sent to hardware</td><td>status pending→sent→acknowledged/timeout · TTL</td></tr>
+              <tr><td colspan="3" class="muted small"><code>configs</code> collection uses a Mongoose discriminator: SystemConfig, IrrigationSettings, AIScheduleConfig, CompAIConfig, DeviceConfig, DebugConfig.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ 05 LLM INTEGRATION ============ -->
+      <section class="section" id="llm">
+        <div class="section__eyebrow"><span class="dot"></span> 05 · The centerpiece</div>
+        <h2>LLM integration — deep dive</h2>
+        <p class="lead">One narrow, well-contained integration: a daily <strong>AI irrigation planner</strong>. It gathers the full picture, builds a structured prompt, calls one of three providers, and parses a JSON plan back — which deterministic code then validates and executes.</p>
+
+        <h3>The provider abstraction</h3>
+        <p>A single function hides three SDKs behind one interface. Adding a provider is a new <code class="inline">case</code>; nothing upstream changes.</p>
+        <pre><span class="c">// aiProviderService.ts — one entry point, three SDKs</span>
+<span class="k">export async function</span> <span class="f">callAI</span>(provider, modelId, apiKey, systemPrompt, userPrompt)
+    : <span class="k">Promise</span>&lt;AICallResult&gt; {
+  <span class="k">switch</span> (provider) {
+    <span class="k">case</span> <span class="s">"anthropic"</span>: <span class="k">return</span> <span class="f">callAnthropic</span>(...);  <span class="c">// messages.create, max_tokens 4096</span>
+    <span class="k">case</span> <span class="s">"openai"</span>:    <span class="k">return</span> <span class="f">callOpenAI</span>(...);     <span class="c">// chat.completions.create</span>
+    <span class="k">case</span> <span class="s">"google"</span>:    <span class="k">return</span> <span class="f">callGoogle</span>(...);     <span class="c">// generateContent + systemInstruction</span>
+  }
+}
+<span class="c">// Returns a normalized shape regardless of provider:</span>
+<span class="k">interface</span> AICallResult { text: <span class="f">string</span>; promptTokens: <span class="f">number</span>; completionTokens: <span class="f">number</span>; }</pre>
+
+        <div class="callout callout--interview">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="4" y="9" width="16" height="12" rx="2"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">Design point</span>
+            <p>Provider, model, and API key are <em>per-install configuration in the database</em>, not hard-coded. The same code path serves Claude, GPT, or Gemini — the abstraction is the interface (system prompt + user prompt → text + token usage), which is the lowest common denominator all three share.</p>
+          </div>
+        </div>
+
+        <h3>The scheduling pipeline</h3>
+        <div class="diagram">
+          <div class="pipe">
+            <div class="pipe__step"><div class="pipe__num">1</div><div class="pipe__title">Gather</div><div class="pipe__desc">Zones, sensors, forecast, precip history, recent runs, pending programs</div></div>
+            <div class="pipe__step"><div class="pipe__num">2</div><div class="pipe__title">Build prompt</div><div class="pipe__desc">System (rules + JSON schema) + templated user context</div></div>
+            <div class="pipe__step"><div class="pipe__num">3</div><div class="pipe__title">Call</div><div class="pipe__desc">callAI() → provider SDK · record tokens</div></div>
+            <div class="pipe__step"><div class="pipe__num">4</div><div class="pipe__title">Parse</div><div class="pipe__desc">Extract + JSON.parse + structural validation</div></div>
+            <div class="pipe__step pipe__step--guard"><div class="pipe__num">5</div><div class="pipe__title">Guardrail</div><div class="pipe__desc">Drop past-dated · clamp durations · rain override</div></div>
+            <div class="pipe__step"><div class="pipe__num">6</div><div class="pipe__title">Apply</div><div class="pipe__desc">Persist programs · audit ScheduleRun · emit events</div></div>
+          </div>
+          <div class="diagram__caption">aiSchedulingService.ts — runScheduleEvaluation(). Steps 4–5 are where a non-deterministic response is made safe before it can touch hardware.</div>
+        </div>
+
+        <h4>Step 2 — the prompt is a live document</h4>
+        <p>The system prompt pins the contract; the user prompt is assembled from real state. Note the two injected sections — <code class="inline">userContext</code> (free text) and per-zone metadata — which are also the prompt-injection surface (see Considerations).</p>
+        <pre><span class="c">// System prompt (excerpt)</span>
+<span class="s">"You are an irrigation scheduling assistant. Respond with valid JSON only,</span>
+<span class="s">matching this schema: { newPrograms: [...], modifyPrograms: [...], cancelPrograms: [...],</span>
+<span class="s">skippedZones: [...], summary: string }."</span>
+
+<span class="c">// If a rain pause is active, a hard override is injected:</span>
+<span class="s">"A rain pause is ACTIVE. Return all-empty program arrays and cancel everything pending."</span>
+
+<span class="c">// User prompt is templated markdown:</span>
+## Current Conditions   <span class="c">// rain, soil, temp, humidity from latest heartbeat</span>
+## Rain Forecast        <span class="c">// periods above rainThresholdPercent</span>
+## Irrigation History   <span class="c">// recent runs per zone</span>
+## Zones                <span class="c">// name + metadata (plant, sun, soil, area)</span>
+## Additional Instructions
+${config.userContext}   <span class="c">// ⚠ raw user free-text, injected verbatim</span></pre>
+
+        <h4>Step 4–5 — parse, validate, then bound</h4>
+        <pre><span class="c">// Response is extracted with a greedy JSON match, then structurally checked</span>
+<span class="k">const</span> match = raw.<span class="f">match</span>(<span class="s">/\{[\s\S]*\}/</span>);          <span class="c">// first { … last }</span>
+<span class="k">const</span> plan = <span class="f">JSON.parse</span>(match[<span class="n">0</span>]);              <span class="c">// throws → run fails cleanly</span>
+
+<span class="c">// Each new program is validated: name, plannedStartAt parses, zones[] shape…</span>
+<span class="c">// Then deterministic guardrails BEFORE any DB write:</span>
+<span class="k">if</span> (program.plannedStartAt &lt;= now) <span class="f">discard</span>(program);   <span class="c">// no past/immediate runs</span>
+duration = <span class="f">clamp</span>(ai.durationMinutes, <span class="n">1</span>, zone.maxDurationMinutes); <span class="c">// executor bounds AI output</span>
+<span class="k">if</span> (!<span class="f">knownZone</span>(zoneId)) <span class="f">drop</span>(zoneId);          <span class="c">// executor drops hallucinated zones</span></pre>
+
+        <h3>End-to-end sequence</h3>
+        <div class="diagram">
+          <div class="seq">
+            <div class="seq__actors grid--4">
+              <div class="seq__actor">⏰ Cron</div>
+              <div class="seq__actor">🧠 AI Planner</div>
+              <div class="seq__actor">☁ LLM Provider</div>
+              <div class="seq__actor">💧 Executor → CompAI</div>
+            </div>
+            <div class="seq__phase">Plan (daily, 04:00)</div>
+            <div class="seq__msg"><div class="seq__msg-label">smart mode + cron match → runScheduleEvaluation("cron")</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">gather state from MongoDB → build system + user prompt</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">callAI(provider, model, key, system, user) →</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">← JSON plan + token usage</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">parse · validate · clamp · drop past-dated → persist IrrigationPrograms + audit ScheduleRun</div></div>
+            <div class="seq__phase">Execute (when each program is due, inside preferred window)</div>
+            <div class="seq__msg"><div class="seq__msg-label">executor re-checks guard → rain? cancel · hardware? defer</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">startSequentialRun(zones, "ai-schedule") → command service → CompAI PUT valve on</div></div>
+            <div class="seq__msg"><div class="seq__msg-label">CompAI webhook → valve state → advance to next zone → complete</div></div>
+          </div>
+          <div class="diagram__caption">The plan is produced once, then executed later by deterministic code that re-validates against fresh conditions — the model's decision is never trusted at actuation time without a re-check.</div>
+        </div>
+
+        <h3>Auditability</h3>
+        <p>Every evaluation writes a <code class="inline">ScheduleRun</code> record capturing the provider, model, token counts, the <strong>exact system + user prompt</strong>, the <strong>raw response</strong>, and the request params. The dashboard surfaces this in an "AI Interaction" modal. When the AI does something surprising, you can see precisely what it was told and what it said.</p>
+        <div class="grid grid--4">
+          <div class="tile"><span class="tile__label">Persisted per run</span><span class="tile__value">Prompt</span><span class="tile__detail">system + user, verbatim</span></div>
+          <div class="tile"><span class="tile__label">Persisted per run</span><span class="tile__value">Response</span><span class="tile__detail">raw model output</span></div>
+          <div class="tile"><span class="tile__label">Persisted per run</span><span class="tile__value">Tokens</span><span class="tile__detail">prompt + completion</span></div>
+          <div class="tile"><span class="tile__label">Reasoning</span><span class="tile__value">summary</span><span class="tile__detail">shown as run rationale</span></div>
+        </div>
+      </section>
+
+      <!-- ============ 06 LLM CONSIDERATIONS ============ -->
+      <section class="section" id="llm-considerations">
+        <div class="section__eyebrow"><span class="dot"></span> 06 · The engineering lessons</div>
+        <h2>What integrating an LLM actually forces you to solve</h2>
+        <p class="lead">This is the section the interviewer is really asking about. Each item below is a real design decision in Irrigo — some solved well, some honest gaps. Naming the gaps is the point: it shows you know the full problem, not just the happy path.</p>
+
+        <div class="grid grid--2">
+          <div class="card">
+            <span class="chip chip--success">Solved</span>
+            <h4>Structured output &amp; validation</h4>
+            <p class="small muted">The model is told "JSON only" with an embedded schema, and the response is <em>never trusted</em>: extract → <code class="inline">JSON.parse</code> → structural checks → typed field validation. A malformed response fails the run cleanly rather than corrupting state.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--success">Solved</span>
+            <h4>Determinism around non-determinism</h4>
+            <p class="small muted">Hard limits live in code, not the prompt: past-dated programs are discarded, durations are clamped to each zone's max, unknown zone IDs are dropped, and an active rain pause forces an all-cancel. The model advises; code decides.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--success">Solved</span>
+            <h4>Provider abstraction &amp; portability</h4>
+            <p class="small muted">One <code class="inline">callAI()</code> interface over Anthropic / OpenAI / Google. Provider + model are config, so you can switch on price, latency, or availability without touching the planner.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--success">Solved</span>
+            <h4>Auditability &amp; cost tracking</h4>
+            <p class="small muted">Full prompt + response + token counts are persisted per run. That is your debugging tool, your cost meter, and your evaluation dataset all at once.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--success">Solved</span>
+            <h4>Human-in-the-loop</h4>
+            <p class="small muted">AI-planned runs are visible in the queue and can be skipped, deferred, or rescheduled before they fire. A user's rain confirmation is a first-class signal that overrides the plan.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--warning">Gap · known</span>
+            <h4>Prompt injection surface</h4>
+            <p class="small muted"><code class="inline">userContext</code> and zone <code class="inline">name</code>/<code class="inline">metadata</code> are interpolated <em>raw</em> into the prompt. Bounded impact (output is still validated), but a crafted zone name could try to steer the model. Fix: delimit + label untrusted spans, keep authority in the schema, not the prose.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--warning">Gap · known</span>
+            <h4>Latency, timeouts &amp; retries</h4>
+            <p class="small muted">The LLM call has <em>no</em> abort timeout or retry/backoff (unlike the CompAI HTTP calls, which do). A hung provider hangs the run. Fix: <code class="inline">AbortController</code> deadline + bounded retry + a single "repair" re-prompt on invalid JSON.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--warning">Gap · known</span>
+            <h4>Output bounds vs. schema trust</h4>
+            <p class="small muted">Some bounds are enforced only at the executor, not at parse time — e.g. duration clamping happens later. Pulling all bounds into one validation layer (ideally a Zod schema on the response) would make the safety envelope obvious and testable.</p>
+          </div>
+          <div class="card">
+            <span class="chip chip--warning">Gap · known</span>
+            <h4>Secrets at rest</h4>
+            <p class="small muted">Provider API keys live in MongoDB in plaintext (masked at the API boundary, never overwritten by the mask). Fine for a single-tenant home box; needs envelope encryption or a secrets manager for multi-tenant.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--interview">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="4" y="9" width="16" height="12" rx="2"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">The reusable mental model</span>
+            <p>Treat the LLM as an <strong>untrusted, occasionally-unavailable microservice that returns advice</strong>. Everything follows: validate its output like a network boundary, wrap it in timeouts and fallbacks, keep hard constraints in deterministic code, log every interaction, and give humans a veto. Irrigo is a compact worked example of exactly that discipline.</p>
+          </div>
+        </div>
+
+        <h3>If I were hardening this for production</h3>
+        <ol>
+          <li>Wrap <code class="inline">callAI</code> in an <code class="inline">AbortController</code> deadline + exponential-backoff retry, with a deterministic fallback plan (repeat yesterday, or skip) when the model is unavailable.</li>
+          <li>Replace hand-rolled parsing with a <strong>Zod schema on the response</strong> and a single repair re-prompt; reject anything that fails, and enforce all bounds (duration, zone IDs, daily total) in that one layer.</li>
+          <li>Isolate untrusted input: wrap <code class="inline">userContext</code> and zone metadata in clearly-delimited, labeled blocks and instruct the model that only the schema governs actions.</li>
+          <li>Add an <strong>eval harness</strong> over the persisted <code class="inline">ScheduleRun</code> corpus — replay historical conditions, assert the plan respects windows, budgets, and rain pauses. Turns "it seemed fine" into a regression test.</li>
+          <li>Track token cost per run against a budget; alert on drift when models or prompts change.</li>
+        </ol>
+      </section>
+
+      <!-- ============ 07 SECURITY ============ -->
+      <section class="section" id="security">
+        <div class="section__eyebrow"><span class="dot"></span> 07 · Honest posture</div>
+        <h2>Security &amp; threat model</h2>
+        <p class="lead">Candor is the flex here. Irrigo is a <strong>single-tenant LAN appliance</strong> — appropriate for a home network behind a router, with essentially no application-layer access control. Knowing exactly where the gaps are (and what they'd take to close) is more impressive than pretending they aren't there.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Control</th><th>Status</th><th>Detail &amp; remediation</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Authentication / authZ</td><td><span class="sev sev--high">Absent</span></td>
+                <td>No auth on any endpoint — including <code>POST /manual-run</code>, zone on/off, config, and <code>POST /heartbeats</code> (forge a heartbeat → flip the guard). Anyone who can reach the port can run water. <em>Fix:</em> a reverse-proxy auth layer or app-level session/JWT + RBAC.</td>
+              </tr>
+              <tr>
+                <td>Webhook verification</td><td><span class="sev sev--med">Fail-open</span></td>
+                <td>The CompAI webhook does proper HMAC-SHA256 with constant-time compare — <strong>but only if a secret is configured</strong>; unset ⇒ it accepts unauthenticated calls. Since the webhook drives valve state, spoofing is possible when unconfigured. <em>Fix:</em> fail-closed; require a secret.</td>
+              </tr>
+              <tr>
+                <td>Input validation</td><td><span class="sev sev--ok">Partial</span></td>
+                <td>Zod schemas on ~11 route groups via middleware; Mongoose schema backstop. Gaps: the CompAI config <code>PUT</code> skips the middleware; the webhook returns 200 even on invalid payloads.</td>
+              </tr>
+              <tr>
+                <td>CORS</td><td><span class="sev sev--med">Open</span></td>
+                <td><code>app.use(cors())</code> with defaults — all origins. <em>Fix:</em> explicit allowlist.</td>
+              </tr>
+              <tr>
+                <td>Rate limiting</td><td><span class="sev sev--med">Absent</span></td>
+                <td>No throttling on public ingest/webhook endpoints. <em>Fix:</em> <code>express-rate-limit</code> per route.</td>
+              </tr>
+              <tr>
+                <td>Secrets at rest</td><td><span class="sev sev--med">Plaintext</span></td>
+                <td>CompAI tokens, webhook secret, and LLM API keys stored plaintext in Mongo (masked on read). Mongo connection itself is unauthenticated. <em>Fix:</em> encryption at rest + DB auth.</td>
+              </tr>
+              <tr>
+                <td>Prompt injection</td><td><span class="sev sev--med">Surface</span></td>
+                <td>Raw user/zone text in the prompt (see LLM Considerations). Bounded by output validation. <em>Fix:</em> delimit untrusted input; authority in schema.</td>
+              </tr>
+              <tr>
+                <td>Security headers</td><td><span class="sev sev--low">Absent</span></td>
+                <td>No <code>helmet</code>. <em>Fix:</em> add standard headers at the proxy or app.</td>
+              </tr>
+              <tr>
+                <td>Error handling / leakage</td><td><span class="sev sev--ok">Moderate</span></td>
+                <td>Controllers return generic messages; verbose logging is opt-in and off in prod. No global error handler (per-controller try/catch).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--warning">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">Top gaps to raise, in order</span>
+            <p>(1) Zero auth on control endpoints. (2) Webhook HMAC fails open. (3) Open CORS + no rate limiting. (4) Plaintext secrets + unauthenticated Mongo. (5) Single-process in-memory state — a <em>correctness</em> constraint, not just a scaling one. Framed as a deliberate scope choice for a home LAN with a clear path to hardening, this reads as maturity.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 08 REALTIME ============ -->
+      <section class="section" id="realtime">
+        <div class="section__eyebrow"><span class="dot"></span> 08 · Runtime behavior</div>
+        <h2>Realtime &amp; reliability</h2>
+        <p class="lead">The dashboard feels live because the backend is an event bus; the whole thing stays consistent because a few deliberate constraints keep concurrency simple.</p>
+
+        <h3>The realtime bus</h3>
+        <p>A single <code class="inline">ws</code> server on <code class="inline">/ws</code> broadcasts ~40 typed domain events to every connected client — no rooms, no per-client filtering. The React <code class="inline">useRealtimeChannel</code> hook manages reconnection (exponential backoff 1s → 10min, visibility-aware) and, while connected, <strong>suspends polling</strong>. On reconnect the client re-bootstraps from <code class="inline">GET /api/status/snapshot</code>.</p>
+
+        <div class="grid grid--3">
+          <div class="feature"><div class="feature__title">Server → client only</div><p class="feature__body">The bus is push-only; the server ignores inbound messages. Control still goes through REST, keeping the mutation path validated and singular.</p></div>
+          <div class="feature"><div class="feature__title">Snapshot on reconnect</div><p class="feature__body">A composite snapshot endpoint rebuilds full client state in one call — and opportunistically self-heals orphaned runs it finds.</p></div>
+          <div class="feature"><div class="feature__title">30s keepalive</div><p class="feature__body">Ping loop keeps NAT/proxy connections warm; the client is resilient to drops without losing state.</p></div>
+        </div>
+
+        <h3>Reliability by constraint</h3>
+        <div class="grid grid--2">
+          <div class="card card--sunken">
+            <h4>Single active run, single process</h4>
+            <p class="small muted"><code class="inline">activeRun</code>, guard-deferral bookkeeping, and auto-off timers are in-memory module singletons. This makes concurrency trivial to reason about — <em>and</em> means the system assumes exactly one backend process. Horizontal scaling would break the guarantees. That's a conscious trade for a home appliance.</p>
+          </div>
+          <div class="card card--sunken">
+            <h4>Crash recovery &amp; retention</h4>
+            <p class="small muted">On boot, orphaned runs are reconciled to <code class="inline">failed</code>; the snapshot endpoint heals lazily too. MongoDB <strong>TTL indexes</strong> auto-purge heartbeats, commands, events, and webhook logs (heartbeats at 90 days) so the DB stays bounded with zero cron jobs.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--interview">
+          <svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-6 0v4"/><rect x="4" y="9" width="16" height="12" rx="2"/></svg>
+          <div class="callout__body">
+            <span class="callout__title">The scaling question, answered honestly</span>
+            <p>"How would you scale this to N houses?" → move the in-memory run state to the DB with a lease/lock, make schedulers leader-elected (or a queue like BullMQ), and shard by device. The single-process design isn't naïveté — it's the right call for one lawn, and the migration path is clear.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 09 TALKING POINTS ============ -->
+      <section class="section" id="talking-points">
+        <div class="section__eyebrow"><span class="dot"></span> 09 · Cheat sheet</div>
+        <h2>Interview talking points</h2>
+        <p class="lead">Likely questions and the crisp answer for each. The through-line: <em>an LLM given real authority, made safe by deterministic engineering.</em></p>
+
+        <div class="talk">
+          <div class="talk__item"><div><p class="talk__q">"Walk me through the architecture."</p><p class="talk__a">Four tiers — Arduino edge, TypeScript backend, React client, external services. Data flows up via heartbeats, control flows down through one command service to the CompAI valve controller. Realtime over WebSocket; persistence in MongoDB.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"Where and why is the LLM?"</p><p class="talk__a">A daily scheduler. Watering is a fuzzy multi-variable judgement (weather, soil, history, plant needs). The model reasons over the whole picture and returns a structured plan; code enforces the hard limits. It's advisory authority inside a deterministic envelope.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"How do you trust the model's output?"</p><p class="talk__a">I don't — I treat it like an untrusted network boundary. JSON-only contract, extract + parse + structural + typed validation, then deterministic guardrails: drop past-dated runs, clamp durations to zone max, drop unknown zones, and let an active rain pause force an all-cancel.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"What about prompt injection?"</p><p class="talk__a">There's a real surface — user context and zone names are interpolated raw. Impact is bounded because output is validated, but the fix is to delimit and label untrusted spans and keep all authority in the schema, never the prose. I'd rather name it than hide it.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"Multiple providers — why?"</p><p class="talk__a">One <code class="inline">callAI()</code> interface over Anthropic, OpenAI, and Gemini; provider and model are per-install config. It lets you switch on cost, latency, or availability, and the interface is the shared lowest common denominator: prompts in, text + token usage out.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"How do you debug a bad AI decision?"</p><p class="talk__a">Every evaluation persists a ScheduleRun with the exact prompt, raw response, model, and token counts, surfaced in an AI Interaction modal. That record is simultaneously the debugger, the cost meter, and the seed of an eval dataset.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"What would you fix first?"</p><p class="talk__a">Add a timeout + retry + deterministic fallback around the model call, move response validation into a single Zod schema with all bounds, and build an eval harness over historical runs. Then auth, because right now the system is open on the LAN.</p></div></div>
+          <div class="talk__item"><div><p class="talk__q">"How would you scale it?"</p><p class="talk__a">Move in-memory run state into the DB behind a lease, make schedulers leader-elected or queue-backed, shard by device. The single-process design is deliberate for one lawn; the path off it is well-defined.</p></div></div>
+        </div>
+
+        <hr class="rule" />
+        <p class="small muted">Built as an interview companion for the Irrigo codebase. Every claim here maps to real files — <code class="inline">aiSchedulingService.ts</code>, <code class="inline">aiProviderService.ts</code>, <code class="inline">guardService.ts</code>, <code class="inline">sequentialRunService.ts</code>, <code class="inline">verifyHmacSignature.ts</code> — so you can open the source live if asked.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
