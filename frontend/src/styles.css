@@ -825,10 +825,11 @@ select {
 
   .records-filters__row--selects {
     flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .records-filters__row--selects .records-filter-group {
-    flex: 1 1 0;
+    flex: 1 1 45%;
   }
 
   .records-filters__row--psi {
@@ -843,14 +844,29 @@ select {
     flex-direction: column;
   }
 
-  .records-filters__actions button {
+  .records-filters__actions button:not(.filter-reset-icon) {
     width: 100%;
+  }
+
+  .records-filters__actions .filter-reset-icon {
+    align-self: flex-end;
   }
 }
 
 @media (max-width: 480px) {
   .records-filters {
     padding: var(--space-4);
+  }
+
+  /* Stack the From/To date pickers instead of cramming full timestamps
+     into two half-width columns on the narrowest screens. */
+  .records-filters__row:first-child {
+    flex-direction: column;
+  }
+
+  .records-filters__row:first-child .records-filter-group {
+    flex: 1 1 100%;
+    width: 100%;
   }
 
   .app-nav__link {
@@ -860,6 +876,12 @@ select {
   .app-nav__link svg {
     width: 18px;
     height: 18px;
+  }
+
+  /* Keep the logo and health bar from crowding each other at ~360px. */
+  .app-header {
+    gap: var(--space-2);
+    padding: var(--space-3);
   }
 }
 
@@ -944,6 +966,8 @@ html[data-theme="dark"] .app-header-actions-row > button {
   color: var(--color-text);
   width: 30px;
   height: 30px;
+  flex-shrink: 0;
+  position: relative;
 }
 
 .refresh-icon-button--active {
@@ -1617,14 +1641,47 @@ html[data-theme="dark"] .app-header-actions-row > button {
 .rain-intensity-picker__actions {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
   width: 100%;
 }
 
 .rain-intensity-picker__actions .primary-button {
-  flex: 1;
+  flex: 1 1 auto;
   font-size: var(--text-sm);
   padding: var(--space-2) var(--space-4);
+}
+
+.rain-intensity-picker__actions .ghost-button,
+.rain-intensity-picker__actions .rain-alert-banner__dismiss {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.rain-clear-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.rain-clear-confirm__q {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.rain-clear-confirm__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rain-clear-confirm__actions .ghost-button {
+  flex: 1 1 auto;
+  justify-content: center;
 }
 
 .status-panel__footer {
@@ -3509,7 +3566,7 @@ tbody tr:hover {
 
   .form-actions button.icon-btn {
     flex: 0 0 auto;
-    min-width: 0;
+    min-width: 36px;
   }
 
   .device-widget {
@@ -5222,7 +5279,11 @@ html[data-theme="dark"] .rain-alert-banner__dismiss:hover {
   width: 36px;
   height: 36px;
   padding: 0;
-  min-width: 0;
+  /* min-width overrides the wide .ghost-button/.primary-button bases while still
+     preventing flex containers from crushing the button below its icon size. */
+  min-width: 36px;
+  flex-shrink: 0;
+  position: relative;
   border: none;
   background: none;
   border-radius: var(--radius-md);
@@ -5265,6 +5326,23 @@ html[data-theme="dark"] .rain-alert-banner__dismiss:hover {
 
 .icon-btn.danger-text {
   color: var(--color-danger);
+}
+
+/* Touch devices: extend every icon CTA's hit area to the 44px minimum touch target
+   without changing its visual size or the surrounding layout. The ::after overlay is
+   centered over the button box (inset resolves against the box: 36px → -4px, 30px → -7px). */
+@media (pointer: coarse) {
+  .icon-btn::after,
+  .refresh-icon-button::after {
+    content: "";
+    position: absolute;
+    inset: calc((44px - 100%) / -2);
+  }
+
+  .app-header-actions-row,
+  .queue-card__actions {
+    gap: var(--space-2);
+  }
 }
 
 @keyframes icon-spin {
@@ -5423,13 +5501,15 @@ html[data-theme="dark"] .rain-alert-banner__dismiss:hover {
 
 .confirm-dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin-top: var(--space-3);
   width: 100%;
 }
 
 .confirm-dialog__actions button {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 120px;
 }
 
 .danger-button {

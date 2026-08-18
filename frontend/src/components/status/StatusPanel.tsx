@@ -218,6 +218,8 @@ export const StatusPanel = ({
               <RainIntensityPicker
                 onConfirmed={() => { setRainDialogOpen(false); onRainReported?.(); }}
                 onDismiss={() => setRainDialogOpen(false)}
+                rainPause={rainPause}
+                onPauseCleared={() => { setRainDialogOpen(false); onRainReported?.(); }}
               />
             </div>
           </div>,

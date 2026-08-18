@@ -32,6 +32,18 @@ export const getHourInTimezone = (date: Date, timezone: string): number => {
   return parseInt(formatter.format(date), 10);
 };
 
+// Calendar-day key ("YYYY-MM-DD") for a date in a given timezone. en-CA yields ISO-style
+// formatting; Intl handles DST transitions.
+export const getDayKeyInTimezone = (date: Date, timezone: string): string => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return formatter.format(date);
+};
+
 export const isTimeInWindows = (date: Date, windows: PreferredTimeWindow[], timezone?: string): boolean => {
   if (windows.length === 0) return true;
   const hour = timezone ? getHourInTimezone(date, timezone) : date.getHours();

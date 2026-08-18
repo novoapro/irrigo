@@ -747,6 +747,7 @@ export interface RainAlert {
   probability?: number;
   periodStart?: string;
   threshold?: number;
+  respondedToday?: boolean;
 }
 
 export const fetchRainAlert = async (): Promise<RainAlert> => {
@@ -755,6 +756,28 @@ export const fetchRainAlert = async (): Promise<RainAlert> => {
     throw new Error(`Failed to fetch rain alert (${response.status})`);
   }
   const json = (await response.json()) as { data: RainAlert };
+  return json.data;
+};
+
+export const dismissRainAlert = async (): Promise<{ respondedAt: string; response: string }> => {
+  const response = await fetch(buildUrl("/irrigation-settings/dismiss-rain-alert"), {
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to dismiss rain alert (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { respondedAt: string; response: string } };
+  return json.data;
+};
+
+export const clearRainPause = async (): Promise<{ cleared: boolean; rainPause: RainPauseStatus }> => {
+  const response = await fetch(buildUrl("/irrigation-settings/clear-rain-pause"), {
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to clear rain pause (${response.status})`);
+  }
+  const json = (await response.json()) as { data: { cleared: boolean; rainPause: RainPauseStatus } };
   return json.data;
 };
 
@@ -1028,6 +1051,8 @@ export interface RainPauseStatus {
   triggeredAt?: string;
   expiresAt?: string;
   remainingHours?: number;
+  windowHours?: number;
+  lastRainEventAt?: string;
 }
 
 export interface StateSnapshot {

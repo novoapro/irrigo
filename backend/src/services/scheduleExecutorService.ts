@@ -8,6 +8,7 @@ import { startSequentialRun, isRunActive } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { isWithinPreferredWindow } from "./irrigationSettingsService";
+import { getEffectiveGuard } from "./guardService";
 
 const LOOKAHEAD_MS = 60_000;
 const CHECK_INTERVAL_MS = 30_000;
@@ -57,7 +58,24 @@ export const executeAIProgram = async (programId: string) => {
   if (!program || program.status !== "planned") return;
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
-  if (latestHeartbeat?.guard) {
+  const guard = await getEffectiveGuard();
+
+  // Rain pause is a known, multi-hour condition — cancel the scheduled program rather
+  // than deferring it. (Programs whose start falls inside the window are also cancelled
+  // proactively when the pause is triggered; this catches anything that slips through.)
+  if (guard.rainPause.active) {
+    const reason = guard.reason ?? "Rain pause active — irrigation paused";
+    program.status = "cancelled";
+    program.statusReason = reason;
+    program.deferredAt = undefined;
+    program.deferralDeadline = undefined;
+    program.updatedAt = new Date();
+    await program.save();
+    emitRealtimeEvent({ type: "program:updated", payload: program.toObject() });
+    return;
+  }
+
+  if (guard.hardware) {
     const reason = "Guard active — conditions not suitable for irrigation";
     const deadline = new Date(Date.now() + 24 * 60 * 60_000);
     program.status = "deferred";

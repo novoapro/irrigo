@@ -1,11 +1,11 @@
 import IrrigationProgram from "../models/IrrigationProgram";
-import Heartbeat from "../models/Heartbeat";
 import SystemConfig from "../models/SystemConfig";
 import Zone from "../models/Zone";
 import { startSequentialRun, cancelRun } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { addDeferredProgram } from "./guardDeferralService";
+import { getEffectiveGuard } from "./guardService";
 import { getTimezone } from "./irrigationSettingsService";
 import { cronMatchesNow, getMinuteKeyInTimezone } from "./cronUtils";
 
@@ -64,10 +64,22 @@ const checkPrograms = async () => {
     if (lastFiredMinute.get(program.programId) === mk) continue;
     lastFiredMinute.set(program.programId, mk);
 
-    const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
-    const guardActive = latestHeartbeat?.guard ?? false;
+    const guard = await getEffectiveGuard();
 
-    if (guardActive) {
+    // Rain pause is a known, multi-hour condition with a definite expiry — skip this
+    // occurrence outright rather than deferring it (deferral is meant for transient
+    // hardware-guard blips that clear on their own).
+    if (guard.rainPause.active) {
+      const reason = guard.reason ?? "Rain pause active — irrigation paused";
+      console.log(`[ProgramScheduler] ${reason} — skipping program "${program.name}"`);
+      emitRealtimeEvent({
+        type: "program:skipped",
+        payload: { programId: program.programId, name: program.name, reason }
+      });
+      continue;
+    }
+
+    if (guard.hardware) {
       const deadline = new Date(now.getTime() + 24 * 60 * 60_000);
       addDeferredProgram({
         programId: program.programId,

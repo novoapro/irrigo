@@ -1337,6 +1337,11 @@ const App = () => {
           setAiRunRefreshKey((k) => k + 1);
           break;
         }
+        case "rain:promptResponded":
+        case "rain:pauseCleared": {
+          refreshRainPause();
+          break;
+        }
         default:
           break;
       }

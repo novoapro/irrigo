@@ -21,6 +21,7 @@ interface FakeZoneEntry {
   completedAt?: Date;
   commandId?: string | null;
   error?: string;
+  accumulatedMs?: number;
 }
 
 interface FakeRun {
@@ -108,8 +109,12 @@ import {
   clearActiveRun,
   isRunActive,
   isSpuriousOffForActiveRun,
+  deferCurrentZone,
+  resumeDeferredRun,
   MIN_LEGIT_RUNTIME_MS
 } from "../sequentialRunService";
+
+const ZONE_ON_OPTS = { skipGuardCheck: true };
 
 const backdateCurrentZone = (secondsAgo: number) => {
   const z = store!.zones[store!.currentZoneIndex]!;
@@ -138,7 +143,7 @@ describe("sequential run execution", () => {
 
     // First zone is on with its exact scheduled duration (no double water-saving reduction).
     expect(createCommandMock).toHaveBeenCalledTimes(1);
-    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 15, "ai-schedule");
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 15, "ai-schedule", ZONE_ON_OPTS);
     expect(store!.zones[0]!.status).toBe("running");
 
     // Legitimate completion of zone 1 -> zone 2 starts with ITS scheduled duration.
@@ -146,7 +151,7 @@ describe("sequential run execution", () => {
     await onZoneOff("front-lawn");
 
     expect(store!.zones[0]!.status).toBe("completed");
-    expect(createCommandMock).toHaveBeenLastCalledWith("back-lawn", "on", 25, "ai-schedule");
+    expect(createCommandMock).toHaveBeenLastCalledWith("back-lawn", "on", 25, "ai-schedule", ZONE_ON_OPTS);
     expect(store!.zones[1]!.status).toBe("running");
   });
 
@@ -203,5 +208,89 @@ describe("sequential run execution", () => {
     expect(store!.zones[0]!.status).toBe("completed");
     expect(store!.status).toBe("completed");
     expect(isRunActive()).toBe(false);
+  });
+});
+
+describe("defer / resume with remaining duration", () => {
+  it("records delivered time on defer and resumes with the remaining minutes only", async () => {
+    await startSequentialRun(
+      [
+        { zoneId: "front-lawn", name: "Front Lawn", durationMinutes: 10 },
+        { zoneId: "back-lawn", name: "Back Lawn", durationMinutes: 10 }
+      ],
+      "ai-schedule",
+      "prog-1"
+    );
+
+    // Guard defers 3 minutes into a 10-minute zone.
+    backdateCurrentZone(3 * 60);
+    expect(await deferCurrentZone()).toBe(true);
+
+    expect(store!.status).toBe("deferred");
+    expect(store!.zones[0]!.status).toBe("deferred");
+    // ~180s delivered (allow a little slack for test wall-clock).
+    expect(store!.zones[0]!.accumulatedMs).toBeGreaterThanOrEqual(3 * 60_000);
+    expect(store!.zones[0]!.accumulatedMs).toBeLessThan(3 * 60_000 + 5_000);
+    // The off was sent for the deferred zone.
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "off", undefined, "ai-schedule");
+
+    // Resume: zone restarts with the REMAINING 7 minutes, not the full 10.
+    expect(await resumeDeferredRun()).toBe(true);
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 7, "ai-schedule", ZONE_ON_OPTS);
+    expect(store!.status).toBe("running");
+    expect(store!.zones[0]!.status).toBe("running");
+  });
+
+  it("accumulates across multiple defer/resume cycles of the same zone", async () => {
+    await startSequentialRun(
+      [{ zoneId: "front-lawn", name: "Front Lawn", durationMinutes: 10 }],
+      "ai-schedule",
+      "prog-1"
+    );
+
+    backdateCurrentZone(3 * 60);
+    await deferCurrentZone();
+    await resumeDeferredRun();
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 7, "ai-schedule", ZONE_ON_OPTS);
+
+    backdateCurrentZone(4 * 60);
+    await deferCurrentZone();
+    // ~3m + ~4m delivered → ~3m remaining.
+    await resumeDeferredRun();
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 3, "ai-schedule", ZONE_ON_OPTS);
+  });
+
+  it("clamps the remainder to at least 1 minute when nearly everything was delivered", async () => {
+    await startSequentialRun(
+      [{ zoneId: "front-lawn", name: "Front Lawn", durationMinutes: 10 }],
+      "ai-schedule",
+      "prog-1"
+    );
+
+    backdateCurrentZone(10 * 60 + 30); // delivered more than planned before the defer landed
+    await deferCurrentZone();
+    await resumeDeferredRun();
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 1, "ai-schedule", ZONE_ON_OPTS);
+  });
+
+  it("judges premature-off against the remaining duration after a resume", async () => {
+    await startSequentialRun(
+      [{ zoneId: "front-lawn", name: "Front Lawn", durationMinutes: 10 }],
+      "ai-schedule",
+      "prog-1"
+    );
+
+    // 9m30s delivered → remainder clamps to 1 minute on resume.
+    backdateCurrentZone(9 * 60 + 30);
+    await deferCurrentZone();
+    await resumeDeferredRun();
+    expect(createCommandMock).toHaveBeenLastCalledWith("front-lawn", "on", 1, "ai-schedule", ZONE_ON_OPTS);
+
+    // An off 40s into a 1-minute remainder is past the floor for short runs — it must
+    // advance/finalize instead of being suppressed as a controller echo.
+    backdateCurrentZone(40);
+    await onZoneOff("front-lawn");
+    expect(store!.zones[0]!.status).toBe("completed");
+    expect(store!.status).toBe("completed");
   });
 });

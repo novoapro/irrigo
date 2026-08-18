@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { get, update, confirmRain, getRainAlert } from "../controllers/irrigationSettingsController";
+import { get, update, confirmRain, getRainAlert, dismissRainAlert, clearRainPause } from "../controllers/irrigationSettingsController";
 import { validateSchema } from "../middleware/validateSchema";
 import { irrigationSettingsSchema } from "../schemas/irrigationSettingsSchema";
 
@@ -19,6 +19,14 @@ router.post("/confirm-rain", (req, res) => {
 
 router.get("/rain-alert", (req, res) => {
   void getRainAlert(req, res);
+});
+
+router.post("/dismiss-rain-alert", (req, res) => {
+  void dismissRainAlert(req, res);
+});
+
+router.post("/clear-rain-pause", (req, res) => {
+  void clearRainPause(req, res);
 });
 
 export default router;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchRainAlert, type RainAlert } from "../api";
+import { dismissRainAlert, fetchRainAlert, type RainAlert } from "../api";
 import RainIntensityPicker from "./RainIntensityPicker";
 
 const RainAlertBanner = ({ refreshKey, onConfirmed }: { refreshKey?: number; onConfirmed?: () => void }) => {
@@ -30,7 +30,12 @@ const RainAlertBanner = ({ refreshKey, onConfirmed }: { refreshKey?: number; onC
 
       <RainIntensityPicker
         onConfirmed={() => { setAlert((a) => a ? { ...a, alert: false } : a); onConfirmed?.(); }}
-        onDismiss={() => setDismissed(true)}
+        onDismiss={() => {
+          // Hide immediately; persist the response so the alert stays answered
+          // (server-side) until the next calendar day, across re-mounts and reloads.
+          setDismissed(true);
+          dismissRainAlert().catch(() => {});
+        }}
         dismissLabel="No, it didn't rain"
       />
     </div>

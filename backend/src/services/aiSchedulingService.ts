@@ -13,6 +13,7 @@ import PrecipitationHistory from "../models/PrecipitationHistory";
 import { callAI } from "./aiProviderService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { getIrrigationSettings, getTimezone } from "./irrigationSettingsService";
+import { getRainPauseState, type RainPauseState } from "./guardService";
 import type { PreferredTimeWindow, WaterSavingMode } from "../models/configs/IrrigationSettings";
 
 interface PendingProgram {
@@ -51,6 +52,11 @@ interface GatheredData {
     createdAt: string;
   }>>;
   pendingPrograms: PendingProgram[];
+  // Authoritative rain-pause state — the single source of truth from guardService.
+  // buildPrompt formats this directly and never recomputes the pause.
+  rainPause: RainPauseState;
+  // Raw last-event timestamps below are DESCRIPTIVE CONTEXT only (the "Current
+  // Conditions" section), never a pause decision — that lives entirely in rainPause.
   lastRainDetectedAt: string | null;
   lastSoilSaturatedAt: string | null;
   lastConfirmedRainAt: string | null;
@@ -128,15 +134,22 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     status: p.status
   }));
 
+  const { default: IrrigationSettingsModel } = await import("../models/configs/IrrigationSettings");
+  const irrigSettings = await IrrigationSettingsModel.findOne().lean();
+
+  // Rain-pause decision comes entirely from the single authority. All watermark /
+  // intensity / expiry logic lives in getRainPauseState — never re-derived here.
+  const rainPause = await getRainPauseState(latestHeartbeat);
+
+  // Raw last-event lookups below feed the descriptive "Current Conditions" section only,
+  // so they intentionally reflect reality (it did rain N hours ago) without the pause
+  // watermark. The pause rule itself is driven by `rainPause` above.
   const lastRainHeartbeat = connected.includes("RAIN")
     ? await Heartbeat.findOne({ "sensors.rain": true }).sort({ timestamp: -1 }).lean()
     : null;
   const lastSoilHeartbeat = connected.includes("SOIL")
     ? await Heartbeat.findOne({ "sensors.soil": true }).sort({ timestamp: -1 }).lean()
     : null;
-
-  const { default: IrrigationSettingsModel } = await import("../models/configs/IrrigationSettings");
-  const irrigSettings = await IrrigationSettingsModel.findOne().lean();
 
   return {
     zones: zones.map((z) => ({
@@ -156,6 +169,7 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
     recentPrecipAboveThreshold,
     recentIrrigationByZone: irrigationByZone,
     pendingPrograms,
+    rainPause,
     lastRainDetectedAt: lastRainHeartbeat ? new Date(lastRainHeartbeat.timestamp).toISOString() : null,
     lastSoilSaturatedAt: lastSoilHeartbeat ? new Date(lastSoilHeartbeat.timestamp).toISOString() : null,
     lastConfirmedRainAt: irrigSettings?.lastConfirmedRainAt ? new Date(irrigSettings.lastConfirmedRainAt).toISOString() : null,
@@ -177,24 +191,14 @@ const buildPrompt = (
   const offset = getTimezoneOffset(now, timezone);
   const fmt = (d: Date) => formatForPrompt(d, timezone);
 
-  const INTENSITY_MULTIPLIERS: Record<string, number> = { light: 0.25, moderate: 0.5, heavy: 1.0 };
+  // Rain-pause decision is read straight from the authority (data.rainPause) — no
+  // recomputation here. The raw event timestamps below are descriptive context only.
+  const rainPause = data.rainPause;
+  const rainPauseActive = rainPause.active;
 
   const rainAt = data.lastRainDetectedAt ? new Date(data.lastRainDetectedAt) : null;
   const soilAt = data.lastSoilSaturatedAt ? new Date(data.lastSoilSaturatedAt) : null;
   const confirmedAt = data.lastConfirmedRainAt ? new Date(data.lastConfirmedRainAt) : null;
-  const confirmedMultiplier = INTENSITY_MULTIPLIERS[data.lastConfirmedRainIntensity ?? "heavy"] ?? 1.0;
-  const confirmedEffectiveMs = confirmedAt ? rainPauseHours * 3600_000 * confirmedMultiplier : 0;
-  const sensorIntervalMs = rainPauseHours * 3600_000;
-
-  const sensorPause = rainPauseHours > 0 && (
-    (rainAt !== null && (now.getTime() - rainAt.getTime()) < sensorIntervalMs) ||
-    (soilAt !== null && (now.getTime() - soilAt.getTime()) < sensorIntervalMs)
-  );
-  const confirmedPause = rainPauseHours > 0 && confirmedAt !== null
-    && (now.getTime() - confirmedAt.getTime()) < confirmedEffectiveMs;
-  const rainPauseActive = sensorPause || confirmedPause;
-
-  const latestMoistureEvent = [rainAt, soilAt, confirmedAt].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
 
   const system = `You are an irrigation scheduling assistant. Respond with valid JSON only — no markdown, no text outside the JSON.
 ${rainPauseActive ? `
@@ -226,17 +230,12 @@ JSON schema:
   const rules: string[] = [];
 
   if (rainPauseHours > 0) {
-    const effectiveHours = confirmedPause && !sensorPause
-      ? Math.round(rainPauseHours * confirmedMultiplier)
-      : rainPauseHours;
-    const expiresAt = latestMoistureEvent
-      ? new Date(latestMoistureEvent.getTime() + (sensorPause ? sensorIntervalMs : confirmedEffectiveMs))
-      : null;
-    const status = rainPauseActive
-      ? `ACTIVE — last event: ${fmt(latestMoistureEvent!)}${confirmedPause && !sensorPause ? ` (user-confirmed ${data.lastConfirmedRainIntensity})` : " (sensor)"}, pause: ${effectiveHours}h, expires: ${expiresAt ? fmt(expiresAt) : "unknown"}`
-      : latestMoistureEvent
-        ? `CLEAR — last event: ${fmt(latestMoistureEvent)}, interval expired`
-        : "CLEAR — no rain/saturation on record";
+    const lastEventAt = rainPause.lastRainEventAt ? new Date(rainPause.lastRainEventAt) : null;
+    const status = rainPause.active
+      ? `ACTIVE — last event: ${fmt(new Date(rainPause.triggeredAt!))} (${rainPause.source}), pause: ${rainPause.windowHours ?? rainPauseHours}h, expires: ${rainPause.expiresAt ? fmt(new Date(rainPause.expiresAt)) : "unknown"}`
+      : lastEventAt
+        ? `CLEAR — last event: ${fmt(lastEventAt)}, interval expired or pause cleared`
+        : "CLEAR — no rain on record";
     rules.push(`1. Rain pause (${rainPauseHours}h base): ${status}. If ACTIVE: create no programs, cancel all pending, skip all zones.`);
   }
   rules.push(`${rules.length + 1}. Rain forecast: if precipitation probability >= ${prefs.rainThresholdPercent}% is forecast within the planning window, skip irrigation for affected periods.`);

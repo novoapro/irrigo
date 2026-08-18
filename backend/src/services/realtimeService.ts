@@ -40,7 +40,9 @@ export type RealtimeEventType =
   | "deferral:recovered"
   | "deferral:expired"
   | "debugMode:changed"
-  | "rain:confirmed";
+  | "rain:confirmed"
+  | "rain:promptResponded"
+  | "rain:pauseCleared";
 
 export interface RealtimeEvent<TPayload = unknown> {
   type: RealtimeEventType;

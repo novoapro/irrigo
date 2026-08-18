@@ -6,12 +6,24 @@ import { emitRealtimeEvent } from "./realtimeService";
 
 const TIMEOUT_BUFFER_MINUTES = 2;
 
+// Minutes still owed to a zone after subtracting time already delivered in earlier
+// defer/resume cycles. Ceil so we never under-water; floor of 1 because commands are
+// whole-minute (a fully-delivered zone still gets 1 minute rather than a 0-length command).
+export const getRemainingDurationMinutes = (
+  durationMinutes: number,
+  accumulatedMs?: number | null
+): number =>
+  Math.max(1, Math.ceil((durationMinutes * 60_000 - (accumulatedMs ?? 0)) / 60_000));
+
 interface ActiveRun {
   runId: string;
   source: SequentialRunSource;
   programId?: string;
   currentZoneIndex: number;
   timeoutTimer: NodeJS.Timeout | null;
+  // Hardware guard reading when the current zone started; used by guardDeferralService
+  // to attribute a subsequent guard activation to the zone's own pressure dip.
+  guardClearAtZoneStart: boolean | null;
 }
 
 let activeRun: ActiveRun | null = null;
@@ -70,8 +82,30 @@ const startZone = async (run: InstanceType<typeof SequentialRun>, index: number)
   await run.save();
   emitProgress(serializeRun(run.toObject()), run.source);
 
+  if (activeRun) {
+    try {
+      const { getLastKnownHardwareGuard } = await import("./guardDeferralService");
+      const hardwareGuard = getLastKnownHardwareGuard();
+      activeRun.guardClearAtZoneStart = hardwareGuard === null ? null : !hardwareGuard;
+    } catch {
+      activeRun.guardClearAtZoneStart = null;
+    }
+  }
+
+  const effectiveMinutes = getRemainingDurationMinutes(zone.durationMinutes, zone.accumulatedMs);
+  if (effectiveMinutes < zone.durationMinutes) {
+    console.log(
+      `[SequentialRun] Zone ${zone.zoneId} resuming with ${effectiveMinutes}m remaining of ${zone.durationMinutes}m planned`
+    );
+  }
+
   try {
-    const cmd = await createCommand(zone.zoneId, "on", zone.durationMinutes, run.source);
+    // Mid-run zone starts bypass the per-command guard gate: the latest heartbeat may
+    // still carry guard=true from the previous zone's pressure dip (up to a heartbeat
+    // stale). Mid-run guard enforcement is guardDeferralService's job.
+    const cmd = await createCommand(zone.zoneId, "on", effectiveMinutes, run.source, {
+      skipGuardCheck: true
+    });
     zone.commandId = (cmd as any)._id?.toString() ?? null;
     zone.status = "running";
     await run.save();
@@ -80,7 +114,7 @@ const startZone = async (run: InstanceType<typeof SequentialRun>, index: number)
     if (activeRun) {
       activeRun.currentZoneIndex = index;
     }
-    setSafetyTimeout(zone.zoneId, zone.durationMinutes);
+    setSafetyTimeout(zone.zoneId, effectiveMinutes);
   } catch (err: any) {
     zone.status = "failed";
     zone.completedAt = new Date();
@@ -143,6 +177,11 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
     payload: { ...serializeRun(run.toObject()), source: run.source }
   });
 
+  try {
+    const { clearRunScopedGuardState } = await import("./guardDeferralService");
+    clearRunScopedGuardState(run._id.toString());
+  } catch { /* best effort */ }
+
   if (run.programId && run.source === "ai-schedule") {
     const { default: IrrigationProgram } = await import("../models/IrrigationProgram");
     const newStatus = anyFailed ? "skipped" : "completed";
@@ -201,8 +240,14 @@ export const startSequentialRun = async (
     source,
     programId,
     currentZoneIndex: 0,
-    timeoutTimer: null
+    timeoutTimer: null,
+    guardClearAtZoneStart: null
   };
+
+  try {
+    const { clearRunScopedGuardState } = await import("./guardDeferralService");
+    clearRunScopedGuardState();
+  } catch { /* best effort */ }
 
   emitRealtimeEvent({
     type: "sequentialRun:started",
@@ -246,7 +291,9 @@ export const isSpuriousOffForActiveRun = async (zoneId: string): Promise<boolean
   if (!run || run.status !== "running") return false;
   const z = run.zones[activeRun.currentZoneIndex];
   if (!z || z.zoneId !== zoneId || z.status !== "running") return false;
-  return isPrematureOff(z.durationMinutes, z.startedAt);
+  // A resumed zone only runs its remaining minutes — judge "premature" against that,
+  // or a legitimate early off on a short remainder would be swallowed.
+  return isPrematureOff(getRemainingDurationMinutes(z.durationMinutes, z.accumulatedMs), z.startedAt);
 };
 
 export const onZoneOff = async (zoneId: string) => {
@@ -262,13 +309,14 @@ export const onZoneOff = async (zoneId: string) => {
   if (!currentZone || currentZone.zoneId !== zoneId) return;
   if (currentZone.status !== "running") return;
 
-  if (isPrematureOff(currentZone.durationMinutes, currentZone.startedAt)) {
+  const effectiveMinutes = getRemainingDurationMinutes(currentZone.durationMinutes, currentZone.accumulatedMs);
+  if (isPrematureOff(effectiveMinutes, currentZone.startedAt)) {
     const elapsed = currentZone.startedAt
       ? Math.round((Date.now() - new Date(currentZone.startedAt).getTime()) / 1000)
       : 0;
     console.warn(
       `[SequentialRun] Ignoring premature off for zone ${zoneId} after ${elapsed}s ` +
-      `(planned ${currentZone.durationMinutes}m) — treating as a spurious controller echo. ` +
+      `(planned ${effectiveMinutes}m) — treating as a spurious controller echo. ` +
       `Auto-off / CompAI duration timer / safety timeout will govern real completion.`
     );
     return;
@@ -317,6 +365,11 @@ export const cancelRun = async (): Promise<boolean> => {
     payload: { ...serializeRun(run.toObject()), source: run.source }
   });
 
+  try {
+    const { clearRunScopedGuardState } = await import("./guardDeferralService");
+    clearRunScopedGuardState(run._id.toString());
+  } catch { /* best effort */ }
+
   activeRun = null;
   return true;
 };
@@ -339,7 +392,13 @@ export const getActiveRun = () => activeRun;
 
 export const clearActiveRun = () => {
   clearSafetyTimeout();
+  const runId = activeRun?.runId;
   activeRun = null;
+  if (runId) {
+    void import("./guardDeferralService")
+      .then(({ clearRunScopedGuardState }) => clearRunScopedGuardState(runId))
+      .catch(() => { /* best effort */ });
+  }
 };
 
 export const cleanupOrphanedRuns = async (): Promise<number> => {
@@ -382,6 +441,11 @@ export const deferCurrentZone = async (): Promise<boolean> => {
     } catch { /* best effort */ }
   }
 
+  if (currentZone.startedAt) {
+    const elapsed = Date.now() - new Date(currentZone.startedAt).getTime();
+    currentZone.accumulatedMs = (currentZone.accumulatedMs ?? 0) + Math.max(0, elapsed);
+  }
+
   currentZone.status = "deferred";
   run.status = "deferred";
   run.statusReason = "Guard activated — conditions not suitable for irrigation";
@@ -420,7 +484,8 @@ export const resumeDeferredRun = async (runIdOverride?: string): Promise<boolean
       source: run.source,
       programId: run.programId ?? undefined,
       currentZoneIndex: deferredIndex,
-      timeoutTimer: null
+      timeoutTimer: null,
+      guardClearAtZoneStart: null
     };
   }
 

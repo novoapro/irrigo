@@ -278,7 +278,7 @@ const LogsPage = () => {
   };
 
   const zoneOptions = [
-    { value: "all", label: "All zones" },
+    { value: "all", label: "All" },
     ...zones.map((z) => ({ value: z.zoneId, label: z.name }))
   ];
 

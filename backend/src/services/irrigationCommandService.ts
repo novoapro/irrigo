@@ -1,8 +1,8 @@
 import IrrigationCommand from "../models/IrrigationCommand";
 import type { CommandSource } from "../models/IrrigationCommand";
 import Zone from "../models/Zone";
-import Heartbeat from "../models/Heartbeat";
 import IrrigationEvent from "../models/IrrigationEvent";
+import { getEffectiveGuard } from "./guardService";
 import { emitRealtimeEvent } from "./realtimeService";
 import * as externalController from "./externalControllerService";
 import * as compAI from "./compAIService";
@@ -20,16 +20,21 @@ export const createCommand = async (
   zoneId: string,
   action: "on" | "off",
   durationMinutes?: number,
-  source: CommandSource = "manual"
+  source: CommandSource = "manual",
+  opts?: { skipGuardCheck?: boolean }
 ) => {
   const zone = await Zone.findOne({ zoneId }).lean();
   if (!zone) throw new Error("Zone not found");
   if (!zone.enabled) throw new Error("Zone is disabled");
 
-  if (action === "on" && source !== "manual") {
-    const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
-    if (latestHeartbeat?.guard) {
-      throw new Error("Guard is active — irrigation not permitted");
+  // skipGuardCheck: mid-run zone starts from sequentialRunService bypass this gate —
+  // the effective guard reads the latest heartbeat, which can still carry guard=true
+  // from the previous zone's own pressure dip. Mid-run guard enforcement happens in
+  // guardDeferralService; this gate is for run/command entry points.
+  if (action === "on" && source !== "manual" && !opts?.skipGuardCheck) {
+    const guard = await getEffectiveGuard();
+    if (guard.active) {
+      throw new Error(guard.reason ?? "Guard is active — irrigation not permitted");
     }
   }
 
@@ -89,7 +94,7 @@ export const createCommand = async (
     emitRealtimeEvent({ type: "command:updated", payload: serializeCommand(command.toObject()) });
 
     if (action === "on" && durationMinutes != null && durationMinutes > 0) {
-      scheduleAutoOff(zoneId, durationMinutes);
+      scheduleAutoOff(zoneId, durationMinutes, source);
     }
 
     scheduleTimeout(command._id.toString());
@@ -104,7 +109,7 @@ export const createCommand = async (
   return serializeCommand(command.toObject());
 };
 
-const scheduleAutoOff = (zoneId: string, durationMinutes: number) => {
+const scheduleAutoOff = (zoneId: string, durationMinutes: number, source: CommandSource) => {
   const existing = autoOffTimers.get(zoneId);
   if (existing) clearTimeout(existing);
 
@@ -115,7 +120,7 @@ const scheduleAutoOff = (zoneId: string, durationMinutes: number) => {
         .sort({ createdAt: -1 })
         .lean();
       if (lastEvent?.action === "on") {
-        await createCommand(zoneId, "off", undefined, "manual");
+        await createCommand(zoneId, "off", undefined, source);
       }
     } catch (err) {
       console.error(`Auto-off failed for zone ${zoneId}:`, err);

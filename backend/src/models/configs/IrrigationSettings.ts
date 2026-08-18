@@ -8,6 +8,7 @@ export interface PreferredTimeWindow {
 
 export type WaterSavingMode = "normal" | "moderate" | "aggressive";
 export type RainIntensity = "light" | "moderate" | "heavy";
+export type RainPromptResponse = "confirmed" | "dismissed";
 
 export interface IrrigationSettingsAttributes {
   preferredTimeWindows: PreferredTimeWindow[];
@@ -15,6 +16,14 @@ export interface IrrigationSettingsAttributes {
   rainPauseHours: number;
   lastConfirmedRainAt: Date | null;
   lastConfirmedRainIntensity: RainIntensity | null;
+  // Watermark set when the user manually removes the rain pause. Any rain event (sensor
+  // or user-confirmed) at or before this instant is ignored when computing the pause, so a
+  // still-standing sensor detection can be cleared without deleting heartbeat data.
+  rainPauseClearedAt: Date | null;
+  // When (and how) the user last answered the rain prompt — confirmed rain or dismissed
+  // it. Gates the rain alert to at most one prompt per calendar day (settings timezone).
+  lastRainPromptRespondedAt: Date | null;
+  lastRainPromptResponse: RainPromptResponse | null;
   timezone: string;
   updatedAt: Date;
 }
@@ -50,6 +59,19 @@ const irrigationSettingsSchema = new Schema<IrrigationSettingsAttributes>({
   lastConfirmedRainIntensity: {
     type: String,
     enum: ["light", "moderate", "heavy", null],
+    default: null
+  },
+  rainPauseClearedAt: {
+    type: Date,
+    default: null
+  },
+  lastRainPromptRespondedAt: {
+    type: Date,
+    default: null
+  },
+  lastRainPromptResponse: {
+    type: String,
+    enum: ["confirmed", "dismissed", null],
     default: null
   },
   timezone: {

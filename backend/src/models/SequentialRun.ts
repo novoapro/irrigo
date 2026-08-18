@@ -13,6 +13,8 @@ export interface SequentialRunZoneEntry {
   startedAt?: Date | null;
   completedAt?: Date | null;
   error?: string | null;
+  /** Watering time already delivered across defer/resume cycles; resume runs only the remainder. */
+  accumulatedMs?: number;
 }
 
 export interface SequentialRunAttributes {
@@ -41,7 +43,8 @@ const sequentialRunZoneSchema = new Schema<SequentialRunZoneEntry>(
     commandId: { type: String, default: null },
     startedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
-    error: { type: String, default: null }
+    error: { type: String, default: null },
+    accumulatedMs: { type: Number, default: 0 }
   },
   { _id: false }
 );

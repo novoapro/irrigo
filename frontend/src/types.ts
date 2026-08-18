@@ -457,6 +457,16 @@ export type RealtimeEvent =
       type: "rain:confirmed";
       payload?: { confirmedAt: string; intensity: string };
       at?: string;
+    }
+  | {
+      type: "rain:promptResponded";
+      payload?: { respondedAt: string; response: string };
+      at?: string;
+    }
+  | {
+      type: "rain:pauseCleared";
+      payload?: { rainPause?: unknown };
+      at?: string;
     };
 
 export interface CompAIConfig {
