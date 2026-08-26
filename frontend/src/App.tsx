@@ -151,7 +151,7 @@ const App = () => {
   const overviewQuery = useHeartbeatOverviewQuery(historyWindow, isRealtimeActive);
   const irrigationRecordsQuery = useIrrigationRecordsQuery(isRealtimeActive);
   const forecastQuery = useWeatherForecastQuery(isRealtimeActive);
-  const deviceConfigQuery = useDeviceConfigQuery();
+  const deviceConfigQuery = useDeviceConfigQuery(isRealtimeActive);
   const zonesQuery = useZonesQuery();
   const zoneStatesQuery = useZoneStatesQuery();
   const systemConfigQuery = useSystemConfigQuery();
@@ -534,10 +534,15 @@ const App = () => {
         case "zoneState:changed": {
           if (event.payload && "zoneId" in event.payload) {
             const statePayload = event.payload as ZoneState;
-            queryClient.setQueryData<Record<string, ZoneState>>(
-              queryKeys.zoneStates,
-              (prev) => ({ ...(prev ?? {}), [statePayload.zoneId]: statePayload })
-            );
+            // Cancel any in-flight zoneStates refetch (e.g. from a concurrent
+            // loadZones) before applying this fresh single-zone update, so the
+            // refetch resolving later can't clobber it.
+            void queryClient.cancelQueries({ queryKey: queryKeys.zoneStates }).then(() => {
+              queryClient.setQueryData<Record<string, ZoneState>>(
+                queryKeys.zoneStates,
+                (prev) => ({ ...(prev ?? {}), [statePayload.zoneId]: statePayload })
+              );
+            });
           } else {
             loadZones();
           }

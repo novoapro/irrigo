@@ -136,12 +136,14 @@ export const useWeatherForecastQuery = (realtimeActive: boolean) =>
     refetchInterval: interval(realtimeActive, FORECAST_REFRESH_MS)
   });
 
-export const useDeviceConfigQuery = () =>
+export const useDeviceConfigQuery = (realtimeActive: boolean) =>
   useQuery({
     queryKey: queryKeys.deviceConfig,
     queryFn: async (): Promise<DeviceConfig | null> =>
       (await fetchDeviceConfig()) ?? null,
-    refetchInterval: DEVICE_CONFIG_REFRESH_MS
+    // Realtime-first: only poll when the websocket is down; otherwise
+    // deviceConfig:updated events keep the cache fresh.
+    refetchInterval: interval(realtimeActive, DEVICE_CONFIG_REFRESH_MS)
   });
 
 export const useZonesQuery = () =>
