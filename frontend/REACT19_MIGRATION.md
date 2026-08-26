@@ -208,15 +208,23 @@ pushes live updates either way.
 `tsc` + `vite build` clean, and a live read-only render against the real backend
 verified the dashboard renders production data correctly.
 
-**Optional, deliberately not done** (zero functional value under the compiler /
-architectural risk on a system that triggers real irrigation):
-- Stripping the now-redundant `useCallback`/`useMemo`: with the compiler enabled
-  these are harmless and compiler-preserved, so a 26-file strip is churn with no
-  runtime benefit. Auto-memoization is verified active (`useMemoCache` in the
-  bundle).
-- Extracting App's controller into a `useDashboardController` hook: pure code
-  relocation with no behavioral change; App at 806 lines (from 1,737) is already
-  a reasonable shell.
+**Controller-hook extraction (done):** App's queries, derived read-model,
+realtime fan-out, and refresh lifecycle now live in
+`hooks/useDashboardController.ts`; `App.tsx` is a thin shell (header + nav +
+routes + settings) — **811 → 289 lines**. Pure relocation, 148 tests green.
+
+**Memoization strip (done, scoped correctly):** with the compiler active,
+manual memoization is redundant, so the **leaf perf-memoization** — derivations
+used only in render — was stripped to plain code (the compiler memoizes it):
+`DashboardView` (9 memos), `IrrigationWidget`, `AIInteractionModal`,
+`SettingsPanel`, and the controller hook's `realtimeUrl` / `historyWindow` /
+`refreshStatusDisplay`. Verified: **zero new `exhaustive-deps` warnings**, 148
+tests green. Intentionally **kept**: memoization that serves effect/hook
+**dependency arrays** (the controller hook's `useCallback`s, `ZoneControlPanel`,
+`AIRunsPage`'s `runs`) — under `eslint-plugin-react-hooks` v7 `exhaustive-deps`
+still requires stable deps for effect *correctness*, so stripping those would
+add warnings with no benefit; and `useChartTheme`'s `[theme]` memo (the
+documented recompute-signal exception).
 
 ---
 

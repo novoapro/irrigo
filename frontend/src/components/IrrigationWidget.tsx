@@ -1,4 +1,3 @@
-import React, { useMemo } from "react";
 import type { IrrigationEvent, Zone } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
 import { useNow } from "../hooks/useNow";
@@ -22,7 +21,8 @@ export const IrrigationWidget = ({
   // Live clock so ongoing-cycle durations tick, without an impure Date.now() in
   // the memo body (React Compiler purity rule).
   const now = useNow();
-  const zoneSummaries = useMemo(() => {
+  // Plain derivation — the React Compiler memoizes it (on `events` + `now`).
+  const zoneSummaries = (() => {
     const sorted = [...events].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
@@ -73,7 +73,7 @@ export const IrrigationWidget = ({
         const bEnd = b.end ? new Date(b.end).getTime() : now;
         return bEnd - aEnd || a.zone.localeCompare(b.zone);
       });
-  }, [events, now]);
+  })();
 
   const getPressureClass = (value: number | null) => {
     if (value === null || baselinePsi === undefined || baselinePsi === null) {

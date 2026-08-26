@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import type { ScheduleRun } from "../types";
 
@@ -44,10 +44,10 @@ const AIInteractionModal = ({ run, onClose }: AIInteractionModalProps) => {
 
   const activeContent = tabs.find((t) => t.id === activeTab)?.content;
 
-  const formattedResponse = useMemo(() => {
-    if (activeTab !== "response" || !run.rawResponse) return null;
-    return formatResponse(run.rawResponse);
-  }, [activeTab, run.rawResponse]);
+  const formattedResponse =
+    activeTab !== "response" || !run.rawResponse
+      ? null
+      : formatResponse(run.rawResponse);
 
   return createPortal(
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   buildRealtimeUrl,
@@ -93,7 +93,7 @@ export const useDashboardController = () => {
   const historyFiltersRef = useRef<HTMLDivElement | null>(null);
   const realtimeEventHandlerRef = useRef<(event: RealtimeEvent) => void>(() => { });
 
-  const realtimeUrl = useMemo(() => buildRealtimeUrl(), []);
+  const realtimeUrl = buildRealtimeUrl();
 
   const {
     status: realtimeStatus,
@@ -110,10 +110,9 @@ export const useDashboardController = () => {
   });
 
   // --- history window shared by the heartbeat/overview query families ---
-  const historyWindow = useMemo(
-    () => ({ start: toQueryDateTime(startDate), end: toQueryDateTime(endDate) }),
-    [startDate, endDate]
-  );
+  // Plain object — the query hooks hash their keys structurally, and the
+  // Compiler memoizes; no manual memo needed.
+  const historyWindow = { start: toQueryDateTime(startDate), end: toQueryDateTime(endDate) };
 
   // --- server-data queries ---
   const statusQuery = useStatusQuery(isRealtimeActive);
@@ -289,7 +288,7 @@ export const useDashboardController = () => {
 
   const isRefreshAnimating = refreshPhase !== "idle" && refreshPhase !== "success" && refreshPhase !== "error";
 
-  const refreshStatusDisplay = useMemo((): { key: RefreshStatusKey; label: string } | null => {
+  const refreshStatusDisplay = ((): { key: RefreshStatusKey; label: string } | null => {
     switch (refreshPhase) {
       case "sending":
         return { key: "sending", label: "Sending command to device…" };
@@ -306,7 +305,7 @@ export const useDashboardController = () => {
       default:
         return null;
     }
-  }, [refreshPhase]);
+  })();
 
   const handleResetFilters = useCallback(() => {
     setStartDate(null);

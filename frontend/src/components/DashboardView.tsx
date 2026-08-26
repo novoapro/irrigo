@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { format } from "date-fns";
 import WeatherWidget, { type PrecipitationPoint } from "./WeatherWidget";
 import ZoneControlPanel from "./ZoneControlPanel";
@@ -127,25 +127,17 @@ const DashboardView = ({
 }: DashboardViewProps) => {
   const chartTheme = useChartTheme();
 
-  const trendData = useMemo(
-    () =>
-      [...heartbeatSeries]
-        .sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        )
-        .map((sample) => ({
-          timestamp: sample.timestamp,
-          psi: sample.psi
-        })),
-    [heartbeatSeries]
-  );
+  // Derivations are plain — the React Compiler memoizes them.
+  const trendData = [...heartbeatSeries]
+    .sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    )
+    .map((sample) => ({ timestamp: sample.timestamp, psi: sample.psi }));
 
   const guardActive = status?.guard ?? latestHeartbeatSnapshot?.guard ?? false;
 
-  const currentWeather = useMemo((): WeatherConditionsSnapshot | null => {
-    if (forecast) {
-      return {
+  const currentWeather: WeatherConditionsSnapshot | null = forecast
+    ? {
         locationName: forecast.locationName,
         fetchedAt: forecast.fetchedAt,
         // Fall the expiry back to one hour after the fetch time (a pure value)
@@ -160,21 +152,15 @@ const DashboardView = ({
         precipitationProbability: forecast.precipitationProbability ?? null,
         isDaytime: forecast.isDaytime ?? null,
         shortForecast: forecast.shortForecast ?? null
-      };
-    }
-    return null;
-  }, [forecast]);
+      }
+    : null;
 
-  const connectedSensors = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          status?.device.connectedSensors ??
-          latestHeartbeatSnapshot?.device.connectedSensors ??
-          []
-        )
-      ),
-    [status, latestHeartbeatSnapshot]
+  const connectedSensors = Array.from(
+    new Set(
+      status?.device.connectedSensors ??
+      latestHeartbeatSnapshot?.device.connectedSensors ??
+      []
+    )
   );
 
   const latestBaselinePsi =
@@ -228,37 +214,35 @@ const DashboardView = ({
         : "informative")
     : "warning";
 
-  const statusIrrigation = useMemo(() => {
-    const irrigation = status?.irrigation;
-    if (!irrigation) return null;
-    return {
-      zone: irrigation.zone,
-      action: irrigation.action ?? null
-    };
-  }, [status]);
+  const statusIrrigation = status?.irrigation
+    ? { zone: status.irrigation.zone, action: status.irrigation.action ?? null }
+    : null;
 
-  const lastIrrigationChange = useMemo(() => {
+  const lastIrrigationChange = (() => {
     const statusTs = status?.changes?.irrigation ?? null;
     const parsed = statusTs ? Date.parse(statusTs) : null;
     return parsed && Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-  }, [status]);
+  })();
 
-  const precipitationSeries = useMemo<PrecipitationPoint[]>(() => {
-    if (!forecast) {
-      return [];
-    }
-    // Anchor "future" to the forecast fetch time (a pure value) instead of the
-    // render clock; the forecast refetches often enough to stay current.
-    const anchor = new Date(forecast.fetchedAt).getTime();
-    return forecast.precipitationOutlook
-      .filter((entry) => new Date(entry.periodStart).getTime() >= anchor)
-      .map((entry) => ({
-        timestamp: entry.periodStart,
-        probability: entry.probability ?? 0
-      }));
-  }, [forecast]);
+  // Anchor "future" to the forecast fetch time (a pure value) instead of the
+  // render clock; the forecast refetches often enough to stay current.
+  const precipitationSeries: PrecipitationPoint[] = forecast
+    ? forecast.precipitationOutlook
+        .filter(
+          (entry) =>
+            new Date(entry.periodStart).getTime() >=
+            new Date(forecast.fetchedAt).getTime()
+        )
+        .map((entry) => ({
+          timestamp: entry.periodStart,
+          probability: entry.probability ?? 0
+        }))
+    : [];
 
-  const { overviewCards, pressureOverview } = useMemo(() => {
+  const { overviewCards, pressureOverview } = ((): {
+    overviewCards: OverviewCardDefinition[];
+    pressureOverview: OverviewCardDefinition | null;
+  } => {
     if (!overviewStats) {
       return {
         overviewCards: [] as OverviewCardDefinition[],
@@ -363,31 +347,28 @@ const DashboardView = ({
       overviewCards: cards.filter((card) => card.key !== "pressure"),
       pressureOverview: cards.find((card) => card.key === "pressure") ?? null
     };
-  }, [overviewStats, chartTheme]);
+  })();
 
   const filterActive = Boolean(startDate || endDate);
 
-  const filterSummary = useMemo(() => {
-    if (!filterActive) {
-      return "Showing entire history";
-    }
-    const startLabel = startDate
-      ? format(startDate, "MMM d • h:mm a")
-      : "Beginning";
-    const endLabel = endDate
-      ? format(endDate, "MMM d • h:mm a")
-      : "Now";
-    return `${startLabel} – ${endLabel}`;
-  }, [filterActive, startDate, endDate]);
+  const filterSummary = !filterActive
+    ? "Showing entire history"
+    : `${startDate ? format(startDate, "MMM d • h:mm a") : "Beginning"} – ${
+        endDate ? format(endDate, "MMM d • h:mm a") : "Now"
+      }`;
 
   const overviewSubtitle =
     filterSummary === "Showing entire history" ? "the entire history" : filterSummary;
 
-  const waterPressureMeta = useMemo(() => {
+  const waterPressureMeta = ((): {
+    status: string;
+    tone: "positive" | "negative" | "informative";
+    detail?: string;
+  } => {
     if (latestWaterPsi === undefined) {
       return {
         status: "No data",
-        tone: "informative" as const,
+        tone: "informative",
         detail:
           latestBaselinePsi !== undefined
             ? `Baseline ${latestBaselinePsi.toFixed(1)} psi`
@@ -398,20 +379,17 @@ const DashboardView = ({
     if (latestBaselinePsi === undefined) {
       return {
         status: `${formatMetric(latestWaterPsi)} psi`,
-        tone: "informative" as const,
+        tone: "informative",
         detail: undefined
       };
     }
 
-    const tone: "positive" | "negative" =
-      latestWaterPsi >= latestBaselinePsi ? "positive" : "negative";
-
     return {
       status: `${formatMetric(latestWaterPsi)} psi`,
-      tone,
+      tone: latestWaterPsi >= latestBaselinePsi ? "positive" : "negative",
       detail: `Baseline ${latestBaselinePsi.toFixed(1)} psi`
     };
-  }, [latestWaterPsi, latestBaselinePsi]);
+  })();
 
   return (
     <>
