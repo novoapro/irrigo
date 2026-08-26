@@ -28,5 +28,9 @@ export function useChartTheme() {
       surface: get("--color-surface"),
       borderColor: get("--border-color-strong"),
     };
+    // `theme` is not referenced in the body but is the required signal: the
+    // values above are read from CSS custom properties on <html>, which change
+    // when the theme toggles. Recompute whenever `theme` changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
 }

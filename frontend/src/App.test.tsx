@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderWithProviders } from "./test/renderWithProviders";
 import type { RealtimeEvent } from "./types";
 
 /**
@@ -70,12 +70,7 @@ vi.mock("./components/HeaderHealthBar", () => ({ default: () => <div data-testid
 import App from "./App";
 import * as api from "./api";
 
-const renderApp = () =>
-  render(
-    <MemoryRouter>
-      <App />
-    </MemoryRouter>
-  );
+const renderApp = () => renderWithProviders(<App />);
 
 beforeEach(() => {
   capturedOnEvent = null;

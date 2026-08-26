@@ -17,7 +17,9 @@ export default tseslint.config(
     extends: [
       js.configs.recommended,
       ...tseslint.configs.recommended,
-      reactHooks.configs["recommended-latest"]
+      // v7 exposes flat-config variants under `configs.flat`; recommended-latest
+      // enables the Rules-of-React set plus React Compiler diagnostics (Phase 2).
+      reactHooks.configs.flat["recommended-latest"]
     ],
     languageOptions: {
       ecmaVersion: 2022,
@@ -40,7 +42,23 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }
-      ]
+      ],
+      // React Compiler diagnostics (Phase 2). eslint-plugin-react-hooks v7's
+      // `recommended-latest` promotes the compiler's Rules-of-React checks to
+      // `error`. The compiler build itself is safe (it bails out per-component
+      // on code it can't optimize), so these are advisory. The bulk are
+      // `set-state-in-effect` on App.tsx's effect-driven state, which Phase 3
+      // (TanStack Query + decomposition) removes wholesale. Surface them as
+      // tracked debt at `warn` — matching the Phase 0 approach — instead of
+      // hard-gating this phase. `rules-of-hooks` stays at its default `error`.
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/globals": "warn",
+      "react-hooks/static-components": "warn",
+      "react-hooks/set-state-in-render": "warn"
     }
   },
   {

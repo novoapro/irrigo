@@ -708,7 +708,7 @@ const App = () => {
       };
     }
     return null;
-  }, [status, latestHeartbeatSnapshot, forecast]);
+  }, [forecast]);
 
   const connectedSensors = useMemo(
     () =>
@@ -1348,7 +1348,7 @@ const App = () => {
           break;
       }
   },
-  [loadDeviceConfig, loadIrrigationEvents, loadIrrigationRecords, loadStatus, syncDataAfterHeartbeat, loadZones, loadLastAIRun, loadAIScheduleEnabled]
+  [loadDeviceConfig, loadIrrigationEvents, loadIrrigationRecords, loadStatus, syncDataAfterHeartbeat, loadZones, loadLastAIRun, loadAIScheduleEnabled, refreshRainPause]
   );
 
   useEffect(() => {

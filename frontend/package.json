@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.4",
     "date-fns": "^3.6.0",
     "react": "^19.2.8",
     "react-datepicker": "^7.5.0",
@@ -29,8 +30,9 @@
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^9.39.5",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.4.26",
     "globals": "^15.15.0",
     "jsdom": "^28.1.0",

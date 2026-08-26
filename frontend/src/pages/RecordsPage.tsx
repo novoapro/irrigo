@@ -89,6 +89,11 @@ const RecordsPage = () => {
 
   useEffect(() => {
     loadRecords(page, filters, debouncedPsi, startDate, endDate);
+    // Depend on the individual guard/rain/soil fields rather than the whole
+    // `filters` object: psiMin/psiMax are intentionally excluded here because
+    // they are applied via `debouncedPsi` (see the debounce effect above), so
+    // depending on `filters` would fire a fetch on every psi keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters.guard, filters.rain, filters.soil, debouncedPsi, startDate, endDate, loadRecords]);
 
   const totalPages = meta?.totalPages ?? 1;
