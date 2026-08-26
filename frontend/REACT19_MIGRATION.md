@@ -19,7 +19,7 @@ requested `19.2.7` does not exist as a published version).
 | 1 | React 19 version bump | 1 d | ✅ **Done** |
 | 2 | React Compiler + memo cleanup | 3–4 d | ✅ **Done** |
 | 3 | TanStack Query + `App.tsx` decomposition | 1.5–2 wk | ✅ **Done** |
-| 4 | React 19-native form idioms (optional) | 2–3 d | ⬜ Not started |
+| 4 | React 19-native form idioms (optional) | 2–3 d | ✅ **Assessed** (see notes) |
 
 ## How to verify (run from `frontend/`)
 
@@ -182,17 +182,73 @@ now run at `error` (0 lint errors).** How each pattern was fixed:
   `ZoneControlPanel`'s reconciliation of local UI state against incoming realtime
   `zoneStates` (×3). Each carries a rationale comment.
 
-**Result:** 100 tests passing, lint 0 errors (compiler rules at `error`),
-`tsc` + `vite build` clean.
+**Decomposition follow-through (done):** `DashboardView` was further split —
+its two trailing sections are now `components/dashboard/AIRunSummary.tsx` and
+`components/dashboard/HistoryWindow.tsx` (DashboardView 611 → 506 lines).
 
-**Possible follow-ups (not required):** split `DashboardView` (611 lines)
-further (e.g. `StatusSection`, `HistoryWindow`); extract App's realtime/refresh
-controller into a `useDashboardController` hook to thin the shell further.
+**Test coverage added (done):** behavioral tests now cover the migrated
+components — the 4 pages, the form modals (`ZoneFormModal`, `ProgramFormModal`),
+`ZoneCard` (countdown), `IrrigationQueuePanel` (mode-switch), `CompAISettings`,
+and `DashboardView`. **148 tests total** (was 100).
+
+**Independent audit (done):** a full behavioral audit of the migration diff
+(`ff152f9..`) found **no high-severity regressions**. Two items were fixed:
+- `zoneStates` realtime race — `zoneState:changed` now `cancelQueries` before the
+  optimistic `setQueryData`, so a concurrent `loadZones` refetch can't clobber a
+  fresh single-zone update (the old code had a `versionRef` guard that the
+  migration dropped).
+- device-config polling is now gated on `isRealtimeActive` (realtime-first),
+  instead of an unconditional 10-minute poll.
+Minor, intended differences left as-is: `IrrigationWidget` now ticks live every
+second (a deliberate improvement); the forecast refetch cadence is 15 min when
+realtime is down (vs the old hour-aligned timer) — realtime `forecast:new` still
+pushes live updates either way.
+
+**Result:** 148 tests passing, lint 0 errors (compiler rules at `error`),
+`tsc` + `vite build` clean, and a live read-only render against the real backend
+verified the dashboard renders production data correctly.
+
+**Optional, deliberately not done** (zero functional value under the compiler /
+architectural risk on a system that triggers real irrigation):
+- Stripping the now-redundant `useCallback`/`useMemo`: with the compiler enabled
+  these are harmless and compiler-preserved, so a 26-file strip is churn with no
+  runtime benefit. Auto-memoization is verified active (`useMemoCache` in the
+  bundle).
+- Extracting App's controller into a `useDashboardController` hook: pure code
+  relocation with no behavioral change; App at 806 lines (from 1,737) is already
+  a reasonable shell.
 
 ---
 
-## Phase 4 — React 19-native form idioms (optional) ⬜
+## Phase 4 — React 19-native form idioms (optional) ✅ ASSESSED
 
-- [ ] `useActionState` + `<form action>` for settings and manual-run forms
-- [ ] `useOptimistic` for the zone toggle (instant UI before realtime confirm)
-- [ ] `ref`-as-prop cleanup where applicable
+Phase 4's three idioms were evaluated against the code and, in this codebase,
+each is already realized by an equivalent-or-better pattern or is architecturally
+ill-suited — so adopting the raw primitives would be a lateral move or a
+regression, not an improvement. On a system that triggers **real irrigation**,
+churning working, safety-relevant flows for no functional gain isn't worth the
+risk. Findings:
+
+- [x] **`ref`-as-prop cleanup** — nothing to do: the codebase has **zero
+      `forwardRef`** usages; refs are already passed as plain props (React 19
+      idiomatic).
+- [~] **`useActionState` + `<form action>`** — the project already has a richer
+      equivalent: the `useActionStatus` hook + `<ActionButton>` (used by all 9
+      forms) wraps async actions with pending/success/error feedback **and
+      auto-resets** to idle after a feedback delay. Raw `useActionState` doesn't
+      auto-reset, so a straight conversion would *regress* the button UX (or
+      re-introduce a reset effect). And since this is a client SPA (no SSR), the
+      progressive-enhancement benefit of `<form action>` doesn't apply. Not
+      adopted.
+- [~] **`useOptimistic` for the zone toggle** — architecturally ill-suited here.
+      `useOptimistic` holds its optimistic value only for the duration of the
+      awaited action, then reverts to the real value. But a zone command is
+      confirmed **out-of-band via a separate realtime event**, not by the awaited
+      `sendZoneCommand` result — so `useOptimistic` would revert (flicker
+      on→off→on) the moment the POST resolves, before the controller confirms.
+      The existing `awaitingConfirmation` mechanism (holds the expected state,
+      shows a pending spinner, times out) is the correct pattern for
+      fire-and-await-realtime-confirmation. Not adopted.
+
+If desired, these can still be adopted as explicit follow-ups; the analysis above
+is the reasoning for leaving the current, working patterns in place.
