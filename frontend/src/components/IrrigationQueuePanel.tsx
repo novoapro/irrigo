@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import type { AIScheduleConfig, IrrigationMode, IrrigationProgram, ScheduleEntry, Zone } from "../types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { IrrigationMode, IrrigationProgram, ScheduleEntry, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
   fetchMaterializedProgramEntries,
@@ -481,11 +482,8 @@ const IrrigationQueuePanel = ({
   onOpenProgramSettings
 }: IrrigationQueuePanelProps) => {
   const navigate = useNavigate();
-  const [config, setConfig] = useState<AIScheduleConfig | null>(null);
-  const [aiPrograms, setAiPrograms] = useState<IrrigationProgram[]>([]);
-  const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [error] = useState<string | null>(null);
   const [modeChanging, setModeChanging] = useState(false);
 
   const canToggleMode = aiScheduleEnabled;
@@ -496,46 +494,45 @@ const IrrigationQueuePanel = ({
     return zone?.name ?? zoneId;
   }, [zones]);
 
-  const loadSmartData = useCallback(async () => {
-    try {
+  // Queue data is mode-switched; each mode is its own query, gated by
+  // `activeMode` and re-fetched when the parent bumps `refreshKey`. Replaces the
+  // manual load-effect + setState loaders (set-state-in-effect).
+  const smartQuery = useQuery({
+    queryKey: ["queuePanel", "smart", refreshKey],
+    queryFn: async () => {
       const [cfg, progs] = await Promise.all([
         fetchAIScheduleConfig(),
         fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred"] }),
       ]);
-      setConfig(cfg);
-      setAiPrograms(progs);
-    } catch (err) {
-      console.error("Failed to load AI schedule data:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return { config: cfg ?? null, aiPrograms: progs ?? [] };
+    },
+    enabled: activeMode === "smart"
+  });
 
-  const [programEntries, setProgramEntries] = useState<ScheduleEntry[]>([]);
-
-  const loadScheduledData = useCallback(async () => {
-    try {
+  const scheduledQuery = useQuery({
+    queryKey: ["queuePanel", "scheduled", refreshKey],
+    queryFn: async () => {
       const [data, matEntries] = await Promise.all([
         fetchPrograms({ source: "manual" }),
         fetchMaterializedProgramEntries(),
       ]);
-      setPrograms(data);
-      setProgramEntries(matEntries);
-    } catch (err) {
-      console.error("Failed to load programs:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return { programs: data ?? [], programEntries: matEntries ?? [] };
+    },
+    enabled: activeMode === "scheduled"
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    if (activeMode === "smart") {
-      void loadSmartData();
-    } else {
-      void loadScheduledData();
-    }
-  }, [activeMode, loadSmartData, loadScheduledData, refreshKey]);
+  const config = smartQuery.data?.config ?? null;
+  const aiPrograms = smartQuery.data?.aiPrograms ?? [];
+  const programs = scheduledQuery.data?.programs ?? [];
+  const programEntries = scheduledQuery.data?.programEntries ?? [];
+  const loading = activeMode === "smart" ? smartQuery.isLoading : scheduledQuery.isLoading;
+
+  const reloadSmart = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["queuePanel", "smart"] });
+  }, [queryClient]);
+  const reloadScheduled = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["queuePanel", "scheduled"] });
+  }, [queryClient]);
 
   const handleModeToggle = useCallback(async (mode: "smart" | "scheduled") => {
     if (mode === activeMode) return;
@@ -563,45 +560,45 @@ const IrrigationQueuePanel = ({
     try {
       if (activeMode === "smart" && seq.programId) {
         await cancelAIProgram(seq.programId);
-        void loadSmartData();
+        reloadSmart();
       } else {
         const ids = await materializeIfNeeded(seq);
         await Promise.all(ids.map((id) => skipScheduleEntry(id, "Manually skipped")));
-        void loadScheduledData();
+        reloadScheduled();
       }
     } catch (err) {
       console.error("Failed to skip:", err);
     }
-  }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
+  }, [materializeIfNeeded, activeMode, reloadSmart, reloadScheduled]);
 
   const handleDeferSequence = useCallback(async (seq: QueueSequence, newDate: Date) => {
     try {
       if (activeMode === "smart" && seq.programId) {
         await deferAIProgram(seq.programId, newDate);
-        void loadSmartData();
+        reloadSmart();
       } else {
         const ids = await materializeIfNeeded(seq);
         await Promise.all(ids.map((id) => deferScheduleEntry(id, newDate)));
-        void loadScheduledData();
+        reloadScheduled();
       }
     } catch (err) {
       console.error("Failed to defer:", err);
     }
-  }, [materializeIfNeeded, activeMode, loadSmartData, loadScheduledData]);
+  }, [materializeIfNeeded, activeMode, reloadSmart, reloadScheduled]);
 
   const handleCancelSequence = useCallback(async (seq: QueueSequence) => {
     try {
       if (activeMode === "smart" && seq.programId) {
         await cancelAIProgram(seq.programId);
-        void loadSmartData();
+        reloadSmart();
       } else {
         await cancelProgramRun();
-        void loadScheduledData();
+        reloadScheduled();
       }
     } catch (err) {
       console.error("Failed to cancel:", err);
     }
-  }, [activeMode, loadSmartData, loadScheduledData]);
+  }, [activeMode, reloadSmart, reloadScheduled]);
 
   const enabledPrograms = programs.filter((p) => p.enabled);
 
@@ -637,11 +634,11 @@ const IrrigationQueuePanel = ({
     if (!seq.programId) return;
     try {
       await rescheduleProgramEntries(seq.programId);
-      void loadScheduledData();
+      reloadScheduled();
     } catch (err) {
       console.error("Failed to reschedule:", err);
     }
-  }, [loadScheduledData]);
+  }, [reloadScheduled]);
 
   const activeSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred");
   const hasQueue = activeSequences.length > 0;

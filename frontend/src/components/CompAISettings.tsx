@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CompAIConfig, CompAIDiscoveredService, CompAIZoneConfig, Zone } from "../types";
 import {
   fetchCompAIConfig,
@@ -24,19 +25,47 @@ interface CompAISettingsProps {
 }
 
 const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettingsProps) => {
-  const [config, setConfig] = useState<CompAIConfig | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: config, isLoading } = useQuery({
+    queryKey: ["compAIConfig"],
+    queryFn: async () => (await fetchCompAIConfig()) ?? null
+  });
+
+  if (isLoading) {
+    return <p className="muted">Loading CompAI config...</p>;
+  }
+
+  return (
+    <CompAISettingsForm
+      key={config?.updatedAt ?? config?._id ?? "new"}
+      initialConfig={config ?? null}
+      zones={zones}
+      onZonesChanged={onZonesChanged}
+      onHealthChanged={onHealthChanged}
+    />
+  );
+};
+
+interface CompAISettingsFormProps {
+  initialConfig: CompAIConfig | null;
+  zones: Zone[];
+  onZonesChanged?: () => void;
+  onHealthChanged?: () => void;
+}
+
+const CompAISettingsForm = ({ initialConfig, zones, onZonesChanged, onHealthChanged }: CompAISettingsFormProps) => {
+  const queryClient = useQueryClient();
+  const config = initialConfig;
   const { status: saveStatus, wrap: wrapSave } = useActionStatus();
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [enabled, setEnabled] = useState(false);
-  const [deviceId, setDeviceId] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [authType, setAuthType] = useState<"none" | "bearer" | "apikey" | "basic">("none");
-  const [authToken, setAuthToken] = useState("");
-  const [timeoutMs, setTimeoutMs] = useState(10000);
-  const [webhookSecret, setWebhookSecret] = useState("");
+  const [enabled, setEnabled] = useState(initialConfig?.enabled ?? false);
+  const [deviceId, setDeviceId] = useState(initialConfig?.deviceId ?? "");
+  const [endpoint, setEndpoint] = useState(initialConfig?.endpoint ?? "");
+  const [authType, setAuthType] = useState<"none" | "bearer" | "apikey" | "basic">(initialConfig?.authType ?? "none");
+  const [authToken, setAuthToken] = useState(initialConfig?.authToken ?? "");
+  const [timeoutMs, setTimeoutMs] = useState(initialConfig?.timeoutMs ?? 10000);
+  const [webhookSecret, setWebhookSecret] = useState(initialConfig?.webhookSecret ?? "");
 
   // Discovery
   const [discoveredServices, setDiscoveredServices] = useState<CompAIDiscoveredService[]>([]);
@@ -48,34 +77,6 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
   // Zone mapping
   const [savingZone, setSavingZone] = useState<string | null>(null);
   const [zoneError, setZoneError] = useState<string | null>(null);
-
-  const populateForm = useCallback((c: CompAIConfig | null) => {
-    setEnabled(c?.enabled ?? false);
-    setDeviceId(c?.deviceId ?? "");
-    setEndpoint(c?.endpoint ?? "");
-    setAuthType(c?.authType ?? "none");
-    setAuthToken(c?.authToken ?? "");
-    setTimeoutMs(c?.timeoutMs ?? 10000);
-    setWebhookSecret(c?.webhookSecret ?? "");
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchCompAIConfig()
-      .then((c) => {
-        if (cancelled) return;
-        setConfig(c);
-        populateForm(c);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [populateForm]);
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -97,16 +98,15 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
         if (webhookSecret && !webhookSecret.includes("••••")) {
           payload.webhookSecret = webhookSecret;
         }
-        const result = await updateCompAIConfig(payload);
-        setConfig(result);
-        populateForm(result);
+        await updateCompAIConfig(payload);
+        await queryClient.invalidateQueries({ queryKey: ["compAIConfig"] });
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       onHealthChanged?.();
     }
-  }, [enabled, deviceId, endpoint, authType, authToken, timeoutMs, webhookSecret, populateForm, onHealthChanged, wrapSave]);
+  }, [enabled, deviceId, endpoint, authType, authToken, timeoutMs, webhookSecret, queryClient, onHealthChanged, wrapSave]);
 
   const handleTest = useCallback(async () => {
     setTestResult(null);
@@ -186,10 +186,6 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
       setSavingZone(null);
     }
   }, [onZonesChanged]);
-
-  if (loading) {
-    return <p className="muted">Loading CompAI config...</p>;
-  }
 
   const mappedCount = zones.filter((z) => z.compAI?.serviceId).length;
 

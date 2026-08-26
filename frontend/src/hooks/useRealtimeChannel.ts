@@ -114,6 +114,12 @@ export const useRealtimeChannel = ({
       return;
     }
     if (!isActive) {
+      // Legitimate external-system teardown: this effect owns the WebSocket
+      // lifecycle, and resetting the visible connection status to "idle" as we
+      // close the socket is the sanctioned "synchronize with an external
+      // system" use of an effect. Behaviour is pinned by the hook's
+      // characterization tests.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus("idle");
       clearReconnectTimer();
       resetBackoffCounters();

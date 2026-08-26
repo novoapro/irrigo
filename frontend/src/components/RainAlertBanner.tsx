@@ -1,19 +1,19 @@
-import { useEffect, useState } from "react";
-import { dismissRainAlert, fetchRainAlert, type RainAlert } from "../api";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { dismissRainAlert, fetchRainAlert } from "../api";
 import RainIntensityPicker from "./RainIntensityPicker";
 
 const RainAlertBanner = ({ refreshKey, onConfirmed }: { refreshKey?: number; onConfirmed?: () => void }) => {
-  const [alert, setAlert] = useState<RainAlert | null>(null);
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setDismissed(false);
-    fetchRainAlert()
-      .then((data) => { if (!cancelled) setAlert(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+  const { data: alert } = useQuery({
+    queryKey: ["rainAlert", refreshKey],
+    queryFn: async () => (await fetchRainAlert()) ?? null
+  });
+  // Track which refreshKey the banner was handled for (confirmed or dismissed),
+  // so a fresh alert (new refreshKey) shows again without a synchronous reset
+  // effect. Wrapped in an object so an unset value never collides with an
+  // undefined refreshKey.
+  const [handled, setHandled] = useState<{ key?: number } | null>(null);
+  const dismissed = handled !== null && handled.key === refreshKey;
 
   if (!alert?.alert || dismissed) return null;
 
@@ -29,11 +29,11 @@ const RainAlertBanner = ({ refreshKey, onConfirmed }: { refreshKey?: number; onC
       </div>
 
       <RainIntensityPicker
-        onConfirmed={() => { setAlert((a) => a ? { ...a, alert: false } : a); onConfirmed?.(); }}
+        onConfirmed={() => { setHandled({ key: refreshKey }); onConfirmed?.(); }}
         onDismiss={() => {
           // Hide immediately; persist the response so the alert stays answered
           // (server-side) until the next calendar day, across re-mounts and reloads.
-          setDismissed(true);
+          setHandled({ key: refreshKey });
           dismissRainAlert().catch(() => {});
         }}
         dismissLabel="No, it didn't rain"

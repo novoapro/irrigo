@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Zone, ZoneMetadata } from "../types";
 import Dropdown from "./Dropdown";
@@ -60,61 +60,37 @@ const getUniqueSlug = (base: string, existingIds: string[]): string => {
   return `${base}-${counter}`;
 };
 
-const EMPTY_METADATA: ZoneMetadata = {};
-
-const ZoneFormModal = ({ zone, existingZones, open, onSave, onDelete, onClose }: ZoneFormModalProps) => {
+// Body is mounted only while open and keyed by the target zone (see the
+// wrapper below), so form fields initialise straight from props — no prop-sync
+// effect (set-state-in-effect).
+const ZoneFormModalBody = ({ zone, existingZones, onSave, onDelete, onClose }: Omit<ZoneFormModalProps, "open">) => {
   const isEdit = Boolean(zone);
 
-  const [zoneId, setZoneId] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [defaultDuration, setDefaultDuration] = useState(15);
-  const [maxDuration, setMaxDuration] = useState(60);
-  const [enabled, setEnabled] = useState(true);
-  const [plantType, setPlantType] = useState("");
-  const [sunExposure, setSunExposure] = useState<"" | "full" | "partial" | "shade">("");
-  const [soilType, setSoilType] = useState("");
-  const [area, setArea] = useState("");
-  const [notes, setNotes] = useState("");
+  const [name, setName] = useState(zone?.name ?? "");
+  const [description, setDescription] = useState(zone?.description ?? "");
+  const [defaultDuration, setDefaultDuration] = useState(zone?.defaultDurationMinutes ?? 15);
+  const [maxDuration, setMaxDuration] = useState(zone?.maxDurationMinutes ?? 60);
+  const [enabled, setEnabled] = useState(zone?.enabled ?? true);
+  const [plantType, setPlantType] = useState(zone?.metadata?.plantType ?? "");
+  const [sunExposure, setSunExposure] = useState<"" | "full" | "partial" | "shade">(
+    (zone?.metadata?.sunExposure as "" | "full" | "partial" | "shade") ?? ""
+  );
+  const [soilType, setSoilType] = useState(zone?.metadata?.soilType ?? "");
+  const [area, setArea] = useState(zone?.metadata?.area?.toString() ?? "");
+  const [notes, setNotes] = useState(zone?.metadata?.notes ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, onClose);
 
-  useEffect(() => {
-    if (zone) {
-      setZoneId(zone.zoneId);
-      setName(zone.name);
-      setDescription(zone.description ?? "");
-      setDefaultDuration(zone.defaultDurationMinutes);
-      setMaxDuration(zone.maxDurationMinutes);
-      setEnabled(zone.enabled);
-      setPlantType(zone.metadata?.plantType ?? "");
-      setSunExposure((zone.metadata?.sunExposure as "" | "full" | "partial" | "shade") ?? "");
-      setSoilType(zone.metadata?.soilType ?? "");
-      setArea(zone.metadata?.area?.toString() ?? "");
-      setNotes(zone.metadata?.notes ?? "");
-    } else {
-      setZoneId("");
-      setName("");
-      setDescription("");
-      setDefaultDuration(15);
-      setMaxDuration(60);
-      setEnabled(true);
-      setPlantType("");
-      setSunExposure("");
-      setSoilType("");
-      setArea("");
-      setNotes("");
-    }
-    setConfirmDelete(false);
-  }, [zone, open]);
-
-  useEffect(() => {
-    if (isEdit) return;
-    const slug = slugify(name);
-    if (!slug) { setZoneId(""); return; }
-    const otherIds = existingZones.map(z => z.zoneId);
-    setZoneId(getUniqueSlug(slug, otherIds));
-  }, [name, isEdit, existingZones]);
+  // Zone ID is display-only: it comes from the zone when editing, and is
+  // derived from the name (unique slug) when creating — so it's a pure value,
+  // not state driven by an effect.
+  const zoneId = isEdit
+    ? zone?.zoneId ?? ""
+    : (() => {
+        const slug = slugify(name);
+        if (!slug) return "";
+        return getUniqueSlug(slug, existingZones.map((z) => z.zoneId));
+      })();
 
   const handleSubmit = useCallback(async () => {
     const metadata: ZoneMetadata = {};
@@ -134,8 +110,6 @@ const ZoneFormModal = ({ zone, existingZones, open, onSave, onDelete, onClose }:
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     }));
   }, [zoneId, name, description, defaultDuration, maxDuration, enabled, plantType, sunExposure, soilType, area, notes, onSave, wrapSave]);
-
-  if (!open) return null;
 
   return createPortal(
     <div className="modal-overlay" role="dialog" aria-modal="true">
@@ -350,6 +324,13 @@ const ZoneFormModal = ({ zone, existingZones, open, onSave, onDelete, onClose }:
     </div>,
     document.body
   );
+};
+
+// Wrapper: mount the form only while open, keyed by the target zone so each
+// open (or switching which zone is edited) initialises fresh from props.
+const ZoneFormModal = ({ open, ...rest }: ZoneFormModalProps) => {
+  if (!open) return null;
+  return <ZoneFormModalBody key={rest.zone?.zoneId ?? "new"} {...rest} />;
 };
 
 export default ZoneFormModal;

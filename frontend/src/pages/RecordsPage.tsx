@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { deleteHeartbeats, fetchHeartbeats, type HeartbeatQuery } from "../api";
-import type { Heartbeat, HeartbeatListMeta } from "../types";
+import type { HeartbeatListResponse } from "../types";
 import HistorySection from "../components/HistorySection";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
@@ -28,17 +29,13 @@ const defaultFilters: Filters = {
 };
 
 const RecordsPage = () => {
-  const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
-  const [meta, setMeta] = useState<HeartbeatListMeta | null>(null);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
 
-  const mountedRef = useRef(true);
   const psiDebounceRef = useRef<number | null>(null);
   const [debouncedPsi, setDebouncedPsi] = useState({ psiMin: "", psiMax: "" });
 
@@ -51,50 +48,49 @@ const RecordsPage = () => {
     return () => { if (psiDebounceRef.current) clearTimeout(psiDebounceRef.current); };
   }, [filters.psiMin, filters.psiMax]);
 
-  const loadRecords = useCallback(
-    async (p: number, f: Filters, psi: { psiMin: string; psiMax: string }, start: Date | null, end: Date | null) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const query: HeartbeatQuery = {
-          page: p,
-          pageSize: PAGE_SIZE,
-          start: start ? toQueryDateTime(start) : undefined,
-          end: end ? toQueryDateTime(end) : undefined
-        };
-        if (f.guard !== "all") query.guard = f.guard as "true" | "false";
-        if (f.rain !== "all") query.rain = f.rain as "true" | "false";
-        if (f.soil !== "all") query.soil = f.soil as "true" | "false";
-        if (psi.psiMin.trim()) query.psiMin = psi.psiMin.trim();
-        if (psi.psiMax.trim()) query.psiMax = psi.psiMax.trim();
+  const start = startDate ? toQueryDateTime(startDate) : undefined;
+  const end = endDate ? toQueryDateTime(endDate) : undefined;
 
-        const result = await fetchHeartbeats(query);
-        if (!mountedRef.current) return;
-        setHeartbeats(result.data);
-        setMeta(result.meta);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load records");
-      } finally {
-        if (mountedRef.current) setLoading(false);
+  const query = useQuery({
+    queryKey: [
+      "records",
+      {
+        page,
+        guard: filters.guard,
+        rain: filters.rain,
+        soil: filters.soil,
+        psiMin: debouncedPsi.psiMin,
+        psiMax: debouncedPsi.psiMax,
+        start,
+        end
       }
-    },
-    []
-  );
+    ],
+    queryFn: async (): Promise<HeartbeatListResponse | null> => {
+      const q: HeartbeatQuery = {
+        page,
+        pageSize: PAGE_SIZE,
+        start,
+        end
+      };
+      if (filters.guard !== "all") q.guard = filters.guard as "true" | "false";
+      if (filters.rain !== "all") q.rain = filters.rain as "true" | "false";
+      if (filters.soil !== "all") q.soil = filters.soil as "true" | "false";
+      if (debouncedPsi.psiMin.trim()) q.psiMin = debouncedPsi.psiMin.trim();
+      if (debouncedPsi.psiMax.trim()) q.psiMax = debouncedPsi.psiMax.trim();
+      return (await fetchHeartbeats(q)) ?? null;
+    }
+  });
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  useEffect(() => {
-    loadRecords(page, filters, debouncedPsi, startDate, endDate);
-    // Depend on the individual guard/rain/soil fields rather than the whole
-    // `filters` object: psiMin/psiMax are intentionally excluded here because
-    // they are applied via `debouncedPsi` (see the debounce effect above), so
-    // depending on `filters` would fire a fetch on every psi keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filters.guard, filters.rain, filters.soil, debouncedPsi, startDate, endDate, loadRecords]);
+  const heartbeats = query.data?.data ?? [];
+  const meta = query.data?.meta ?? null;
+  const loading = query.isLoading;
+  const [error, setError] = useState<string | null>(null);
+  const queryError = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Failed to load records"
+    : null;
+  const displayError = error ?? queryError;
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? heartbeats.length;
@@ -134,13 +130,13 @@ const RecordsPage = () => {
       await deleteHeartbeats(query);
       setConfirmDelete(false);
       setPage(1);
-      loadRecords(1, filters, debouncedPsi, startDate, endDate);
+      queryClient.invalidateQueries({ queryKey: ["records"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete records");
     } finally {
       setDeleting(false);
     }
-  }, [startDate, endDate, filters, debouncedPsi, loadRecords]);
+  }, [startDate, endDate, filters, debouncedPsi, queryClient]);
 
   return (
     <div className="records-page">
@@ -167,7 +163,7 @@ const RecordsPage = () => {
         )}
       </header>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {displayError ? <div className="error-banner">{displayError}</div> : null}
 
       <div className="records-filters records-filters--no-border">
         <div className="records-filters__row">

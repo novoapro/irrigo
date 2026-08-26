@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import type { IrrigationProgram, ProgramZoneEntry, Zone } from "../types";
 import { createProgram, updateProgram } from "../api";
@@ -82,48 +82,44 @@ interface ProgramFormModalProps {
   program?: IrrigationProgram | null;
 }
 
-const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFormModalProps) => {
-  const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, onClose);
-  const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [enabled, setEnabled] = useState(true);
-  const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
-  const [timeMinutes, setTimeMinutes] = useState(360);
-  const [selectedDays, setSelectedDays] = useState<number[]>([1, 3, 5]);
-  const [zoneEntries, setZoneEntries] = useState<Record<string, { included: boolean; duration: number }>>({});
+type ZoneEntryMap = Record<string, { included: boolean; duration: number }>;
 
-  useEffect(() => {
-    if (!open) return;
+const buildInitialZoneEntries = (
+  zones: Zone[],
+  program?: IrrigationProgram | null
+): ZoneEntryMap => {
+  const entries: ZoneEntryMap = {};
+  for (const zone of zones) {
     if (program) {
-      setName(program.name);
-      setEnabled(program.enabled);
-      const parsed = parseCron(program.scheduleCron ?? "0 6 * * *");
-      setFrequency(parsed.frequency);
-      setTimeMinutes(parsed.timeMinutes);
-      if (parsed.selectedDays.length > 0) setSelectedDays(parsed.selectedDays);
-      const entries: Record<string, { included: boolean; duration: number }> = {};
-      for (const zone of zones) {
-        const existing = program.zoneEntries.find((e) => e.zoneId === zone.zoneId);
-        entries[zone.zoneId] = {
-          included: !!existing,
-          duration: existing?.durationMinutes ?? zone.defaultDurationMinutes
-        };
-      }
-      setZoneEntries(entries);
+      const existing = program.zoneEntries.find((e) => e.zoneId === zone.zoneId);
+      entries[zone.zoneId] = {
+        included: !!existing,
+        duration: existing?.durationMinutes ?? zone.defaultDurationMinutes
+      };
     } else {
-      setName("");
-      setEnabled(true);
-      setFrequency("daily");
-      setTimeMinutes(360);
-      setSelectedDays([1, 3, 5]);
-      const entries: Record<string, { included: boolean; duration: number }> = {};
-      for (const zone of zones) {
-        entries[zone.zoneId] = { included: zone.enabled, duration: zone.defaultDurationMinutes };
-      }
-      setZoneEntries(entries);
+      entries[zone.zoneId] = { included: zone.enabled, duration: zone.defaultDurationMinutes };
     }
-    setError(null);
-  }, [open, program, zones]);
+  }
+  return entries;
+};
+
+// Body is mounted only while open and keyed by the target program (see the
+// wrapper below), so form state initialises from props at mount — no prop-sync
+// effect (set-state-in-effect).
+const ProgramFormModalBody = ({ onClose, onSaved, zones, program }: Omit<ProgramFormModalProps, "open">) => {
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus(2000, onClose);
+  const cron = program ? parseCron(program.scheduleCron ?? "0 6 * * *") : null;
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState(program?.name ?? "");
+  const [enabled, setEnabled] = useState(program?.enabled ?? true);
+  const [frequency, setFrequency] = useState<ScheduleFrequency>(cron?.frequency ?? "daily");
+  const [timeMinutes, setTimeMinutes] = useState(cron?.timeMinutes ?? 360);
+  const [selectedDays, setSelectedDays] = useState<number[]>(
+    cron && cron.selectedDays.length > 0 ? cron.selectedDays : [1, 3, 5]
+  );
+  const [zoneEntries, setZoneEntries] = useState<ZoneEntryMap>(() =>
+    buildInitialZoneEntries(zones, program)
+  );
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -177,8 +173,6 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
       [zoneId]: { ...prev[zoneId]!, duration }
     }));
   };
-
-  if (!open) return null;
 
   return createPortal(
     <div className="modal-overlay" role="dialog" aria-modal="true">
@@ -337,6 +331,13 @@ const ProgramFormModal = ({ open, onClose, onSaved, zones, program }: ProgramFor
     </div>,
     document.body
   );
+};
+
+// Wrapper: mount the form only while open, keyed by the target program so each
+// open (or switching which program is edited) initialises fresh from props.
+const ProgramFormModal = ({ open, ...rest }: ProgramFormModalProps) => {
+  if (!open) return null;
+  return <ProgramFormModalBody key={rest.program?.programId ?? "new"} {...rest} />;
 };
 
 export default ProgramFormModal;

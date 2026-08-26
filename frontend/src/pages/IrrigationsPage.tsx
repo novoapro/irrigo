@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
-import { deleteIrrigationRecords, fetchIrrigationRecords, fetchZones, type IrrigationRecordQuery } from "../api";
-import type { IrrigationRecord, IrrigationSource, Zone } from "../types";
-import type { HeartbeatListMeta } from "../types";
+import { deleteIrrigationRecords, fetchIrrigationRecords, type IrrigationRecordQuery } from "../api";
+import type { IrrigationRecordListResponse, IrrigationSource } from "../types";
+import { useZonesQuery } from "../queries/dashboard";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
 import { formatTimestamp, formatDurationLabel, toQueryDateTime } from "../utils/date";
@@ -29,11 +30,8 @@ const sourceLabel = (source: IrrigationSource) => {
 };
 
 const IrrigationsPage = () => {
-  const [records, setRecords] = useState<IrrigationRecord[]>([]);
-  const [meta, setMeta] = useState<HeartbeatListMeta | null>(null);
-  const [zones, setZones] = useState<Zone[]>([]);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -41,45 +39,38 @@ const IrrigationsPage = () => {
   const [zoneFilter, setZoneFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
 
-  const mountedRef = useRef(true);
+  const zones = useZonesQuery().data ?? [];
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchZones().then(setZones).catch(() => {});
-    return () => { mountedRef.current = false; };
-  }, []);
+  const start = startDate ? toQueryDateTime(startDate) : undefined;
+  const end = endDate ? toQueryDateTime(endDate) : undefined;
 
-  const loadRecords = useCallback(
-    async (p: number, start: Date | null, end: Date | null, zone: string, source: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const query: IrrigationRecordQuery = {
-          page: p,
-          pageSize: PAGE_SIZE,
-          start: start ? toQueryDateTime(start) : undefined,
-          end: end ? toQueryDateTime(end) : undefined
-        };
-        if (zone !== "all") query.zoneId = zone;
-        if (source !== "all") query.source = source;
+  const query = useQuery({
+    queryKey: [
+      "irrigationRecordsPage",
+      { page, start, end, zoneFilter, sourceFilter }
+    ],
+    queryFn: async (): Promise<IrrigationRecordListResponse | null> => {
+      const q: IrrigationRecordQuery = {
+        page,
+        pageSize: PAGE_SIZE,
+        start,
+        end
+      };
+      if (zoneFilter !== "all") q.zoneId = zoneFilter;
+      if (sourceFilter !== "all") q.source = sourceFilter;
+      return (await fetchIrrigationRecords(q)) ?? null;
+    }
+  });
 
-        const result = await fetchIrrigationRecords(query);
-        if (!mountedRef.current) return;
-        setRecords(result.data);
-        setMeta(result.meta);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load records");
-      } finally {
-        if (mountedRef.current) setLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    loadRecords(page, startDate, endDate, zoneFilter, sourceFilter);
-  }, [page, startDate, endDate, zoneFilter, sourceFilter, loadRecords]);
+  const records = query.data?.data ?? [];
+  const meta = query.data?.meta ?? null;
+  const loading = query.isLoading;
+  const queryError = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Failed to load records"
+    : null;
+  const displayError = error ?? queryError;
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? records.length;
@@ -105,13 +96,13 @@ const IrrigationsPage = () => {
       await deleteIrrigationRecords(query);
       setConfirmDelete(false);
       setPage(1);
-      loadRecords(1, startDate, endDate, zoneFilter, sourceFilter);
+      queryClient.invalidateQueries({ queryKey: ["irrigationRecordsPage"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete records");
     } finally {
       setDeleting(false);
     }
-  }, [startDate, endDate, zoneFilter, sourceFilter, loadRecords]);
+  }, [startDate, endDate, zoneFilter, sourceFilter, queryClient]);
 
   const handleReset = () => {
     setStartDate(null);
@@ -159,7 +150,7 @@ const IrrigationsPage = () => {
         )}
       </header>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {displayError ? <div className="error-banner">{displayError}</div> : null}
 
       <div className="records-filters records-filters--no-border">
         <div className="records-filters__row">

@@ -124,10 +124,15 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   }, []);
 
   useEffect(() => {
+    // Reconcile pending command confirmations against the latest (realtime)
+    // zone states: once a zone reaches its expected state, drop the pending
+    // confirmation and its timeout. This reacts to external state changes, so
+    // the state update legitimately lives in an effect.
     const awaiting = Object.entries(awaitingConfirmation);
     for (const [zoneId, { expectedActive }] of awaiting) {
       const currentActive = zoneStates[zoneId]?.isActive ?? false;
       if (currentActive === expectedActive) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         clearConfirmation(zoneId);
       }
     }
@@ -193,11 +198,17 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   );
   const anyManualRunZoneActive = manualRunZoneIds.some((id) => zoneStates[id]?.isActive);
 
+  // Latched action flags that must clear when the manual run actually
+  // starts/stops (observed via realtime zone states) — not derivable in render
+  // without losing the latch. Reacting to that external transition in an effect
+  // is the intended use.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (runningAll && anyManualRunZoneActive) setRunningAll(false);
   }, [runningAll, anyManualRunZoneActive]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (cancelling && !anyManualRunZoneActive) setCancelling(false);
   }, [cancelling, anyManualRunZoneActive]);
 

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AIScheduleConfig, IrrigationProgram, ScheduleEntry, ScheduleRun, Zone } from "../types";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { ScheduleEntry, ScheduleRun, Zone } from "../types";
 import {
   fetchAIScheduleConfig,
   fetchPrograms,
@@ -135,10 +136,6 @@ const EntryCard = ({
 );
 
 const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedulePanelProps) => {
-  const [config, setConfig] = useState<AIScheduleConfig | null>(null);
-  const [aiPrograms, setAiPrograms] = useState<IrrigationProgram[]>([]);
-  const [recentRuns, setRecentRuns] = useState<ScheduleRun[]>([]);
-  const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
@@ -147,49 +144,48 @@ const AISchedulePanel = ({ zones, onScheduleChanged, onOpenSettings }: AISchedul
   const [interactionRun, setInteractionRun] = useState<ScheduleRun | null>(null);
   const [loadingInteraction, setLoadingInteraction] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
+  const { data, isLoading: loading, refetch } = useQuery({
+    queryKey: ["aiSchedulePanel"],
+    queryFn: async () => {
       const [cfg, progs, runs] = await Promise.all([
         fetchAIScheduleConfig(),
         fetchPrograms({ source: "ai-schedule", status: ["planned", "executing", "deferred"] }),
         fetchScheduleRuns(1)
       ]);
-      setConfig(cfg);
-      setAiPrograms(progs);
-      setRecentRuns(runs.data);
-    } catch (err) {
-      console.error("Failed to load AI schedule data:", err);
-    } finally {
-      setLoading(false);
+      return {
+        config: cfg ?? null,
+        aiPrograms: progs ?? [],
+        recentRuns: runs.data ?? []
+      };
     }
-  }, []);
+  });
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const config = data?.config ?? null;
+  const aiPrograms = data?.aiPrograms ?? [];
+  const recentRuns = data?.recentRuns ?? [];
 
   const handleRunNow = useCallback(async () => {
     setRunning(true);
     setError(null);
     try {
       await triggerAIScheduleRun();
-      void loadData();
+      void refetch();
       onScheduleChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run failed");
     } finally {
       setRunning(false);
     }
-  }, [loadData, onScheduleChanged]);
+  }, [refetch, onScheduleChanged]);
 
   const handleCancelProgram = useCallback(async (programId: string) => {
     try {
       await cancelAIProgram(programId);
-      void loadData();
+      void refetch();
     } catch (err) {
       console.error("Failed to cancel program:", err);
     }
-  }, [loadData]);
+  }, [refetch]);
 
   const handleToggleRun = useCallback(async (runId: string) => {
     if (expandedRun === runId) {

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { fetchScheduleRuns, fetchScheduleRun, deleteScheduleRuns } from "../api";
-import type { ScheduleEntry, ScheduleRun, Zone } from "../types";
-import type { HeartbeatListMeta } from "../types";
+import type { HeartbeatListMeta, ScheduleEntry, ScheduleRun, Zone } from "../types";
 import DateTimeInput from "../components/DateTimeInput";
 import AIInteractionModal from "../components/AIInteractionModal";
 import { toQueryDateTime } from "../utils/date";
@@ -25,10 +25,8 @@ interface AIRunsPageProps {
 }
 
 const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
-  const [runs, setRuns] = useState<ScheduleRun[]>([]);
-  const [meta, setMeta] = useState<HeartbeatListMeta | null>(null);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -43,35 +41,28 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const mountedRef = useRef(true);
+  const start = startDate ? toQueryDateTime(startDate) : undefined;
+  const end = endDate ? toQueryDateTime(endDate) : undefined;
 
-  const loadRuns = useCallback(async (p: number, start: Date | null, end: Date | null) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const query: { start?: string; end?: string } = {};
-      if (start) query.start = toQueryDateTime(start);
-      if (end) query.end = toQueryDateTime(end);
-      const result = await fetchScheduleRuns(p, query);
-      if (!mountedRef.current) return;
-      setRuns(result.data);
-      setMeta(result.meta);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setError(err instanceof Error ? err.message : "Failed to load AI runs");
-    } finally {
-      if (mountedRef.current) setLoading(false);
+  const query = useQuery({
+    queryKey: ["aiRuns", { page, start, end }],
+    queryFn: async (): Promise<{ data: ScheduleRun[]; meta: HeartbeatListMeta } | null> => {
+      const q: { start?: string; end?: string } = {};
+      if (start) q.start = start;
+      if (end) q.end = end;
+      return (await fetchScheduleRuns(page, q)) ?? null;
     }
-  }, []);
+  });
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  useEffect(() => {
-    loadRuns(page, startDate, endDate);
-  }, [page, startDate, endDate, loadRuns]);
+  const runs = useMemo(() => query.data?.data ?? [], [query.data]);
+  const meta = query.data?.meta ?? null;
+  const loading = query.isLoading;
+  const queryError = query.error
+    ? query.error instanceof Error
+      ? query.error.message
+      : "Failed to load AI runs"
+    : null;
+  const displayError = error ?? queryError;
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? runs.length;
@@ -94,13 +85,13 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
       await deleteScheduleRuns(query);
       setConfirmDelete(false);
       setPage(1);
-      loadRuns(1, startDate, endDate);
+      queryClient.invalidateQueries({ queryKey: ["aiRuns"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete runs");
     } finally {
       setDeleting(false);
     }
-  }, [startDate, endDate, loadRuns]);
+  }, [startDate, endDate, queryClient]);
 
   const handleToggleExpand = useCallback(async (runId: string) => {
     if (expandedRunId === runId) {
@@ -161,7 +152,7 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
         )}
       </header>
 
-      {error && <div className="error-banner">{error}</div>}
+      {displayError && <div className="error-banner">{displayError}</div>}
 
       <div className="records-filters records-filters--no-border">
         <div className="records-filters__row">

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { SequentialRunZoneEntry, Zone, ZoneState } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
+import { useNow } from "../hooks/useNow";
 
 const MIN_DURATION = 1;
 const MAX_DURATION = 60;
@@ -77,9 +78,6 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
   const [selectedDuration, setSelectedDuration] = useState(() =>
     getPersistedDuration(zone.zoneId, zone.defaultDurationMinutes)
   );
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const countdownRef = useRef<number | null>(null);
-
   const handleDurationChange = useCallback((value: number) => {
     setSelectedDuration(value);
     try { localStorage.setItem(DURATION_STORAGE_KEY + zone.zoneId, String(value)); } catch { /* ignore */ }
@@ -89,49 +87,22 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
     ?? awaitingConfirmation?.durationMinutes
     ?? selectedDuration;
 
-  useEffect(() => {
-    if (countdownRef.current != null) {
-      window.clearInterval(countdownRef.current);
-      countdownRef.current = null;
-    }
-
+  // Live countdown derived from a ticking clock (only while a run is active)
+  // instead of an interval + setState effect (set-state-in-effect).
+  const now = useNow(isActive && state?.lastEventAt ? 1000 : null);
+  const countdown = ((): number | null => {
     if (!isActive || !state?.lastEventAt) {
-      setCountdown(null);
-      return;
+      return null;
     }
-
-    const hasServerRemaining = state.remainingSeconds != null && state.remainingUpdatedAt;
-
-    const tick = () => {
-      let remaining: number;
-
-      if (hasServerRemaining) {
-        const updatedAtMs = new Date(state.remainingUpdatedAt!).getTime();
-        const elapsed = (Date.now() - updatedAtMs) / 1000;
-        remaining = Math.max(0, Math.ceil(state.remainingSeconds! - elapsed));
-      } else {
-        const startMs = new Date(state.lastEventAt!).getTime();
-        const totalMs = activeDuration * 60_000;
-        remaining = Math.max(0, Math.ceil((totalMs - (Date.now() - startMs)) / 1000));
-      }
-
-      setCountdown(remaining);
-      if (remaining <= 0 && countdownRef.current != null) {
-        window.clearInterval(countdownRef.current);
-        countdownRef.current = null;
-      }
-    };
-
-    tick();
-    countdownRef.current = window.setInterval(tick, 1000);
-
-    return () => {
-      if (countdownRef.current != null) {
-        window.clearInterval(countdownRef.current);
-        countdownRef.current = null;
-      }
-    };
-  }, [isActive, state?.lastEventAt, state?.remainingSeconds, state?.remainingUpdatedAt, activeDuration]);
+    if (state.remainingSeconds != null && state.remainingUpdatedAt) {
+      const updatedAtMs = new Date(state.remainingUpdatedAt).getTime();
+      const elapsed = (now - updatedAtMs) / 1000;
+      return Math.max(0, Math.ceil(state.remainingSeconds - elapsed));
+    }
+    const startMs = new Date(state.lastEventAt).getTime();
+    const totalMs = activeDuration * 60_000;
+    return Math.max(0, Math.ceil((totalMs - (now - startMs)) / 1000));
+  })();
 
   const handleToggle = useCallback(() => {
     if (isActive) {

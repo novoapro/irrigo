@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { Zone } from "../types";
 import {
   fetchDebugConfig,
@@ -70,38 +71,43 @@ interface DebugSettingsProps {
 }
 
 const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
-  const [loading, setLoading] = useState(true);
+  const { data: config, isLoading } = useQuery({
+    queryKey: ["debugConfig"],
+    queryFn: async () => (await fetchDebugConfig()) ?? null
+  });
+
+  if (isLoading) return <p className="debug-settings__loading">Loading debug config...</p>;
+
+  return (
+    <DebugSettingsForm
+      key={config?.updatedAt ?? config?._id ?? "new"}
+      initialEnabled={config?.enabled ?? false}
+      zones={zones}
+      onDebugModeChanged={onDebugModeChanged}
+    />
+  );
+};
+
+interface DebugSettingsFormProps {
+  initialEnabled: boolean;
+  zones: Zone[];
+  onDebugModeChanged?: (enabled: boolean) => void;
+}
+
+const DebugSettingsForm = ({ initialEnabled, zones, onDebugModeChanged }: DebugSettingsFormProps) => {
   const [error, setError] = useState<string | null>(null);
   const { status: saveStatus, wrap: wrapSave } = useActionStatus();
 
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(initialEnabled);
 
   const [simZoneId, setSimZoneId] = useState("");
   const [simCharacteristic, setSimCharacteristic] = useState<CharacteristicKey>("active");
   const [simValue, setSimValue] = useState("1");
   const [simResult, setSimResult] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchDebugConfig()
-      .then((c) => {
-        if (!cancelled) setEnabled(c?.enabled ?? false);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (zones.length > 0 && !simZoneId) {
-      setSimZoneId(zones[0].zoneId);
-    }
-  }, [zones, simZoneId]);
+  // Default the simulate zone to the first available zone without a
+  // prop→state sync effect.
+  const effectiveSimZoneId = simZoneId || zones[0]?.zoneId || "";
 
   const handleCharacteristicChange = useCallback((key: string) => {
     const k = key as CharacteristicKey;
@@ -121,19 +127,17 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
     setSimResult(null);
     try {
       const result = await simulateCharacteristic({
-        zoneId: simZoneId,
+        zoneId: effectiveSimZoneId,
         characteristic: simCharacteristic,
         value: Number(simValue)
       });
-      const zoneName = result.zoneName ?? simZoneId;
+      const zoneName = result.zoneName ?? effectiveSimZoneId;
       const charLabel = CHARACTERISTICS.find((c) => c.value === result.characteristic)?.label ?? result.characteristic;
       setSimResult(`${zoneName} — ${charLabel}: ${result.action}`);
     } catch (err) {
       setSimResult(err instanceof Error ? err.message : "Failed");
     }
-  }, [simZoneId, simCharacteristic, simValue]);
-
-  if (loading) return <p className="debug-settings__loading">Loading debug config...</p>;
+  }, [effectiveSimZoneId, simCharacteristic, simValue]);
 
   return (
     <div className="debug-settings">
@@ -192,7 +196,7 @@ const DebugSettings = ({ zones, onDebugModeChanged }: DebugSettingsProps) => {
             <div className="form-group">
               <label>Zone</label>
               <Dropdown
-                value={simZoneId}
+                value={effectiveSimZoneId}
                 options={zones.map((z) => ({ value: z.zoneId, label: z.name }))}
                 onChange={setSimZoneId}
               />

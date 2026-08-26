@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ExternalControllerConfig, Zone } from "../types";
 import {
   fetchExternalControllerConfig,
@@ -21,95 +22,12 @@ interface ExternalControllerSettingsProps {
 
 const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) => {
   const [collapsed, setCollapsed] = useState(true);
-  const [config, setConfig] = useState<ExternalControllerConfig | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { status: saveStatus, wrap: wrapSave } = useActionStatus();
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: config, isLoading } = useQuery({
+    queryKey: ["externalControllerConfig"],
+    queryFn: async () => (await fetchExternalControllerConfig()) ?? null
+  });
 
-  const [name, setName] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const [authType, setAuthType] = useState<"none" | "bearer" | "apikey" | "basic">("none");
-  const [authToken, setAuthToken] = useState("");
-  const [commandPath, setCommandPath] = useState("");
-  const [timeoutMs, setTimeoutMs] = useState(10000);
-  const [enabled, setEnabled] = useState(true);
-  const [zoneMapping, setZoneMapping] = useState<Record<string, string>>({});
-
-  const populateForm = useCallback((c: ExternalControllerConfig | null) => {
-    setName(c?.name ?? "");
-    setEndpoint(c?.endpoint ?? "");
-    setAuthType(c?.authType ?? "none");
-    setAuthToken(c?.authToken ?? "");
-    setCommandPath(c?.commandPath ?? "");
-    setTimeoutMs(c?.timeoutMs ?? 10000);
-    setEnabled(c?.enabled ?? true);
-    setZoneMapping(c?.zoneMapping ?? {});
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchExternalControllerConfig()
-      .then((c) => {
-        if (cancelled) return;
-        setConfig(c);
-        populateForm(c);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [populateForm]);
-
-  const handleSave = useCallback(async () => {
-    setError(null);
-    try {
-      await wrapSave(async () => {
-        const payload: Partial<ExternalControllerConfig> = {
-          name,
-          endpoint,
-          authType,
-          commandPath: commandPath || undefined,
-          timeoutMs,
-          enabled,
-          zoneMapping
-        };
-        if (authToken && !authToken.includes("••••")) {
-          payload.authToken = authToken;
-        }
-        const result = await updateExternalControllerConfig(payload);
-        setConfig(result);
-        populateForm(result);
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    }
-  }, [name, endpoint, authType, authToken, commandPath, timeoutMs, enabled, zoneMapping, populateForm, wrapSave]);
-
-  const handleTest = useCallback(async () => {
-    setTestResult(null);
-    const result = await testExternalController();
-    setTestResult(result);
-    if (!result.success) throw new Error(result.message);
-  }, []);
-
-  const handleMappingChange = useCallback((zoneId: string, value: string) => {
-    setZoneMapping((prev) => {
-      const next = { ...prev };
-      if (value) {
-        next[zoneId] = value;
-      } else {
-        delete next[zoneId];
-      }
-      return next;
-    });
-  }, []);
-
-  if (loading) {
+  if (isLoading) {
     return <p className="muted">Loading controller config...</p>;
   }
 
@@ -131,7 +49,82 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
         </svg>
       </button>
 
-      {!collapsed && <>
+      {!collapsed && (
+        <ExternalControllerForm
+          key={config?.updatedAt ?? config?._id ?? "new"}
+          initialConfig={config ?? null}
+          zones={zones}
+        />
+      )}
+    </div>
+  );
+};
+
+interface ExternalControllerFormProps {
+  initialConfig: ExternalControllerConfig | null;
+  zones: Zone[];
+}
+
+const ExternalControllerForm = ({ initialConfig, zones }: ExternalControllerFormProps) => {
+  const queryClient = useQueryClient();
+  const { status: saveStatus, wrap: wrapSave } = useActionStatus();
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState(initialConfig?.name ?? "");
+  const [endpoint, setEndpoint] = useState(initialConfig?.endpoint ?? "");
+  const [authType, setAuthType] = useState<"none" | "bearer" | "apikey" | "basic">(initialConfig?.authType ?? "none");
+  const [authToken, setAuthToken] = useState(initialConfig?.authToken ?? "");
+  const [commandPath, setCommandPath] = useState(initialConfig?.commandPath ?? "");
+  const [timeoutMs, setTimeoutMs] = useState(initialConfig?.timeoutMs ?? 10000);
+  const [enabled, setEnabled] = useState(initialConfig?.enabled ?? true);
+  const [zoneMapping, setZoneMapping] = useState<Record<string, string>>(initialConfig?.zoneMapping ?? {});
+
+  const handleSave = useCallback(async () => {
+    setError(null);
+    try {
+      await wrapSave(async () => {
+        const payload: Partial<ExternalControllerConfig> = {
+          name,
+          endpoint,
+          authType,
+          commandPath: commandPath || undefined,
+          timeoutMs,
+          enabled,
+          zoneMapping
+        };
+        if (authToken && !authToken.includes("••••")) {
+          payload.authToken = authToken;
+        }
+        await updateExternalControllerConfig(payload);
+        await queryClient.invalidateQueries({ queryKey: ["externalControllerConfig"] });
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    }
+  }, [name, endpoint, authType, authToken, commandPath, timeoutMs, enabled, zoneMapping, queryClient, wrapSave]);
+
+  const handleTest = useCallback(async () => {
+    setTestResult(null);
+    const result = await testExternalController();
+    setTestResult(result);
+    if (!result.success) throw new Error(result.message);
+  }, []);
+
+  const handleMappingChange = useCallback((zoneId: string, value: string) => {
+    setZoneMapping((prev) => {
+      const next = { ...prev };
+      if (value) {
+        next[zoneId] = value;
+      } else {
+        delete next[zoneId];
+      }
+      return next;
+    });
+  }, []);
+
+  return (
+    <>
       {error && <p className="zone-control-panel__error">{error}</p>}
 
       <form
@@ -281,8 +274,7 @@ const ExternalControllerSettings = ({ zones }: ExternalControllerSettingsProps) 
           </div>
         </div>
       </form>
-      </>}
-    </div>
+    </>
   );
 };
 

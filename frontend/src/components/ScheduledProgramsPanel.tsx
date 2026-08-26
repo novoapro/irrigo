@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import type { IrrigationProgram, Zone } from "../types";
 import { fetchPrograms, deleteProgram, runProgram, updateProgram } from "../api";
@@ -39,8 +40,6 @@ const formatSchedule = (cron: string): string => {
 };
 
 const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings, guardActive }: ScheduledProgramsPanelProps) => {
-  const [programs, setPrograms] = useState<IrrigationProgram[]>([]);
-  const [loading, setLoading] = useState(true);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<IrrigationProgram | null>(null);
@@ -48,20 +47,13 @@ const ScheduledProgramsPanel = ({ zones, onScheduleChanged, onOpenSettings, guar
   const [deleting, setDeleting] = useState(false);
   const [guardConfirmProgramId, setGuardConfirmProgramId] = useState<string | null>(null);
 
-  const loadPrograms = useCallback(async () => {
-    try {
-      const data = await fetchPrograms({ source: "manual" });
-      setPrograms(data);
-    } catch (err) {
-      console.error("Failed to load programs:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadPrograms();
-  }, [loadPrograms]);
+  const { data: programs = [], isLoading: loading, refetch } = useQuery({
+    queryKey: ["scheduledPrograms"],
+    queryFn: async () => (await fetchPrograms({ source: "manual" })) ?? []
+  });
+  const loadPrograms = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const executeRun = useCallback(async (programId: string) => {
     setRunningId(programId);

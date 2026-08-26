@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
-import { deleteControllerLogs, deleteWebhookEvents, fetchControllerLogs, fetchSequentialRuns, fetchWebhookEvents, fetchZones, type ControllerLogQuery, type SequentialRunQuery, type WebhookEventQuery } from "../api";
-import type { IrrigationCommand, SequentialRun, WebhookEvent, Zone } from "../types";
+import { deleteControllerLogs, deleteWebhookEvents, fetchControllerLogs, fetchSequentialRuns, fetchWebhookEvents, type ControllerLogQuery, type SequentialRunQuery, type WebhookEventQuery } from "../api";
+import { useZonesQuery } from "../queries/dashboard";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
 import { formatTimestamp, toQueryDateTime } from "../utils/date";
@@ -61,11 +62,8 @@ const formatValue = (value: unknown): string => {
 const LogsPage = () => {
   const [activeTab, setActiveTab] = useState<LogTab>("commands");
 
-  const [logs, setLogs] = useState<IrrigationCommand[]>([]);
-  const [meta, setMeta] = useState<{ page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean } | null>(null);
-  const [zones, setZones] = useState<Zone[]>([]);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -75,127 +73,99 @@ const LogsPage = () => {
   const [actionFilter, setActionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const [webhookEvents, setWebhookEvents] = useState<WebhookEvent[]>([]);
-  const [webhookMeta, setWebhookMeta] = useState<{ page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean } | null>(null);
   const [webhookPage, setWebhookPage] = useState(1);
-  const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookStartDate, setWebhookStartDate] = useState<Date | null>(null);
   const [webhookEndDate, setWebhookEndDate] = useState<Date | null>(null);
   const [webhookZoneFilter, setWebhookZoneFilter] = useState("all");
   const [webhookTypeFilter, setWebhookTypeFilter] = useState("all");
 
-  const [runs, setRuns] = useState<SequentialRun[]>([]);
-  const [runsMeta, setRunsMeta] = useState<{ page: number; pageSize: number; totalCount: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean } | null>(null);
   const [runsPage, setRunsPage] = useState(1);
-  const [runsLoading, setRunsLoading] = useState(false);
   const [runsSourceFilter, setRunsSourceFilter] = useState("all");
   const [runsStatusFilter, setRunsStatusFilter] = useState("all");
 
-  const mountedRef = useRef(true);
+  const zones = useZonesQuery().data ?? [];
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchZones().then(setZones).catch(() => {});
-    return () => { mountedRef.current = false; };
-  }, []);
+  const start = startDate ? toQueryDateTime(startDate) : undefined;
+  const end = endDate ? toQueryDateTime(endDate) : undefined;
 
-  const loadLogs = useCallback(
-    async (p: number, start: Date | null, end: Date | null, zone: string, source: string, action: string, status: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const query: ControllerLogQuery = {
-          page: p,
-          pageSize: PAGE_SIZE,
-          start: start ? toQueryDateTime(start) : undefined,
-          end: end ? toQueryDateTime(end) : undefined
-        };
-        if (zone !== "all") query.zoneId = zone;
-        if (source !== "all") query.source = source;
-        if (action !== "all") query.action = action;
-        if (status !== "all") query.status = status;
-
-        const result = await fetchControllerLogs(query);
-        if (!mountedRef.current) return;
-        setLogs(result.commands);
-        setMeta(result.meta);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load logs");
-      } finally {
-        if (mountedRef.current) setLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (activeTab === "commands") {
-      loadLogs(page, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter);
+  const logsQuery = useQuery({
+    queryKey: [
+      "controllerLogs",
+      { page, start, end, zoneFilter, sourceFilter, actionFilter, statusFilter }
+    ],
+    enabled: activeTab === "commands",
+    queryFn: async () => {
+      const q: ControllerLogQuery = {
+        page,
+        pageSize: PAGE_SIZE,
+        start,
+        end
+      };
+      if (zoneFilter !== "all") q.zoneId = zoneFilter;
+      if (sourceFilter !== "all") q.source = sourceFilter;
+      if (actionFilter !== "all") q.action = actionFilter;
+      if (statusFilter !== "all") q.status = statusFilter;
+      return (await fetchControllerLogs(q)) ?? { commands: [], meta: null };
     }
-  }, [page, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter, loadLogs, activeTab]);
+  });
 
-  const loadWebhookEvents = useCallback(
-    async (p: number, start: Date | null, end: Date | null, zone: string, charType: string) => {
-      setWebhookLoading(true);
-      setError(null);
-      try {
-        const query: WebhookEventQuery = {
-          page: p,
-          pageSize: PAGE_SIZE,
-          start: start ? toQueryDateTime(start) : undefined,
-          end: end ? toQueryDateTime(end) : undefined
-        };
-        if (zone !== "all") query.zoneId = zone;
-        if (charType !== "all") query.characteristicType = charType;
+  const logs = logsQuery.data?.commands ?? [];
+  const meta = logsQuery.data?.meta ?? null;
+  const loading = logsQuery.isLoading;
 
-        const result = await fetchWebhookEvents(query);
-        if (!mountedRef.current) return;
-        setWebhookEvents(result.events);
-        setWebhookMeta(result.meta);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load events");
-      } finally {
-        if (mountedRef.current) setWebhookLoading(false);
-      }
-    },
-    []
-  );
+  const webhookStart = webhookStartDate ? toQueryDateTime(webhookStartDate) : undefined;
+  const webhookEnd = webhookEndDate ? toQueryDateTime(webhookEndDate) : undefined;
 
-  useEffect(() => {
-    if (activeTab === "events") {
-      loadWebhookEvents(webhookPage, webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter);
+  const webhookQuery = useQuery({
+    queryKey: [
+      "webhookEvents",
+      { webhookPage, webhookStart, webhookEnd, webhookZoneFilter, webhookTypeFilter }
+    ],
+    enabled: activeTab === "events",
+    queryFn: async () => {
+      const q: WebhookEventQuery = {
+        page: webhookPage,
+        pageSize: PAGE_SIZE,
+        start: webhookStart,
+        end: webhookEnd
+      };
+      if (webhookZoneFilter !== "all") q.zoneId = webhookZoneFilter;
+      if (webhookTypeFilter !== "all") q.characteristicType = webhookTypeFilter;
+      return (await fetchWebhookEvents(q)) ?? { events: [], meta: null };
     }
-  }, [webhookPage, webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter, loadWebhookEvents, activeTab]);
+  });
 
-  const loadRuns = useCallback(
-    async (p: number, source: string, status: string) => {
-      setRunsLoading(true);
-      setError(null);
-      try {
-        const query: SequentialRunQuery = { page: p, pageSize: PAGE_SIZE };
-        if (source !== "all") query.source = source;
-        if (status !== "all") query.status = status;
-        const result = await fetchSequentialRuns(query);
-        if (!mountedRef.current) return;
-        setRuns(result.data);
-        setRunsMeta(result.meta);
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setError(err instanceof Error ? err.message : "Failed to load runs");
-      } finally {
-        if (mountedRef.current) setRunsLoading(false);
-      }
-    },
-    []
-  );
+  const webhookEvents = webhookQuery.data?.events ?? [];
+  const webhookMeta = webhookQuery.data?.meta ?? null;
+  const webhookLoading = webhookQuery.isLoading;
 
-  useEffect(() => {
-    if (activeTab === "runs") {
-      loadRuns(runsPage, runsSourceFilter, runsStatusFilter);
+  const runsQuery = useQuery({
+    queryKey: ["sequentialRuns", { runsPage, runsSourceFilter, runsStatusFilter }],
+    enabled: activeTab === "runs",
+    queryFn: async () => {
+      const q: SequentialRunQuery = { page: runsPage, pageSize: PAGE_SIZE };
+      if (runsSourceFilter !== "all") q.source = runsSourceFilter;
+      if (runsStatusFilter !== "all") q.status = runsStatusFilter;
+      return (await fetchSequentialRuns(q)) ?? { data: [], meta: null };
     }
-  }, [runsPage, runsSourceFilter, runsStatusFilter, loadRuns, activeTab]);
+  });
+
+  const runs = runsQuery.data?.data ?? [];
+  const runsMeta = runsQuery.data?.meta ?? null;
+  const runsLoading = runsQuery.isLoading;
+
+  const queryError =
+    (activeTab === "commands" && logsQuery.error) ||
+    (activeTab === "events" && webhookQuery.error) ||
+    (activeTab === "runs" && runsQuery.error) ||
+    null;
+  const displayError =
+    error ??
+    (queryError
+      ? queryError instanceof Error
+        ? queryError.message
+        : "Failed to load logs"
+      : null);
 
   const totalPages = meta?.totalPages ?? 1;
   const totalCount = meta?.totalCount ?? logs.length;
@@ -225,13 +195,13 @@ const LogsPage = () => {
       await deleteControllerLogs(query);
       setConfirmDelete(false);
       setPage(1);
-      loadLogs(1, startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter);
+      queryClient.invalidateQueries({ queryKey: ["controllerLogs"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete logs");
     } finally {
       setDeleting(false);
     }
-  }, [startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter, loadLogs]);
+  }, [startDate, endDate, zoneFilter, sourceFilter, actionFilter, statusFilter, queryClient]);
 
   const hasWebhookFilters =
     webhookStartDate !== null ||
@@ -251,13 +221,13 @@ const LogsPage = () => {
       await deleteWebhookEvents(query);
       setConfirmDelete(false);
       setWebhookPage(1);
-      loadWebhookEvents(1, webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter);
+      queryClient.invalidateQueries({ queryKey: ["webhookEvents"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete events");
     } finally {
       setDeleting(false);
     }
-  }, [webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter, loadWebhookEvents]);
+  }, [webhookStartDate, webhookEndDate, webhookZoneFilter, webhookTypeFilter, queryClient]);
 
   const handleReset = () => {
     if (activeTab === "commands") {
@@ -320,7 +290,7 @@ const LogsPage = () => {
         )}
       </header>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {displayError ? <div className="error-banner">{displayError}</div> : null}
 
       <div className="logs-tabs">
         <button

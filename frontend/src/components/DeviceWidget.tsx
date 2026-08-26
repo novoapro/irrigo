@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { DeviceConfig } from "../types";
 import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton";
 
@@ -17,26 +17,51 @@ const PencilIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5z" /></svg>
 );
 
-const DeviceWidget = ({
+/**
+ * Thin wrapper that owns the loading gate. The editable form lives in a keyed
+ * child mounted with `key` derived from the loaded config identity, so its local
+ * draft state re-initialises from props on identity change without a
+ * prop→state sync effect (which would be a set-state-in-effect violation).
+ */
+const DeviceWidget = (props: DeviceWidgetProps) => {
+  const { deviceConfig, isDeviceConfigLoading } = props;
+
+  if (isDeviceConfigLoading || !deviceConfig) {
+    return (
+      <article className="device-widget">
+        <p className="muted">Loading device...</p>
+      </article>
+    );
+  }
+
+  return (
+    <DeviceWidgetForm
+      key={deviceConfig.updatedAt ?? deviceConfig.deviceIp ?? "device"}
+      {...props}
+      deviceConfig={deviceConfig}
+    />
+  );
+};
+
+type DeviceWidgetFormProps = Omit<DeviceWidgetProps, "deviceConfig"> & {
+  deviceConfig: DeviceConfig;
+};
+
+const DeviceWidgetForm = ({
   ip,
   tempF,
   humidity,
   baselinePsi,
   lastHeartbeat,
   deviceConfig,
-  isDeviceConfigLoading,
   onSaveConfig
-}: DeviceWidgetProps) => {
+}: DeviceWidgetFormProps) => {
   const [draft, setDraft] = useState<DeviceConfig | null>(deviceConfig);
   const { status: saveStatus, wrap: wrapSave } = useActionStatus();
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraft(deviceConfig);
-  }, [deviceConfig]);
 
   const handleSave = useCallback(async () => {
     if (!draft) return;
@@ -68,7 +93,7 @@ const DeviceWidget = ({
 
   const deviceIp = ip ?? deviceConfig?.deviceIp ?? "—";
 
-  if (isDeviceConfigLoading || !draft) {
+  if (!draft) {
     return (
       <article className="device-widget">
         <p className="muted">Loading device...</p>
