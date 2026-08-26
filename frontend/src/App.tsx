@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, NavLink, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-import DateTimeInput from "./components/DateTimeInput";
 import RecordsPage from "./pages/RecordsPage";
 import IrrigationsPage from "./pages/IrrigationsPage";
 import LogsPage from "./pages/LogsPage";
@@ -20,24 +18,13 @@ import type {
   HeartbeatSeriesSample,
   IrrigationMode,
   SystemConfig,
-  WeatherConditionsSnapshot,
   RealtimeEvent,
   SequentialRun,
   ZoneState
 } from "./types";
 import "./modal.css";
-import WeatherWidget, { type PrecipitationPoint } from "./components/WeatherWidget";
-import ZoneControlPanel from "./components/ZoneControlPanel";
-import IrrigationQueuePanel from "./components/IrrigationQueuePanel";
-import RainAlertBanner from "./components/RainAlertBanner";
 import SettingsPanel from "./components/SettingsPanel";
-import OverviewSection, {
-  type OverviewCardDefinition
-} from "./components/OverviewSection";
-import {
-  type StatusTone
-} from "./components/status/SensorWidgets";
-import { StatusPanel } from "./components/status/StatusPanel";
+import DashboardView, { type SettingsTab } from "./components/DashboardView";
 import {
   formatTimestamp,
   toQueryDateTime
@@ -51,7 +38,6 @@ import { useIntegrationHealth } from "./hooks/useIntegrationHealth";
 import HeaderHealthBar from "./components/HeaderHealthBar";
 import { useThemeContext } from "./ThemeContext";
 import type { ThemePreference } from "./hooks/useTheme";
-import { useChartTheme } from "./hooks/useChartTheme";
 import { queryKeys } from "./queries/keys";
 import {
   useStatusQuery,
@@ -117,7 +103,6 @@ const THEME_CYCLE: ThemePreference[] = ["light", "dark", "system"];
 const App = () => {
   const queryClient = useQueryClient();
   const { preference: themePreference, setPreference: setThemePreference } = useThemeContext();
-  const chartTheme = useChartTheme();
 
   // --- UI-only state (server data lives in the TanStack Query cache) ---
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -125,7 +110,7 @@ const App = () => {
   const [page, setPage] = useState<number>(1);
   const [refreshPhase, setRefreshPhase] = useState<RefreshPhase>("idle");
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "irrigation" | "programs" | "integrations" | "preferences">("zones");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("zones");
   const [aiRunExpanded, setAiRunExpanded] = useState(false);
   const [aiRunRefreshKey, setAiRunRefreshKey] = useState(0);
   const [dashboardRunningAI, setDashboardRunningAI] = useState(false);
@@ -176,7 +161,7 @@ const App = () => {
   const debugConfigQuery = useDebugConfigQuery();
   const rainPauseQuery = useRainPauseQuery();
 
-  // --- derived read-model (same names the JSX below already used) ---
+  // --- derived read-model shared across the shell + dashboard ---
   const status = statusQuery.data ?? null;
   const heartbeatSeries = heartbeatSeriesQuery.data ?? EMPTY_SERIES;
   const latestHeartbeatSnapshot = heartbeatPageQuery.data?.data?.[0] ?? null;
@@ -287,286 +272,21 @@ const App = () => {
     [queryClient]
   );
 
-  // Page is reset to 1 directly in the date-filter change handlers, so no
-  // filter-watching effect is needed here.
-
-  const trendData = useMemo(
-    () =>
-      [...heartbeatSeries]
-        .sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        )
-        .map((sample) => ({
-          timestamp: sample.timestamp,
-          psi: sample.psi
-        })),
-    [heartbeatSeries]
-  );
-
-  const guardActive = status?.guard ?? latestHeartbeatSnapshot?.guard ?? false;
-
-  const currentWeather = useMemo((): WeatherConditionsSnapshot | null => {
-    if (forecast) {
-      return {
-        locationName: forecast.locationName,
-        fetchedAt: forecast.fetchedAt,
-        // Fall the expiry back to one hour after the fetch time (a pure value)
-        // rather than the render clock, so the mapping stays idempotent.
-        expiresAt:
-          forecast.expiresAt ??
-          new Date(new Date(forecast.fetchedAt).getTime() + 3600000).toISOString(),
-        periodStart: forecast.periodStart ?? null,
-        periodEnd: forecast.periodEnd ?? null,
-        temperature: forecast.temperature ?? null,
-        temperatureUnit: forecast.temperatureUnit ?? null,
-        precipitationProbability: forecast.precipitationProbability ?? null,
-        isDaytime: forecast.isDaytime ?? null,
-        shortForecast: forecast.shortForecast ?? null
-      };
-    }
-    return null;
-  }, [forecast]);
-
-  const connectedSensors = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          status?.device.connectedSensors ??
-          latestHeartbeatSnapshot?.device.connectedSensors ??
-          []
-        )
-      ),
-    [status, latestHeartbeatSnapshot]
-  );
-
+  // --- values the header + settings panel need from the latest reading ---
   const lastUpdate =
     status?.lastUpdatedAt ??
     latestHeartbeatSnapshot?.timestamp ??
     null;
-
   const hasHeartbeatData = Boolean(status || latestHeartbeatSnapshot);
   const lastHeartbeatText = hasHeartbeatData && lastUpdate
     ? formatTimestamp(lastUpdate)
     : "—";
-
-  const latestWaterPsi =
-    status?.sensors?.waterPsi ?? latestHeartbeatSnapshot?.sensors.waterPsi;
   const latestTempF = status?.device?.tempF ?? latestHeartbeatSnapshot?.device.tempF;
   const latestHumidity =
     status?.device?.humidity ?? latestHeartbeatSnapshot?.device.humidity;
   const latestBaselinePsi =
     status?.device?.baselinePsi ?? latestHeartbeatSnapshot?.device.baselinePsi;
-
   const latestIp = status?.device?.ip ?? latestHeartbeatSnapshot?.device.ip;
-
-  const rainStatus = connectedSensors.includes("RAIN") ? (
-    status ? status.sensors.rain
-      ? "Detected"
-      : "No"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.rain
-          ? "Detected"
-          : "No"
-        : "No data")
-    : "Ignored";
-
-  const rainStatusTone: StatusTone = connectedSensors.includes("RAIN") ? (
-    status ? status.sensors.rain
-      ? "negative"
-      : "positive"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.rain
-          ? "negative"
-          : "positive"
-        : "informative")
-    : "warning";
-
-  const soilStatus = connectedSensors.includes("SOIL") ? (
-    status
-      ? status.sensors.soil
-        ? "Saturated"
-        : "Dry"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.soil
-          ? "Saturated"
-          : "Dry"
-        : "No data")
-    : "Ignored";
-
-  const soilStatusTone: StatusTone = connectedSensors.includes("SOIL") ? (
-    status
-      ? status.sensors.soil
-        ? "negative"
-        : "positive"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.soil
-          ? "negative"
-          : "positive"
-        : "informative")
-    : "warning";
-
-  const statusIrrigation = useMemo(() => {
-    const irrigation = status?.irrigation;
-    if (!irrigation) return null;
-    return {
-      zone: irrigation.zone,
-      action: irrigation.action ?? null
-    };
-  }, [status]);
-
-  const lastIrrigationChange = useMemo(() => {
-    const statusTs = status?.changes?.irrigation ?? null;
-    const parsed = statusTs ? Date.parse(statusTs) : null;
-    return parsed && Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-  }, [status]);
-
-  const precipitationSeries = useMemo<PrecipitationPoint[]>(() => {
-    if (!forecast) {
-      return [];
-    }
-    // Anchor "future" to the forecast fetch time (a pure value) instead of the
-    // render clock; the forecast refetches often enough to stay current.
-    const anchor = new Date(forecast.fetchedAt).getTime();
-    return forecast.precipitationOutlook
-      .filter((entry) => new Date(entry.periodStart).getTime() >= anchor)
-      .map((entry) => ({
-        timestamp: entry.periodStart,
-        probability: entry.probability ?? 0
-      }));
-  }, [forecast]);
-
-  const { overviewCards, pressureOverview } = useMemo(() => {
-    if (!overviewStats) {
-      return {
-        overviewCards: [] as OverviewCardDefinition[],
-        pressureOverview: null as OverviewCardDefinition | null
-      };
-    }
-
-    const guardTotal = overviewStats.guard.activeMs + overviewStats.guard.inactiveMs;
-    const rainTotal = overviewStats.rainDays.positive + overviewStats.rainDays.negative;
-    const soilTotal = overviewStats.soilDays.positive + overviewStats.soilDays.negative;
-    const pressureTotal =
-      overviewStats.pressure.activeMs + overviewStats.pressure.inactiveMs;
-
-    const cards: OverviewCardDefinition[] = [
-      {
-        key: "guard",
-        title: "Guard status time",
-        unit: "duration",
-        unitLabel: "minute",
-        total: guardTotal,
-        data: [
-          {
-            key: "guard-active",
-            name: "Guard active",
-            value: overviewStats.guard.activeMs,
-            color: chartTheme.danger
-          },
-          {
-            key: "guard-ready",
-            name: "Guard ready",
-            value: overviewStats.guard.inactiveMs,
-            color: chartTheme.success
-          }
-        ]
-      },
-      {
-        key: "rain",
-        title: "Rain detected",
-        unit: "count",
-        unitLabel: "day",
-        total: rainTotal,
-        data: [
-          {
-            key: "rainy",
-            name: "Rainy",
-            value: overviewStats.rainDays.positive,
-            color: chartTheme.info
-          },
-          {
-            key: "clear",
-            name: "Dry",
-            value: overviewStats.rainDays.negative,
-            color: chartTheme.muted
-          }
-        ]
-      },
-      {
-        key: "soil",
-        title: "Soil moisture",
-        unit: "count",
-        unitLabel: "day",
-        total: soilTotal,
-        data: [
-          {
-            key: "saturated",
-            name: "Saturated",
-            value: overviewStats.soilDays.positive,
-            color: chartTheme.green
-          },
-          {
-            key: "dry",
-            name: "Dry",
-            value: overviewStats.soilDays.negative,
-            color: chartTheme.amber
-          }
-        ]
-      },
-      {
-        key: "pressure",
-        title: "Water Press",
-        unit: "duration",
-        unitLabel: "minute",
-        total: pressureTotal,
-        data: [
-          {
-            key: "above",
-            name: "Above baseline",
-            value: overviewStats.pressure.activeMs,
-            color: chartTheme.indigo
-          },
-          {
-            key: "below",
-            name: "At or below",
-            value: overviewStats.pressure.inactiveMs,
-            color: chartTheme.indigoLight
-          }
-        ]
-      }
-    ];
-
-    return {
-      overviewCards: cards.filter((card) => card.key !== "pressure"),
-      pressureOverview: cards.find((card) => card.key === "pressure") ?? null
-    };
-  }, [overviewStats, chartTheme]);
-
-  const filterActive = useMemo(
-    () => Boolean(startDate || endDate),
-    [startDate, endDate]
-  );
-
-  const filterSummary = useMemo(() => {
-    if (!filterActive) {
-      return "Showing entire history";
-    }
-    const startLabel = startDate
-      ? format(startDate, "MMM d • h:mm a")
-      : "Beginning";
-    const endLabel = endDate
-      ? format(endDate, "MMM d • h:mm a")
-      : "Now";
-    return `${startLabel} – ${endLabel}`;
-  }, [filterActive, startDate, endDate]);
-
-  const overviewSubtitle = useMemo(() => {
-    if (filterSummary === "Showing entire history") {
-      return "the entire history";
-    }
-    return filterSummary;
-  }, [filterSummary]);
 
   const clearRefreshCompletionTimer = useCallback(() => {
     if (refreshCompletionTimeoutRef.current) {
@@ -641,6 +361,11 @@ const App = () => {
 
   const toggleSettingsPanel = useCallback(() => {
     setIsSettingsPanelOpen((prev) => !prev);
+  }, []);
+
+  const openSettings = useCallback((tab: SettingsTab) => {
+    setSettingsTab(tab);
+    setIsSettingsPanelOpen(true);
   }, []);
 
   const handleDashboardRunAI = useCallback(async () => {
@@ -890,40 +615,6 @@ const App = () => {
     };
   }, [clearRefreshCompletionTimer]);
 
-  const formatMetric = (value?: number) =>
-    value === undefined || Number.isNaN(value) ? "—" : value.toFixed(1);
-
-  const waterPressureMeta = useMemo(() => {
-    if (latestWaterPsi === undefined) {
-      return {
-        status: "No data",
-        tone: "informative" as const,
-        detail:
-          latestBaselinePsi !== undefined
-            ? `Baseline ${latestBaselinePsi.toFixed(1)} psi`
-            : undefined
-      };
-    }
-
-    if (latestBaselinePsi === undefined) {
-      return {
-        status: `${formatMetric(latestWaterPsi)} psi`,
-        tone: "informative" as const,
-        detail: undefined
-      };
-    }
-
-    const tone: "positive" | "negative" =
-      latestWaterPsi >= latestBaselinePsi ? "positive" : "negative";
-
-    return {
-      status: `${formatMetric(latestWaterPsi)} psi`,
-      tone,
-      detail: `Baseline ${latestBaselinePsi.toFixed(1)} psi`
-    };
-  }, [latestWaterPsi, latestBaselinePsi]);
-
-
   return (
     <main className="app">
       <header className="app-header">
@@ -1013,7 +704,7 @@ const App = () => {
           <span>Debug Mode Active — external calls are mocked</span>
           <button
             type="button"
-            onClick={() => { setSettingsTab("preferences"); setIsSettingsPanelOpen(true); }}
+            onClick={() => openSettings("preferences")}
           >
             Configure
           </button>
@@ -1040,197 +731,44 @@ const App = () => {
 
       <Routes>
         <Route path="/" element={
-          <>
-            {error ? <div className="error-banner">{error}</div> : null}
-
-            <RainAlertBanner refreshKey={rainAlertKey} onConfirmed={refreshRainPause} />
-
-            <WeatherWidget
-        loading={forecastLoading}
-        error={forecastError}
-        currentWeather={currentWeather}
-        fallbackLocation={forecast?.locationName ?? null}
-        fallbackUpdatedAt={forecast?.fetchedAt ?? null}
-        precipitationSeries={precipitationSeries}
-      />
-
-      <StatusPanel
-        guard={guardActive}
-        irrigation={statusIrrigation}
-        lastIrrigationChange={lastIrrigationChange}
-        zones={zones}
-        pressureStatus={waterPressureMeta.status}
-        pressureTone={waterPressureMeta.tone}
-        pressureDetail={waterPressureMeta.detail}
-        pressureActive={connectedSensors.includes("PRESSURE")}
-        rainStatus={rainStatus}
-        rainTone={rainStatusTone}
-        rainActive={connectedSensors.includes("RAIN")}
-        soilStatus={soilStatus}
-        soilTone={soilStatusTone}
-        soilActive={connectedSensors.includes("SOIL")}
-        rainPause={rainPause}
-        onRainReported={refreshRainPause}
-      />
-
-      <ZoneControlPanel
-        zones={zones}
-        zoneStates={zoneStates}
-        loading={zonesLoading}
-        onZonesChanged={loadZones}
-        mode="control"
-        onOpenSettings={() => { setSettingsTab("zones"); setIsSettingsPanelOpen(true); }}
-        irrigationRecords={irrigationRecords}
-        baselinePsi={latestBaselinePsi}
-        manualRun={manualRun}
-        guardActive={guardActive}
-      />
-
-      <IrrigationQueuePanel
-        zones={zones}
-        irrigationMode={irrigationMode}
-        aiScheduleEnabled={aiScheduleEnabled}
-        refreshKey={aiRunRefreshKey}
-        onModeChanged={(mode) => setIrrigationMode(mode)}
-        onScheduleChanged={loadZones}
-        onOpenSmartSettings={() => { setSettingsTab("irrigation"); setIsSettingsPanelOpen(true); }}
-        onOpenProgramSettings={() => { setSettingsTab("programs"); setIsSettingsPanelOpen(true); }}
-      />
-
-      <section className="ai-run-summary">
-        <div className="ai-run-summary__top-row">
-          {lastAIRun && (
-            <button
-              type="button"
-              className="ai-run-summary__header"
-              onClick={() => setAiRunExpanded((v) => !v)}
-            >
-              <h3>Last AI Run</h3>
-              <span className={`schedule-status-pill schedule-status-pill--${lastAIRun.status}`}>
-                {lastAIRun.status}
-              </span>
-              <span className="ai-run-summary__time">
-                {new Date(lastAIRun.startedAt).toLocaleString("en-US", {
-                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true
-                })}
-              </span>
-              <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                {lastAIRun.triggeredBy === "cron" ? "auto" : "manual"}
-                {typeof lastAIRun.entries === "number" && lastAIRun.entries > 0
-                  ? ` · ${lastAIRun.entries} zone${lastAIRun.entries !== 1 ? "s" : ""}`
-                  : ""}
-              </span>
-            </button>
-          )}
-          {!lastAIRun && <h3 style={{ margin: 0 }}>AI Runs</h3>}
-          {aiScheduleEnabled && (
-            <button
-              type="button"
-              className={`icon-btn ai-run-status-btn ai-run-status-btn--${dashboardRunningAI ? "running" : lastAIRun?.status === "completed" ? "success" : lastAIRun?.status ?? "none"}`}
-              disabled={dashboardRunningAI}
-              onClick={handleDashboardRunAI}
-              title={dashboardRunningAI ? "Running..." : "Run AI Run"}
-              aria-label={dashboardRunningAI ? "Running..." : "Run AI Run"}
-            >
-              {dashboardRunningAI ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-              )}
-            </button>
-          )}
-        </div>
-        {lastAIRun && aiRunExpanded && (
-          <div className="ai-run-summary__body">
-            {lastAIRun.reasoning && (
-              <p className="ai-run-summary__reasoning">{lastAIRun.reasoning}</p>
-            )}
-            {lastAIRun.errorMessage && (
-              <p className="ai-run-summary__error">{lastAIRun.errorMessage}</p>
-            )}
-            {lastAIRunEntries.length > 0 && (
-              <div className="ai-run-summary__entries">
-                {lastAIRunEntries.map((entry) => {
-                  const zone = zones.find((z) => z.zoneId === entry.zoneId);
-                  return (
-                    <div className="ai-run-summary__entry" key={entry._id}>
-                      <span className="ai-run-summary__zone-name">{zone?.name ?? entry.zoneId}</span>
-                      <span className="ai-run-summary__zone-dur">{entry.plannedDurationMinutes} min</span>
-                      <span className="ai-run-summary__zone-time">
-                        {new Date(entry.plannedStartAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <Link to="/ai-runs" className="ai-run-summary__cta">
-              View all AI Runs
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-            </Link>
-          </div>
-        )}
-      </section>
-
-      <section className="history-window">
-        <article className="history-window-card">
-          <header className="history-window-header">
-            <div>
-              <h3>History window</h3>
-              <p className="muted">{filterSummary}</p>
-            </div>
-          </header>
-          <div className="history-window-filters" ref={historyFiltersRef}>
-            <div className="records-filters__row">
-              <div className="time-filter-field">
-                <label htmlFor="history-start">From</label>
-                <DateTimeInput
-                  value={startDate}
-                  onChange={handleStartDateChange}
-                  max={endDate ?? new Date()}
-                  placeholder="Beginning of time"
-                  clearable
-                />
-              </div>
-              <div className="time-filter-field">
-                <label htmlFor="history-end">To</label>
-                <DateTimeInput
-                  value={endDate}
-                  onChange={handleEndDateChange}
-                  min={startDate ?? undefined}
-                  max={new Date()}
-                  placeholder="Now"
-                  clearable
-                />
-              </div>
-            </div>
-            {filterActive && (
-              <button
-                type="button"
-                className="history-filter-reset"
-                onClick={handleResetFilters}
-                title="Reset filters"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </button>
-            )}
-          </div>
-          <div className="history-window-section" aria-label="Analytics">
-            <OverviewSection
-              cards={overviewCards}
-              pressureOverview={pressureOverview}
-              trendData={trendData}
-              latestBaselinePsi={latestBaselinePsi}
-              subtitle={overviewSubtitle}
-              loading={overviewLoading}
-              error={overviewError}
-            />
-          </div>
-        </article>
-      </section>
-          </>
+          <DashboardView
+            status={status}
+            latestHeartbeatSnapshot={latestHeartbeatSnapshot}
+            forecast={forecast}
+            forecastLoading={forecastLoading}
+            forecastError={forecastError}
+            overviewStats={overviewStats}
+            overviewLoading={overviewLoading}
+            overviewError={overviewError}
+            heartbeatSeries={heartbeatSeries}
+            zones={zones}
+            zoneStates={zoneStates}
+            zonesLoading={zonesLoading}
+            irrigationRecords={irrigationRecords}
+            manualRun={manualRun}
+            rainPause={rainPause}
+            irrigationMode={irrigationMode}
+            aiScheduleEnabled={aiScheduleEnabled}
+            lastAIRun={lastAIRun}
+            lastAIRunEntries={lastAIRunEntries}
+            heartbeatError={error}
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={handleStartDateChange}
+            onEndDateChange={handleEndDateChange}
+            onResetFilters={handleResetFilters}
+            historyFiltersRef={historyFiltersRef}
+            rainAlertKey={rainAlertKey}
+            aiRunRefreshKey={aiRunRefreshKey}
+            dashboardRunningAI={dashboardRunningAI}
+            aiRunExpanded={aiRunExpanded}
+            setAiRunExpanded={setAiRunExpanded}
+            onReloadZones={loadZones}
+            onRefreshRainPause={refreshRainPause}
+            onIrrigationModeChange={setIrrigationMode}
+            onRunDashboardAI={handleDashboardRunAI}
+            onOpenSettings={openSettings}
+          />
         } />
         <Route path="/heartbeats" element={<RecordsPage />} />
         <Route path="/irrigations" element={<IrrigationsPage />} />
