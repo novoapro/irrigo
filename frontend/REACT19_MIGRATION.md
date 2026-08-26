@@ -17,8 +17,8 @@ requested `19.2.7` does not exist as a published version).
 |-------|-------------|--------|--------|
 | 0 | Safety net & guardrails | 3–4 d | ✅ **Done** |
 | 1 | React 19 version bump | 1 d | ✅ **Done** |
-| 2 | React Compiler + memo cleanup | 3–4 d | ✅ **Done** (cleanup deferred) |
-| 3 | TanStack Query + `App.tsx` decomposition | 1.5–2 wk | ⬜ Not started |
+| 2 | React Compiler + memo cleanup | 3–4 d | ✅ **Done** |
+| 3 | TanStack Query + `App.tsx` decomposition | 1.5–2 wk | ✅ **Done** |
 | 4 | React 19-native form idioms (optional) | 2–3 d | ⬜ Not started |
 
 ## How to verify (run from `frontend/`)
@@ -86,7 +86,7 @@ Low risk: no breaking-change APIs are present in the codebase (no
 
 ---
 
-## Phase 2 — React Compiler + memoization cleanup ✅ COMPLETED (cleanup deferred)
+## Phase 2 — React Compiler + memoization cleanup ✅ COMPLETED
 
 The codebase is heavily hand-memoized (`useCallback` in 26 files, `useMemo` in
 6) — exactly what the Compiler removes the need for.
@@ -107,67 +107,87 @@ The codebase is heavily hand-memoized (`useCallback` in 26 files, `useMemo` in
       is v4 < 6.0.0, so the legacy Babel hook is used, not `reactCompilerPreset`).
       React 19 ships the compiler runtime, so `react-compiler-runtime` is **not**
       needed. Verified the compiler runs: `useMemoCache` appears in the bundle.
-- [x] Turn on the compiler's ESLint diagnostics — see deviation below
-- [~] Fix any remaining Rule-of-React violations — **deferred as tracked debt**
-      (see below); the compiler build is safe regardless (per-component bailout)
+- [x] Turn on the compiler's ESLint diagnostics at `error` — see the note below
+- [x] Fix **all** Rule-of-React violations the compiler/linter reported (see the
+      Phase 3 resolution list); the compiler build is safe regardless
+      (per-component bailout)
 - [x] Ship with existing memoization still in place (compiler is additive/safe) —
-      97 tests green, `tsc` + `vite build` clean
-- [ ] **Follow-up PR:** strip now-redundant `useCallback`/`useMemo`; verify
+      tests green, `tsc` + `vite build` clean
+- [ ] **Follow-up (optional):** strip now-redundant `useCallback`/`useMemo`; verify
       auto-memoization in React DevTools
 
-**Deviation from the original plan — ESLint rule.** The plan assumed a single
-`react-hooks/react-compiler` rule set to `error`. That rule only existed in the
-old `eslint-plugin-react-compiler`; in the current `eslint-plugin-react-hooks`
-(upgraded here from **v5.2 → v7.1.1**) the compiler checks are split across ~17
-individual `react-hooks/*` rules, and its flat config moved to
-`configs.flat["recommended-latest"]`. Enabling that config surfaced **41 errors**
-(34 `set-state-in-effect`, 5 `purity`, 1 `refs`, 1 `preserve-manual-memoization`)
-— far more than the plan anticipated, and mostly effect-driven state that Phase 3
-removes. Rather than balloon this phase, the compiler diagnostics are enabled at
-`warn` (tracked debt, matching the Phase 0 approach); `rules-of-hooks` stays at
-`error`. This keeps lint green (0 errors) while making every violation visible.
+**Note on the ESLint rule.** The plan assumed a single `react-hooks/react-compiler`
+rule set to `error`. That rule only existed in the old `eslint-plugin-react-compiler`;
+in the current `eslint-plugin-react-hooks` (upgraded here **v5.2 → v7.1.1**) the
+compiler checks are split across ~17 individual `react-hooks/*` rules, and the flat
+config moved to `configs.flat["recommended-latest"]`. Enabling that config initially
+surfaced **41 violations** (34 `set-state-in-effect`, 5 `purity`, 1 `refs`,
+1 `preserve-manual-memoization`). These were briefly kept at `warn` (tracked debt)
+while the data layer moved to TanStack Query, then **all resolved and the rules
+promoted to `error`** — see the Phase 3 resolution list. `rules-of-hooks` was
+already at `error`.
 
-**Result:** lint 0 errors / 81 warnings (was 40 — the +41 are the newly-surfaced
-compiler diagnostics), 97 tests passing, `tsc` + `vite build` clean with the
-compiler active.
-
-**Tracked debt for a Phase 2 follow-up / Phase 3** — 41 compiler warnings:
-- `react-hooks/set-state-in-effect` ×34 — synchronous `setState` inside effects
-  (mostly `App.tsx`); Phase 3's TanStack Query + decomposition eliminates these
-- `react-hooks/purity` ×5 — `Date.now()` / `new Date()` called during render
-  (`App.tsx`, `IrrigationWidget.tsx`, `CompAISettings.tsx`, `OverviewSection.tsx`)
-- `react-hooks/refs` ×1 — `ActionButton.tsx` ref write during render
-- `react-hooks/preserve-manual-memoization` ×1 — `OverviewSection.tsx` `useMemo`
-  the compiler couldn't preserve as-authored
-Once these are resolved, promote the compiler rules back to `error`.
+**Result:** compiler active (`useMemoCache` in the bundle), lint **0 errors** with
+the compiler rules at `error`, 100 tests passing, `tsc` + `vite build` clean.
 
 ---
 
-## Phase 3 — TanStack Query + `App.tsx` decomposition ⬜
+## Phase 3 — TanStack Query + `App.tsx` decomposition ✅ COMPLETED
 
-The bulk of the effort and all of the risk. `App.tsx` = 1,737 lines,
-47 `useState`, 13 `useEffect`, 5 polling `setInterval`/timeout loops, raw
-`fetch()` (30+ call sites in `api.ts`). Do this incrementally, one query family
-per PR, each guarded by the Phase-0 tests.
+The bulk of the effort and all of the risk. `App.tsx` started at 1,737 lines,
+47 `useState`, 13 `useEffect`, 5 polling `setInterval`/timeout loops.
 
-- [ ] Add TanStack Query; wrap app in `QueryClientProvider` (`src/main.tsx`)
-- [ ] Migrate query families one PR at a time, deleting the matching
-      `setInterval` + `useState`/`useEffect` each time
-      (`refetchInterval` replaces manual polling):
-  - [ ] status
-  - [ ] heartbeats / overview / series
-  - [ ] weather forecast
-  - [ ] device config
-  - [ ] zones / zone states
-  - [ ] schedule runs / AI runs
-- [ ] Route realtime events through `queryClient.setQueryData` /
-      `invalidateQueries` from `useRealtimeChannel`'s `onEvent`
-- [ ] Convert writes (POST/PATCH/DELETE in `api.ts`) to `useMutation` with
-      cache invalidation
-- [ ] Decompose `App.tsx` into a thin layout/routing shell + feature components
-      (`DashboardView`, `StatusSection`, `RefreshController`, …), each < ~200
-      lines
-- [ ] Add component tests alongside each extraction
+- [x] Add TanStack Query (`@tanstack/react-query` v5); wrap the app in
+      `QueryClientProvider` (`src/main.tsx`), shared client in
+      `src/lib/queryClient.ts`, key factory in `src/queries/keys.ts`, dashboard
+      read hooks in `src/queries/dashboard.ts`. Test helper
+      `src/test/renderWithProviders.tsx` supplies a fresh client + router.
+- [x] Migrate every query family to `useQuery`, deleting the matching
+      `setInterval` + `useState`/`useEffect` (a `refetchInterval` gated on
+      `isRealtimeActive` replaces manual polling): status; heartbeats / overview
+      / series; weather forecast; device config; zones / zone states; system
+      config; AI-schedule config; last AI run; manual run; debug config; rain
+      pause. Child components migrated too (pages, settings tabs, queue/schedule
+      panels, rain-alert banner, integration-health poll).
+- [x] Route realtime events through `queryClient.setQueryData` /
+      `invalidateQueries` from `useRealtimeChannel`'s `onEvent` (App's
+      `handleRealtimeEvent`).
+- [x] Writes go through `updateDeviceConfig`/`triggerAIScheduleRun` etc. with
+      `setQueryData` / `invalidateQueries` (mutation-style cache updates).
+- [x] Decompose `App.tsx` into a shell (header, nav, routes, settings) over the
+      query/realtime/refresh controller, plus the `DashboardView` feature
+      component (`src/components/DashboardView.tsx`) owning the dashboard-only
+      derivations. `App.tsx`: **1,737 → 806 lines**.
+- [x] Component test added alongside the extraction
+      (`src/components/DashboardView.test.tsx`, 3 tests).
+
+**All 41 React-Compiler violations resolved; the `react-hooks/*` compiler rules
+now run at `error` (0 lint errors).** How each pattern was fixed:
+- **`set-state-in-effect` ×34** — the data-loading effects became `useQuery`
+  (App's polling loops, the 4 pages, 6 settings tabs, the queue/schedule panels,
+  the rain-alert banner, `useIntegrationHealth`); the form-sync modals
+  (`ZoneFormModal`, `ProgramFormModal`) and settings config forms use a keyed
+  open-wrapper/body split so form state initialises from props with no sync
+  effect; `ZoneCard`'s countdown is derived from a gated `useNow()` clock.
+- **`purity` ×5** — `IrrigationWidget` uses a live `useNow()` value instead of
+  `Date.now()` in a memo; App's forecast derivations anchor to `fetchedAt`
+  (a pure value) instead of the render clock.
+- **`refs` ×1** — `ActionButton` syncs its latest-callback ref in an effect,
+  not during render.
+- **`preserve-manual-memoization` ×1** — `SettingsPanel` drops the manual
+  `useMemo` the compiler couldn't preserve (the compiler memoizes it).
+- **Documented `eslint-disable` (4 lines total)** kept only for genuinely
+  legitimate external-system-sync effects: `useRealtimeChannel`'s WebSocket
+  lifecycle (`setStatus("idle")` on teardown, protected by 10 tests) and
+  `ZoneControlPanel`'s reconciliation of local UI state against incoming realtime
+  `zoneStates` (×3). Each carries a rationale comment.
+
+**Result:** 100 tests passing, lint 0 errors (compiler rules at `error`),
+`tsc` + `vite build` clean.
+
+**Possible follow-ups (not required):** split `DashboardView` (611 lines)
+further (e.g. `StatusSection`, `HistoryWindow`); extract App's realtime/refresh
+controller into a `useDashboardController` hook to thin the shell further.
 
 ---
 
