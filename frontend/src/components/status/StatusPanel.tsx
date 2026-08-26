@@ -4,7 +4,7 @@ import type { Zone } from "../../types";
 import type { RainPauseStatus } from "../../api";
 import type { StatusTone } from "./SensorWidgets";
 import { formatElapsedDuration, formatRelativeTime } from "../../utils/date";
-import { getSensorIcon } from "../../utils/sensors";
+import { getSensorIcon, type SensorDescriptor } from "../../utils/sensors";
 import SystemStatusIcon from "../SystemStatusIcon";
 import RainIntensityPicker from "../RainIntensityPicker";
 
@@ -17,16 +17,13 @@ interface StatusPanelProps {
   guard: boolean;
   irrigation: IrrigationStatus | null;
   lastIrrigationChange: string | null;
-  pressureStatus: string;
-  pressureTone: StatusTone;
+  // Each sensor now arrives as one cohesive descriptor (status + tone + active)
+  // instead of three parallel props apiece — see SensorDescriptor. `pressureDetail`
+  // stays separate: it is optional and specific to the pressure tile.
+  pressure: SensorDescriptor;
   pressureDetail?: string;
-  pressureActive: boolean;
-  rainStatus: string;
-  rainTone: StatusTone;
-  rainActive: boolean;
-  soilStatus: string;
-  soilTone: StatusTone;
-  soilActive: boolean;
+  rain: SensorDescriptor;
+  soil: SensorDescriptor;
   zones?: Zone[];
   rainPause?: RainPauseStatus;
   onRainReported?: () => void;
@@ -68,16 +65,10 @@ export const StatusPanel = ({
   guard,
   irrigation,
   lastIrrigationChange,
-  pressureStatus,
-  pressureTone,
+  pressure,
   pressureDetail,
-  pressureActive,
-  rainStatus,
-  rainTone,
-  rainActive,
-  soilStatus,
-  soilTone,
-  soilActive,
+  rain,
+  soil,
   zones,
   rainPause,
   onRainReported
@@ -168,13 +159,13 @@ export const StatusPanel = ({
         <StatusTile
           label="Pressure"
           icon={getSensorIcon("pressure", "sensor-icon--pressure")}
-          value={pressureStatus}
-          tone={pressureTone}
+          value={pressure.status}
+          tone={pressure.tone}
           detail={pressureDetail}
-          active={pressureActive}
+          active={pressure.active}
         />
         <div
-          className={`status-tile status-tile--pressable ${toneColorClass(rainPause?.active ? "negative" : rainTone)}`}
+          className={`status-tile status-tile--pressable ${toneColorClass(rainPause?.active ? "negative" : rain.tone)}`}
           onMouseDown={startLongPress}
           onMouseUp={cancelLongPress}
           onMouseLeave={cancelLongPress}
@@ -186,13 +177,13 @@ export const StatusPanel = ({
           <div className="status-tile__header">
             <span className="status-tile__icon">{getSensorIcon("rain", "sensor-icon--rain")}</span>
             <span className="status-tile__label">Rain</span>
-            {rainActive ? (
+            {rain.active ? (
               <span className="status-tile__badge status-tile__badge--on">Active</span>
             ) : (
               <span className="status-tile__badge status-tile__badge--off">Off</span>
             )}
           </div>
-          <span className="status-tile__value">{rainPause?.active ? "Detected" : rainStatus}</span>
+          <span className="status-tile__value">{rainPause?.active ? "Detected" : rain.status}</span>
           {rainPause?.active && (
             <span className="status-tile__detail status-tile__source">
               {rainPause.source?.startsWith("user") ? (
@@ -228,9 +219,9 @@ export const StatusPanel = ({
         <StatusTile
           label="Soil"
           icon={getSensorIcon("soil", "sensor-icon--soil")}
-          value={soilStatus}
-          tone={soilTone}
-          active={soilActive}
+          value={soil.status}
+          tone={soil.tone}
+          active={soil.active}
         />
       </div>
     </section>

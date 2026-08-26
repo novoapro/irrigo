@@ -27,6 +27,23 @@ import type {
   ZoneState
 } from "./types";
 
+/**
+ * ── The HTTP layer ────────────────────────────────────────────────────────
+ * The single module that talks to the backend REST API. Everything above the
+ * data layer (the TanStack Query hooks in `queries/`) calls these functions;
+ * components never `fetch` directly.
+ *
+ * Shape:
+ *   • `resolveApiBase` / `buildUrl` — figure out the API origin (env-driven,
+ *     SSR-safe) and assemble URLs with query params.
+ *   • `request<T>()` — the one fetch primitive (below): request → ok-check →
+ *     error (with the server's message) → parse. Read endpoints are one-liners
+ *     over it; mutations are migrating onto it incrementally.
+ *   • `fetchX` / `createX` / `updateX` / `deleteX` — one thin function per
+ *     endpoint. Each knows only its path, method/body, and how to unwrap its
+ *     own response envelope (`{ data }`, `{ events, meta }`, or the payload
+ *     directly — the backend isn't uniform, so unwrapping lives per-function).
+ */
 const resolveApiBase = () => {
   const configured = import.meta.env.VITE_API_BASE_URL;
   if (configured) {
@@ -72,14 +89,61 @@ const buildUrl = (path: string, params?: Record<string, string | undefined>) => 
   return url.toString();
 };
 
-export const fetchStatus = async (): Promise<StatusPayload> => {
-  const response = await fetch(buildUrl("/status"));
-  if (!response.ok) {
-    throw new Error(`Failed to fetch status (${response.status})`);
+interface RequestOptions {
+  /** Query-string params; `undefined` values are dropped by buildUrl. */
+  params?: Record<string, string | undefined>;
+  /** HTTP method (defaults to GET). */
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  /** Request body — JSON-serialised, with the Content-Type header set for you. */
+  json?: unknown;
+  /** Human label used in the thrown error when the server sends no message. */
+  label?: string;
+}
+
+/**
+ * The single fetch primitive every endpoint below is built on. It:
+ *   1. builds the URL (base + path + query params),
+ *   2. sends the request (JSON-encoding `json` and setting the header),
+ *   3. on a non-2xx, throws an Error — preferring the server's own `message`
+ *      field, falling back to `"<label> failed (<status>)"`,
+ *   4. returns `null` for an empty `204`, otherwise the parsed JSON body.
+ *
+ * Callers only supply their path, method/body, and how to unwrap their own
+ * response shape (`{ data }`, `{ events, meta }`, or the payload directly — the
+ * backend isn't fully consistent, so unwrapping stays with each function).
+ * Centralising fetch/ok-check/error/parse here is DRY at the I/O boundary and,
+ * crucially, makes "surface the server's error message" the default everywhere.
+ *
+ * NOTE (migration in progress): the read endpoints have been moved onto
+ * `request<T>()`; the mutation endpoints below still inline the older
+ * fetch/throw pattern and can adopt this helper incrementally.
+ */
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const init: RequestInit = { method: options.method ?? "GET" };
+  if (options.json !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(options.json);
   }
-  const payload = (await response.json()) as StatusPayload;
-  return payload;
-};
+  const response = await fetch(buildUrl(path, options.params), init);
+  if (!response.ok) {
+    let message = `${options.label ?? "Request"} failed (${response.status})`;
+    try {
+      const body = (await response.json()) as { message?: unknown };
+      if (typeof body?.message === "string") message = body.message;
+    } catch {
+      /* body wasn't JSON — keep the status-based message */
+    }
+    throw new Error(message);
+  }
+  if (response.status === 204) {
+    return null as T;
+  }
+  return (await response.json()) as T;
+}
+
+// Worked example: a read endpoint is now a one-liner over request<T>().
+export const fetchStatus = (): Promise<StatusPayload> =>
+  request<StatusPayload>("/status", { label: "Fetch status" });
 
 export interface HeartbeatQuery {
   start?: string;
@@ -100,28 +164,24 @@ export interface IrrigationQuery {
   pageSize?: number;
 }
 
-export const fetchHeartbeats = async (
+// Worked example: a read endpoint WITH query params over request<T>().
+export const fetchHeartbeats = (
   query?: HeartbeatQuery
-): Promise<HeartbeatListResponse> => {
-  const response = await fetch(
-    buildUrl("/heartbeats", {
+): Promise<HeartbeatListResponse> =>
+  request<HeartbeatListResponse>("/heartbeats", {
+    label: "Fetch heartbeats",
+    params: {
       start: query?.start,
       end: query?.end,
-      page: query?.page ? query.page.toString() : undefined,
-      pageSize: query?.pageSize ? query.pageSize.toString() : undefined,
+      page: query?.page?.toString(),
+      pageSize: query?.pageSize?.toString(),
       guard: query?.guard,
       rain: query?.rain,
       soil: query?.soil,
       psiMin: query?.psiMin,
       psiMax: query?.psiMax
-    })
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to fetch heartbeats (${response.status})`);
-  }
-  const payload = (await response.json()) as HeartbeatListResponse;
-  return payload;
-};
+    }
+  });
 
 export const fetchIrrigationEvents = async (
   query?: IrrigationQuery
@@ -328,17 +388,16 @@ export const fetchZones = async (): Promise<Zone[]> => {
   return json.data;
 };
 
-export const createZone = async (zone: Omit<Zone, "_id" | "createdAt" | "updatedAt">): Promise<Zone> => {
-  const response = await fetch(buildUrl("/zones"), {
+// Worked example: a mutation (POST with JSON body) over request<T>(). The
+// `{ data }` envelope is unwrapped here by the caller, as with most endpoints.
+export const createZone = async (
+  zone: Omit<Zone, "_id" | "createdAt" | "updatedAt">
+): Promise<Zone> => {
+  const json = await request<{ data: Zone }>("/zones", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(zone)
+    json: zone,
+    label: "Create zone"
   });
-  if (!response.ok) {
-    const json = await response.json().catch(() => ({}));
-    throw new Error((json as { message?: string }).message ?? `Failed to create zone (${response.status})`);
-  }
-  const json = (await response.json()) as { data: Zone };
   return json.data;
 };
 

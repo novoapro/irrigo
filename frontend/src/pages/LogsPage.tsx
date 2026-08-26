@@ -5,6 +5,7 @@ import { deleteControllerLogs, deleteWebhookEvents, fetchControllerLogs, fetchSe
 import { useZonesQuery } from "../queries/dashboard";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
+import Pagination from "../components/Pagination";
 import { formatTimestamp, toQueryDateTime } from "../utils/date";
 
 const PAGE_SIZE = 25;
@@ -504,27 +505,15 @@ const LogsPage = () => {
               ))}
             </div>
 
-            <div className="pagination-controls">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={!(meta?.hasPreviousPage ?? page > 1)}
-              >
-                &lt;
-              </button>
-              <span className="muted pagination-status">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={!(meta?.hasNextPage ?? page < totalPages)}
-              >
-                &gt;
-              </button>
-            </div>
+            {/* Shared pagination control (Commands tab). */}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              hasPreviousPage={meta?.hasPreviousPage ?? page > 1}
+              hasNextPage={meta?.hasNextPage ?? page < totalPages}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         )}
       </section></>)}
@@ -681,27 +670,15 @@ const LogsPage = () => {
                   ))}
                 </div>
 
-                <div className="pagination-controls">
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => setWebhookPage((p) => Math.max(1, p - 1))}
-                    disabled={!(webhookMeta?.hasPreviousPage ?? webhookPage > 1)}
-                  >
-                    &lt;
-                  </button>
-                  <span className="muted pagination-status">
-                    Page {webhookPage} of {webhookTotalPages}
-                  </span>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => setWebhookPage((p) => p + 1)}
-                    disabled={!(webhookMeta?.hasNextPage ?? webhookPage < webhookTotalPages)}
-                  >
-                    &gt;
-                  </button>
-                </div>
+                {/* Shared pagination control (Incoming Events tab). */}
+                <Pagination
+                  page={webhookPage}
+                  totalPages={webhookTotalPages}
+                  hasPreviousPage={webhookMeta?.hasPreviousPage ?? webhookPage > 1}
+                  hasNextPage={webhookMeta?.hasNextPage ?? webhookPage < webhookTotalPages}
+                  onPrev={() => setWebhookPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setWebhookPage((p) => p + 1)}
+                />
               </div>
             )}
           </section>
@@ -856,27 +833,15 @@ const LogsPage = () => {
                   ))}
                 </div>
 
-                <div className="pagination-controls">
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => setRunsPage((p) => Math.max(1, p - 1))}
-                    disabled={!(runsMeta?.hasPreviousPage ?? runsPage > 1)}
-                  >
-                    &lt;
-                  </button>
-                  <span className="muted pagination-status">
-                    Page {runsPage} of {runsMeta?.totalPages ?? 1}
-                  </span>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => setRunsPage((p) => p + 1)}
-                    disabled={!(runsMeta?.hasNextPage ?? runsPage < (runsMeta?.totalPages ?? 1))}
-                  >
-                    &gt;
-                  </button>
-                </div>
+                {/* Shared pagination control (Program Runs tab). */}
+                <Pagination
+                  page={runsPage}
+                  totalPages={runsMeta?.totalPages ?? 1}
+                  hasPreviousPage={runsMeta?.hasPreviousPage ?? runsPage > 1}
+                  hasNextPage={runsMeta?.hasNextPage ?? runsPage < (runsMeta?.totalPages ?? 1)}
+                  onPrev={() => setRunsPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setRunsPage((p) => p + 1)}
+                />
               </div>
             )}
           </section>

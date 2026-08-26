@@ -203,61 +203,6 @@ const ActionButton = ({
 
 export default ActionButton;
 
-export function useActionStatus(feedbackDuration = 2000, onFeedbackComplete?: () => void) {
-  const [status, setStatus] = useState<ActionStatus>("idle");
-  const timeoutRef = useRef<number>(undefined);
-  const mountedRef = useRef(true);
-  const onFeedbackCompleteRef = useRef(onFeedbackComplete);
-  // Keep the latest callback in a ref without writing during render (compiler
-  // `refs` rule); a no-dep effect runs after every commit.
-  useEffect(() => {
-    onFeedbackCompleteRef.current = onFeedbackComplete;
-  });
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  const wrap = useCallback(async (fn: () => Promise<void>) => {
-    setStatus("loading");
-    try {
-      await fn();
-      if (!mountedRef.current) return;
-      setStatus("success");
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = window.setTimeout(() => {
-        if (!mountedRef.current) return;
-        setStatus("idle");
-        if (onFeedbackCompleteRef.current) {
-          window.setTimeout(() => {
-            if (mountedRef.current) onFeedbackCompleteRef.current?.();
-          }, FEEDBACK_PAUSE);
-        }
-      }, feedbackDuration);
-    } catch (e) {
-      if (!mountedRef.current) return;
-      setStatus("error");
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = window.setTimeout(() => {
-        if (!mountedRef.current) return;
-        setStatus("idle");
-        if (onFeedbackCompleteRef.current) {
-          window.setTimeout(() => {
-            if (mountedRef.current) onFeedbackCompleteRef.current?.();
-          }, FEEDBACK_PAUSE);
-        }
-      }, feedbackDuration);
-      throw e;
-    }
-  }, [feedbackDuration]);
-
-  return { status, wrap } as const;
-}
-
 export const CheckIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12" />

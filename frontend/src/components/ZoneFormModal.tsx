@@ -2,7 +2,8 @@ import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Zone, ZoneMetadata } from "../types";
 import Dropdown from "./Dropdown";
-import ActionButton, { useActionStatus, CheckIcon, XIcon, TrashIcon } from "./ActionButton";
+import ActionButton, { CheckIcon, XIcon, TrashIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 
 const PLANT_TYPES = [
   { value: "", label: "—" },

@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import type { IrrigationProgram, ProgramZoneEntry, Zone } from "../types";
 import { createProgram, updateProgram } from "../api";
 import Dropdown from "./Dropdown";
-import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton";
+import ActionButton, { CheckIcon, XIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 
 type ScheduleFrequency = "daily" | "every2" | "every3" | "weekly" | "weekdays";
 

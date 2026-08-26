@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { IrrigationRecord, ManualRun, Zone, ZoneState } from "../types";
 import ZoneCard from "./ZoneCard";
 import type { ZoneIrrigationSummary } from "./ZoneCard";
-import { getPersistedDuration } from "./ZoneCard";
+import { getPersistedDuration } from "../utils/zoneDuration";
 import ZoneFormModal from "./ZoneFormModal";
 import {
   createZone as apiCreateZone,

@@ -7,6 +7,14 @@ interface DateTimeInputProps {
   max?: Date;
   placeholder?: string;
   clearable?: boolean;
+  /**
+   * Optional DOM id forwarded to the underlying <input>.
+   * Pass this so a `<label htmlFor="...">` elsewhere can point at the field:
+   * clicking the label then focuses the input, and screen readers announce
+   * the label when the field gains focus. Optional, so existing callers that
+   * don't need a label association keep working unchanged.
+   */
+  id?: string;
 }
 
 const toLocalISOString = (d: Date): string => {
@@ -18,12 +26,13 @@ const toLocalISOString = (d: Date): string => {
   return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
 };
 
-const DateTimeInput = ({ value, onChange, min, max, placeholder, clearable = false }: DateTimeInputProps) => {
+const DateTimeInput = ({ value, onChange, min, max, placeholder, clearable = false, id }: DateTimeInputProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="datetime-input-wrapper">
       <input
+        id={id}
         ref={inputRef}
         type="datetime-local"
         className="datetime-input"

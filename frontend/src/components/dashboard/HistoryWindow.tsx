@@ -51,6 +51,7 @@ const HistoryWindow = ({
           <div className="time-filter-field">
             <label htmlFor="history-start">From</label>
             <DateTimeInput
+              id="history-start"
               value={startDate}
               onChange={onStartDateChange}
               max={endDate ?? new Date()}
@@ -61,6 +62,7 @@ const HistoryWindow = ({
           <div className="time-filter-field">
             <label htmlFor="history-end">To</label>
             <DateTimeInput
+              id="history-end"
               value={endDate}
               onChange={onEndDateChange}
               min={startDate ?? undefined}

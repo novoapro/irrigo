@@ -6,7 +6,8 @@ import {
   updateDebugConfig,
   simulateCharacteristic
 } from "../api";
-import ActionButton, { useActionStatus, CheckIcon } from "./ActionButton";
+import ActionButton, { CheckIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 import Dropdown from "./Dropdown";
 
 type CharacteristicKey = "active" | "inUse" | "isConfigured" | "setDuration" | "remainingDuration";

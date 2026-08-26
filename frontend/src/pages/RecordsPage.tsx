@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { deleteHeartbeats, fetchHeartbeats, type HeartbeatQuery } from "../api";
@@ -6,6 +6,7 @@ import type { HeartbeatListResponse } from "../types";
 import HistorySection from "../components/HistorySection";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { toQueryDateTime } from "../utils/date";
 
 const PAGE_SIZE = 25;
@@ -36,17 +37,21 @@ const RecordsPage = () => {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
 
-  const psiDebounceRef = useRef<number | null>(null);
-  const [debouncedPsi, setDebouncedPsi] = useState({ psiMin: "", psiMax: "" });
-
-  useEffect(() => {
-    if (psiDebounceRef.current) clearTimeout(psiDebounceRef.current);
-    psiDebounceRef.current = window.setTimeout(() => {
-      setDebouncedPsi({ psiMin: filters.psiMin, psiMax: filters.psiMax });
-      setPage(1);
-    }, 400);
-    return () => { if (psiDebounceRef.current) clearTimeout(psiDebounceRef.current); };
-  }, [filters.psiMin, filters.psiMax]);
+  // The PSI min/max inputs feed the query, but we don't want to refetch on
+  // every keystroke. We debounce them: `debouncedPsi` only catches up with the
+  // typed values after 400ms of no typing, and it's `debouncedPsi` (not the
+  // raw inputs) that feeds the query key below — so typing stays local until
+  // the user pauses.
+  //
+  // `useMemo` gives the {psiMin, psiMax} object a stable identity that only
+  // changes when one of the values changes. Without it, a fresh object every
+  // render would restart the debounce timer forever and it would never fire —
+  // this preserves the original single-timer-for-both-inputs behaviour.
+  const psiFilter = useMemo(
+    () => ({ psiMin: filters.psiMin, psiMax: filters.psiMax }),
+    [filters.psiMin, filters.psiMax]
+  );
+  const debouncedPsi = useDebouncedValue(psiFilter, 400);
 
   const start = startDate ? toQueryDateTime(startDate) : undefined;
   const end = endDate ? toQueryDateTime(endDate) : undefined;
@@ -96,8 +101,10 @@ const RecordsPage = () => {
   const totalCount = meta?.totalCount ?? heartbeats.length;
 
   const handleResetFilters = () => {
+    // Clearing the filters resets the PSI inputs; `debouncedPsi` follows them
+    // automatically (via the memo + debounce above), so there's no separate
+    // debounced-PSI state to reset here anymore.
     setFilters(defaultFilters);
-    setDebouncedPsi({ psiMin: "", psiMax: "" });
     setStartDate(null);
     setEndDate(null);
     setPage(1);
@@ -236,7 +243,7 @@ const RecordsPage = () => {
               type="number"
               step="0.1"
               value={filters.psiMin}
-              onChange={(e) => setFilters((f) => ({ ...f, psiMin: e.target.value }))}
+              onChange={(e) => { setFilters((f) => ({ ...f, psiMin: e.target.value })); setPage(1); }}
               placeholder="Any"
               className="records-filter-input"
             />
@@ -247,7 +254,7 @@ const RecordsPage = () => {
               type="number"
               step="0.1"
               value={filters.psiMax}
-              onChange={(e) => setFilters((f) => ({ ...f, psiMax: e.target.value }))}
+              onChange={(e) => { setFilters((f) => ({ ...f, psiMax: e.target.value })); setPage(1); }}
               placeholder="Any"
               className="records-filter-input"
             />

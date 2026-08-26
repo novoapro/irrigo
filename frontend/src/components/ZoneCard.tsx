@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { SequentialRunZoneEntry, Zone, ZoneState } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
 import { useNow } from "../hooks/useNow";
+import { DURATION_STORAGE_KEY, getPersistedDuration } from "../utils/zoneDuration";
 
 const MIN_DURATION = 1;
 const MAX_DURATION = 60;
@@ -40,19 +41,6 @@ const formatCountdown = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
-};
-
-export const DURATION_STORAGE_KEY = "irrigo:zone-duration:";
-
-export const getPersistedDuration = (zoneId: string, fallback: number): number => {
-  try {
-    const v = localStorage.getItem(DURATION_STORAGE_KEY + zoneId);
-    if (v !== null) {
-      const n = Number(v);
-      if (n >= MIN_DURATION && n <= MAX_DURATION) return n;
-    }
-  } catch { /* ignore */ }
-  return fallback;
 };
 
 const RUN_STATUS_LABELS: Record<string, string> = {

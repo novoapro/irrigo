@@ -66,10 +66,25 @@ const errorMessage = (error: unknown, fallback: string): string | null => {
 };
 
 /**
- * The dashboard controller (Phase 3 decomposition). Owns all of the app's
- * server-data queries, the derived read-model, the realtime event fan-out
- * (routed through the TanStack Query cache), and the manual-refresh lifecycle.
- * `App` is a thin shell that renders this hook's result.
+ * The dashboard controller — the "brains" behind the app shell.
+ *
+ * This is the container-as-a-hook pattern: `App` is a thin, presentational
+ * shell that renders whatever this hook returns, while all the stateful
+ * machinery lives here where it can be reasoned about (and, in principle,
+ * tested) in one place. It owns:
+ *   • the server-data queries (see `queries/dashboard.ts`) + the derived
+ *     read-model the UI consumes,
+ *   • the realtime event fan-out — `handleRealtimeEvent` routes websocket
+ *     events into the TanStack Query cache via `setQueryData`/`invalidateQueries`
+ *     (so there is one source of truth, not a parallel state tree),
+ *   • the manual-refresh lifecycle, modelled as the `RefreshPhase` state machine.
+ *
+ * Honest trade-off worth knowing: this is a large hook that fuses several
+ * concerns (data, realtime, refresh, filters, panel UI state). A natural next
+ * refactor is to split it into composable hooks — `useDashboardData()`,
+ * `useRealtimeSync()`, `useRefreshLifecycle()`, `useHistoryFilters()` — behind a
+ * thin `useDashboardController`. It's kept whole here so there's a single place
+ * to read the data flow end to end.
  */
 export const useDashboardController = () => {
   const queryClient = useQueryClient();
@@ -91,6 +106,14 @@ export const useDashboardController = () => {
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
   const historyFiltersRef = useRef<HTMLDivElement | null>(null);
+  // Holds the realtime event handler. It exists to break a chicken-and-egg
+  // ordering problem: `useRealtimeChannel` must be called here (near the top),
+  // but the real `handleRealtimeEvent` is defined far below because it depends
+  // on the query loaders and on the channel's own `deactivateManualSession`.
+  // We pass the channel a stable closure that reads the latest handler from
+  // this ref, and point the ref at `handleRealtimeEvent` in an effect once it
+  // exists. (This is separate from the latest-ref trick *inside*
+  // useRealtimeChannel, which keeps the socket from re-subscribing.)
   const realtimeEventHandlerRef = useRef<(event: RealtimeEvent) => void>(() => { });
 
   const realtimeUrl = buildRealtimeUrl();

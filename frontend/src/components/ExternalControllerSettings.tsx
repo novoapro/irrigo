@@ -7,7 +7,8 @@ import {
   testExternalController
 } from "../api";
 import Dropdown from "./Dropdown";
-import ActionButton, { useActionStatus, CheckIcon, TestIcon } from "./ActionButton";
+import ActionButton, { CheckIcon, TestIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 
 const AUTH_OPTIONS = [
   { value: "none", label: "None" },

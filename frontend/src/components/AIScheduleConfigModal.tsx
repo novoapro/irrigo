@@ -6,7 +6,8 @@ import { fetchAIScheduleConfig, updateAIScheduleConfig, triggerAIScheduleRun, fe
 import { HOUR_OPTIONS } from "../utils/date";
 import Dropdown from "./Dropdown";
 import AIInteractionModal from "./AIInteractionModal";
-import ActionButton, { useActionStatus, CheckIcon, XIcon, PlayIcon, ErrorCircleIcon } from "./ActionButton";
+import ActionButton, { CheckIcon, XIcon, PlayIcon, ErrorCircleIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 
 const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },

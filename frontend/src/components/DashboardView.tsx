@@ -5,8 +5,8 @@ import ZoneControlPanel from "./ZoneControlPanel";
 import IrrigationQueuePanel from "./IrrigationQueuePanel";
 import RainAlertBanner from "./RainAlertBanner";
 import { type OverviewCardDefinition } from "./OverviewSection";
-import { type StatusTone } from "./status/SensorWidgets";
 import { StatusPanel } from "./status/StatusPanel";
+import { readSensor } from "../utils/sensors";
 import AIRunSummary from "./dashboard/AIRunSummary";
 import HistoryWindow from "./dashboard/HistoryWindow";
 import { useChartTheme } from "../hooks/useChartTheme";
@@ -168,51 +168,23 @@ const DashboardView = ({
   const latestWaterPsi =
     status?.sensors?.waterPsi ?? latestHeartbeatSnapshot?.sensors.waterPsi;
 
-  const rainStatus = connectedSensors.includes("RAIN") ? (
-    status ? status.sensors.rain
-      ? "Detected"
-      : "No"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.rain
-          ? "Detected"
-          : "No"
-        : "No data")
-    : "Ignored";
+  // Each boolean sensor's label + tone + active flag comes from one shared
+  // decision tree (see readSensor) instead of the four near-identical nested
+  // ternaries this used to be. `live` reads from the live status payload (or
+  // undefined when there is none) and `snapshot` is the heartbeat fallback.
+  const rain = readSensor(
+    connectedSensors.includes("RAIN"),
+    status ? status.sensors.rain : undefined,
+    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.rain : undefined,
+    { on: "Detected", off: "No" }
+  );
 
-  const rainStatusTone: StatusTone = connectedSensors.includes("RAIN") ? (
-    status ? status.sensors.rain
-      ? "negative"
-      : "positive"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.rain
-          ? "negative"
-          : "positive"
-        : "informative")
-    : "warning";
-
-  const soilStatus = connectedSensors.includes("SOIL") ? (
-    status
-      ? status.sensors.soil
-        ? "Saturated"
-        : "Dry"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.soil
-          ? "Saturated"
-          : "Dry"
-        : "No data")
-    : "Ignored";
-
-  const soilStatusTone: StatusTone = connectedSensors.includes("SOIL") ? (
-    status
-      ? status.sensors.soil
-        ? "negative"
-        : "positive"
-      : latestHeartbeatSnapshot
-        ? latestHeartbeatSnapshot.sensors.soil
-          ? "negative"
-          : "positive"
-        : "informative")
-    : "warning";
+  const soil = readSensor(
+    connectedSensors.includes("SOIL"),
+    status ? status.sensors.soil : undefined,
+    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.soil : undefined,
+    { on: "Saturated", off: "Dry" }
+  );
 
   const statusIrrigation = status?.irrigation
     ? { zone: status.irrigation.zone, action: status.irrigation.action ?? null }
@@ -411,16 +383,14 @@ const DashboardView = ({
         irrigation={statusIrrigation}
         lastIrrigationChange={lastIrrigationChange}
         zones={zones}
-        pressureStatus={waterPressureMeta.status}
-        pressureTone={waterPressureMeta.tone}
+        pressure={{
+          status: waterPressureMeta.status,
+          tone: waterPressureMeta.tone,
+          active: connectedSensors.includes("PRESSURE")
+        }}
         pressureDetail={waterPressureMeta.detail}
-        pressureActive={connectedSensors.includes("PRESSURE")}
-        rainStatus={rainStatus}
-        rainTone={rainStatusTone}
-        rainActive={connectedSensors.includes("RAIN")}
-        soilStatus={soilStatus}
-        soilTone={soilStatusTone}
-        soilActive={connectedSensors.includes("SOIL")}
+        rain={rain}
+        soil={soil}
         rainPause={rainPause}
         onRainReported={onRefreshRainPause}
       />

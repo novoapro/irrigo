@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { DeviceConfig } from "../types";
-import ActionButton, { useActionStatus, CheckIcon, XIcon } from "./ActionButton";
+import ActionButton, { CheckIcon, XIcon } from "./ActionButton";
+import { useActionStatus } from "../hooks/useActionStatus";
 
 interface DeviceWidgetProps {
   ip?: string;

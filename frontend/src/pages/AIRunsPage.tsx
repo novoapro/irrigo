@@ -5,6 +5,7 @@ import { fetchScheduleRuns, fetchScheduleRun, deleteScheduleRuns } from "../api"
 import type { HeartbeatListMeta, ScheduleEntry, ScheduleRun, Zone } from "../types";
 import DateTimeInput from "../components/DateTimeInput";
 import AIInteractionModal from "../components/AIInteractionModal";
+import Pagination from "../components/Pagination";
 import { toQueryDateTime } from "../utils/date";
 
 const PAGE_SIZE = 20;
@@ -289,28 +290,17 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
         </div>
       )}
 
+      {/* Shared pagination control. hasPreviousPage/hasNextPage reproduce the
+          original `page <= 1` / `page >= totalPages` disabled logic exactly. */}
       {totalPages > 1 && (
-        <div className="pagination-controls">
-          <button
-            type="button"
-            className="ghost-button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            &lt;
-          </button>
-          <span className="muted pagination-status">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            type="button"
-            className="ghost-button"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            &gt;
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          hasPreviousPage={page > 1}
+          hasNextPage={page < totalPages}
+          onPrev={() => setPage((p) => p - 1)}
+          onNext={() => setPage((p) => p + 1)}
+        />
       )}
 
       {interactionRun && (

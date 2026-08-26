@@ -66,8 +66,9 @@ const selectDropdown = async (label: string, option: string) => {
   const group = screen
     .getByText(label, { selector: "label" })
     .closest(".records-filter-group") as HTMLElement;
-  await user.click(within(group).getByRole("button"));
-  await user.click(await screen.findByRole("button", { name: option }));
+  // The Dropdown trigger is an accessible combobox; its items are listbox options.
+  await user.click(within(group).getByRole("combobox"));
+  await user.click(await screen.findByRole("option", { name: option }));
 };
 
 beforeEach(() => {

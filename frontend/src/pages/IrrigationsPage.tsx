@@ -6,6 +6,7 @@ import type { IrrigationRecordListResponse, IrrigationSource } from "../types";
 import { useZonesQuery } from "../queries/dashboard";
 import Dropdown from "../components/Dropdown";
 import DateTimeInput from "../components/DateTimeInput";
+import Pagination from "../components/Pagination";
 import { formatTimestamp, formatDurationLabel, toQueryDateTime } from "../utils/date";
 
 const PAGE_SIZE = 25;
@@ -300,27 +301,16 @@ const IrrigationsPage = () => {
               ))}
             </div>
 
-            <div className="pagination-controls">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={!(meta?.hasPreviousPage ?? page > 1)}
-              >
-                &lt;
-              </button>
-              <span className="muted pagination-status">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={!(meta?.hasNextPage ?? page < totalPages)}
-              >
-                &gt;
-              </button>
-            </div>
+            {/* Shared pagination control; the ?? fallbacks preserve the
+                original "trust server meta, else derive from page" logic. */}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              hasPreviousPage={meta?.hasPreviousPage ?? page > 1}
+              hasNextPage={meta?.hasNextPage ?? page < totalPages}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         )}
       </section>
