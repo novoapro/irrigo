@@ -196,7 +196,11 @@ export function useActionStatus(feedbackDuration = 2000, onFeedbackComplete?: ()
   const timeoutRef = useRef<number>(undefined);
   const mountedRef = useRef(true);
   const onFeedbackCompleteRef = useRef(onFeedbackComplete);
-  onFeedbackCompleteRef.current = onFeedbackComplete;
+  // Keep the latest callback in a ref without writing during render (compiler
+  // `refs` rule); a no-dep effect runs after every commit.
+  useEffect(() => {
+    onFeedbackCompleteRef.current = onFeedbackComplete;
+  });
 
   useEffect(() => {
     mountedRef.current = true;

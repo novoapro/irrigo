@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { DeviceConfig, Zone, ZoneState } from "../types";
 import ZoneControlPanel from "./ZoneControlPanel";
@@ -55,8 +55,7 @@ const BASE_TABS: { key: SettingsTab; label: string }[] = [
   { key: "preferences", label: "Preferences" },
 ];
 
-const SettingsPanel = ({
-  open,
+const SettingsPanelContent = ({
   onClose,
   initialTab,
   zones,
@@ -80,27 +79,18 @@ const SettingsPanel = ({
 }: SettingsPanelProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "zones");
 
-  const TABS = useMemo(() =>
-    BASE_TABS.map((tab) =>
-      tab.key === "device" && deviceConfig?.deviceName
-        ? { ...tab, label: deviceConfig.deviceName }
-        : tab
-    ),
-    [deviceConfig?.deviceName]
+  // Plain derivation — the React Compiler memoizes this; a manual useMemo here
+  // can't be preserved by the compiler (preserve-manual-memoization).
+  const TABS = BASE_TABS.map((tab) =>
+    tab.key === "device" && deviceConfig?.deviceName
+      ? { ...tab, label: deviceConfig.deviceName }
+      : tab
   );
-
-  useEffect(() => {
-    if (open && initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [open, initialTab]);
 
   const handleScheduleSaved = useCallback(() => {
     onZonesChanged();
     onAIScheduleConfigChanged?.();
   }, [onZonesChanged, onAIScheduleConfigChanged]);
-
-  if (!open) return null;
 
   return createPortal(
     <div className="modal-overlay" role="dialog" aria-modal="true">
@@ -203,6 +193,14 @@ const SettingsPanel = ({
     </div>,
     document.body
   );
+};
+
+// Thin wrapper: mount the panel content only while open, keyed by the requested
+// tab so opening (or re-targeting) initialises `activeTab` fresh — no prop-sync
+// effect needed (set-state-in-effect).
+const SettingsPanel = (props: SettingsPanelProps) => {
+  if (!props.open) return null;
+  return <SettingsPanelContent key={props.initialTab ?? "zones"} {...props} />;
 };
 
 export default SettingsPanel;
