@@ -1,6 +1,16 @@
 import { useMemo } from "react";
 import { useThemeContext } from "../ThemeContext";
 
+/**
+ * Reads the chart colour palette from the CSS custom properties on <html> so
+ * charts (Recharts) match the active light/dark theme.
+ *
+ * Why the `getComputedStyle` read inside a memo is safe here: `data-theme` is
+ * always applied to <html> *before* this memo runs — by the inline script in
+ * index.html on first paint, and synchronously by `useTheme.setPreference` on
+ * toggle (see the note there). So although the read looks impure, it always
+ * observes the correct theme, and the memo re-runs whenever `theme` changes.
+ */
 export function useChartTheme() {
   const { theme } = useThemeContext();
 

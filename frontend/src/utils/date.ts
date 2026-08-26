@@ -11,11 +11,16 @@ export const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
   label: formatHour12(i),
 }));
 
+/** Full date-time, e.g. `08/22/25 07:43 PM`. Used in headers and detail rows. */
 export const formatTimestamp = (value: string) =>
   format(parseISO(value), "MM/d/yy hh:mm a");
 
+/**
+ * Compact date-time for dense rows (zone cards, irrigation history), e.g.
+ * `Aug 22, 7:43 PM` — drops the year and the leading hour zero to save space.
+ */
 export const formatTimestampShort = (value: string) =>
-  format(parseISO(value), "MM/d/yy hh:mm a");
+  format(parseISO(value), "MMM d, h:mm a");
 
 export const formatHourLabel = (value: string) =>
   format(parseISO(value), "MMM d, h a");
@@ -30,8 +35,9 @@ export const formatDurationLabel = (ms: number) => {
     return `${days >= 10 ? Math.round(days) : days.toFixed(1)} d`;
   }
   if (minutes >= 180) {
+    // 3h+ : whole hours once we pass 10h, one decimal below that.
     const hours = minutes / 60;
-    return `${hours >= 10 ? Math.round(hours) : hours.toFixed(1)} ho`;
+    return `${hours >= 10 ? Math.round(hours) : hours.toFixed(1)} h`;
   }
   if (minutes >= 60) {
     const hours = minutes / 60;

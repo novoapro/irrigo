@@ -66,6 +66,16 @@ const ActionButton = ({
 
   const prevStatusRef = useRef<ActionStatus>("idle");
 
+  // Hold the latest `onFeedbackComplete` in a ref (synced after every commit)
+  // so the feedback-timer effect below can depend only on the *status*. Without
+  // this, an inline callback (new identity each render) would re-run that effect
+  // and restart the timer on every parent render — so success/error might never
+  // time out. Same latest-ref pattern as `useActionStatus`.
+  const onFeedbackCompleteRef = useRef(onFeedbackComplete);
+  useEffect(() => {
+    onFeedbackCompleteRef.current = onFeedbackComplete;
+  });
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -86,14 +96,16 @@ const ActionButton = ({
     if (controlledStatus === "success" || controlledStatus === "error") {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = window.setTimeout(() => {
-        if (onFeedbackComplete) {
+        const done = onFeedbackCompleteRef.current;
+        if (done) {
           window.setTimeout(() => {
-            if (mountedRef.current) onFeedbackComplete();
+            if (mountedRef.current) done();
           }, FEEDBACK_PAUSE);
         }
       }, feedbackDuration);
     }
-  }, [controlledStatus, feedbackDuration, onFeedbackComplete]);
+    // Depends only on the status transition — the callback is read from a ref.
+  }, [controlledStatus, feedbackDuration]);
 
   const handleClick = useCallback(async () => {
     if (action) {

@@ -29,13 +29,13 @@ describe("formatTimestamp", () => {
 });
 
 // ---------------------------------------------------------------------------
-// formatTimestampShort  (same format as formatTimestamp)
+// formatTimestampShort  (compact: no year, no leading-zero hour)
 // ---------------------------------------------------------------------------
 
 describe("formatTimestampShort", () => {
-  it("produces the same output as formatTimestamp", () => {
-    const iso = "2025-06-15T14:30:00.000Z";
-    expect(formatTimestampShort(iso)).toBe(formatTimestamp(iso));
+  it("formats a compact 'MMM d, h:mm a' (dropping the year)", () => {
+    // TZ is pinned to UTC in the test setup, so 14:30Z renders as 2:30 PM.
+    expect(formatTimestampShort("2025-06-15T14:30:00.000Z")).toBe("Jun 15, 2:30 PM");
   });
 });
 
@@ -98,16 +98,16 @@ describe("formatDurationLabel", () => {
     expect(formatDurationLabel(150 * 60_000)).toBe("2.5 h");
   });
 
-  it("returns 'X.Y ho' for >= 180 minutes (3-hour threshold)", () => {
-    expect(formatDurationLabel(180 * 60_000)).toBe("3.0 ho");
+  it("returns 'X.Y h' for >= 180 minutes (3-hour threshold)", () => {
+    expect(formatDurationLabel(180 * 60_000)).toBe("3.0 h");
   });
 
-  it("returns '4.0 ho' for 240 minutes", () => {
-    expect(formatDurationLabel(240 * 60_000)).toBe("4.0 ho");
+  it("returns '4.0 h' for 240 minutes", () => {
+    expect(formatDurationLabel(240 * 60_000)).toBe("4.0 h");
   });
 
-  it("returns rounded ho (no decimal) for >= 10 hours", () => {
-    expect(formatDurationLabel(10 * 60 * 60_000)).toBe("10 ho");
+  it("returns rounded hours (no decimal) for >= 10 hours", () => {
+    expect(formatDurationLabel(10 * 60 * 60_000)).toBe("10 h");
   });
 
   it("returns '1.0 d' for exactly 24 hours (1440 min threshold)", () => {

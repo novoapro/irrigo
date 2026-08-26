@@ -108,7 +108,14 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
           [runId]: { entries: Array.isArray(detail.entries) ? detail.entries : [], run: detail }
         }));
       } catch {
-        setRunDetails((prev) => ({ ...prev, [runId]: { entries: [], run: runs.find((r) => r.scheduleRunId === runId)! } }));
+        // The detail fetch failed; fall back to the summary row we already
+        // have. Guard the lookup instead of asserting non-null (`!`) — if the
+        // run isn't on the current page, leave the detail unset rather than
+        // crash on an undefined `run`.
+        const summary = runs.find((r) => r.scheduleRunId === runId);
+        if (summary) {
+          setRunDetails((prev) => ({ ...prev, [runId]: { entries: [], run: summary } }));
+        }
       } finally {
         setLoadingDetail(null);
       }
