@@ -1,14 +1,14 @@
 import { useMemo, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import DateTimeInput from "./DateTimeInput";
 import WeatherWidget, { type PrecipitationPoint } from "./WeatherWidget";
 import ZoneControlPanel from "./ZoneControlPanel";
 import IrrigationQueuePanel from "./IrrigationQueuePanel";
 import RainAlertBanner from "./RainAlertBanner";
-import OverviewSection, { type OverviewCardDefinition } from "./OverviewSection";
+import { type OverviewCardDefinition } from "./OverviewSection";
 import { type StatusTone } from "./status/SensorWidgets";
 import { StatusPanel } from "./status/StatusPanel";
+import AIRunSummary from "./dashboard/AIRunSummary";
+import HistoryWindow from "./dashboard/HistoryWindow";
 import { useChartTheme } from "../hooks/useChartTheme";
 import type { RainPauseStatus } from "../api";
 import type {
@@ -471,139 +471,34 @@ const DashboardView = ({
         onOpenProgramSettings={() => onOpenSettings("programs")}
       />
 
-      <section className="ai-run-summary">
-        <div className="ai-run-summary__top-row">
-          {lastAIRun && (
-            <button
-              type="button"
-              className="ai-run-summary__header"
-              onClick={() => setAiRunExpanded((v) => !v)}
-            >
-              <h3>Last AI Run</h3>
-              <span className={`schedule-status-pill schedule-status-pill--${lastAIRun.status}`}>
-                {lastAIRun.status}
-              </span>
-              <span className="ai-run-summary__time">
-                {new Date(lastAIRun.startedAt).toLocaleString("en-US", {
-                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true
-                })}
-              </span>
-              <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                {lastAIRun.triggeredBy === "cron" ? "auto" : "manual"}
-                {typeof lastAIRun.entries === "number" && lastAIRun.entries > 0
-                  ? ` · ${lastAIRun.entries} zone${lastAIRun.entries !== 1 ? "s" : ""}`
-                  : ""}
-              </span>
-            </button>
-          )}
-          {!lastAIRun && <h3 style={{ margin: 0 }}>AI Runs</h3>}
-          {aiScheduleEnabled && (
-            <button
-              type="button"
-              className={`icon-btn ai-run-status-btn ai-run-status-btn--${dashboardRunningAI ? "running" : lastAIRun?.status === "completed" ? "success" : lastAIRun?.status ?? "none"}`}
-              disabled={dashboardRunningAI}
-              onClick={onRunDashboardAI}
-              title={dashboardRunningAI ? "Running..." : "Run AI Run"}
-              aria-label={dashboardRunningAI ? "Running..." : "Run AI Run"}
-            >
-              {dashboardRunningAI ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-spin"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-              )}
-            </button>
-          )}
-        </div>
-        {lastAIRun && aiRunExpanded && (
-          <div className="ai-run-summary__body">
-            {lastAIRun.reasoning && (
-              <p className="ai-run-summary__reasoning">{lastAIRun.reasoning}</p>
-            )}
-            {lastAIRun.errorMessage && (
-              <p className="ai-run-summary__error">{lastAIRun.errorMessage}</p>
-            )}
-            {lastAIRunEntries.length > 0 && (
-              <div className="ai-run-summary__entries">
-                {lastAIRunEntries.map((entry) => {
-                  const zone = zones.find((z) => z.zoneId === entry.zoneId);
-                  return (
-                    <div className="ai-run-summary__entry" key={entry._id}>
-                      <span className="ai-run-summary__zone-name">{zone?.name ?? entry.zoneId}</span>
-                      <span className="ai-run-summary__zone-dur">{entry.plannedDurationMinutes} min</span>
-                      <span className="ai-run-summary__zone-time">
-                        {new Date(entry.plannedStartAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <Link to="/ai-runs" className="ai-run-summary__cta">
-              View all AI Runs
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-            </Link>
-          </div>
-        )}
-      </section>
+      <AIRunSummary
+        lastAIRun={lastAIRun}
+        lastAIRunEntries={lastAIRunEntries}
+        aiScheduleEnabled={aiScheduleEnabled}
+        dashboardRunningAI={dashboardRunningAI}
+        aiRunExpanded={aiRunExpanded}
+        setAiRunExpanded={setAiRunExpanded}
+        onRunDashboardAI={onRunDashboardAI}
+        zones={zones}
+      />
 
-      <section className="history-window">
-        <article className="history-window-card">
-          <header className="history-window-header">
-            <div>
-              <h3>History window</h3>
-              <p className="muted">{filterSummary}</p>
-            </div>
-          </header>
-          <div className="history-window-filters" ref={historyFiltersRef}>
-            <div className="records-filters__row">
-              <div className="time-filter-field">
-                <label htmlFor="history-start">From</label>
-                <DateTimeInput
-                  value={startDate}
-                  onChange={onStartDateChange}
-                  max={endDate ?? new Date()}
-                  placeholder="Beginning of time"
-                  clearable
-                />
-              </div>
-              <div className="time-filter-field">
-                <label htmlFor="history-end">To</label>
-                <DateTimeInput
-                  value={endDate}
-                  onChange={onEndDateChange}
-                  min={startDate ?? undefined}
-                  max={new Date()}
-                  placeholder="Now"
-                  clearable
-                />
-              </div>
-            </div>
-            {filterActive && (
-              <button
-                type="button"
-                className="history-filter-reset"
-                onClick={onResetFilters}
-                title="Reset filters"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </button>
-            )}
-          </div>
-          <div className="history-window-section" aria-label="Analytics">
-            <OverviewSection
-              cards={overviewCards}
-              pressureOverview={pressureOverview}
-              trendData={trendData}
-              latestBaselinePsi={latestBaselinePsi}
-              subtitle={overviewSubtitle}
-              loading={overviewLoading}
-              error={overviewError}
-            />
-          </div>
-        </article>
-      </section>
+      <HistoryWindow
+        filterSummary={filterSummary}
+        historyFiltersRef={historyFiltersRef}
+        startDate={startDate}
+        endDate={endDate}
+        onStartDateChange={onStartDateChange}
+        onEndDateChange={onEndDateChange}
+        filterActive={filterActive}
+        onResetFilters={onResetFilters}
+        overviewCards={overviewCards}
+        pressureOverview={pressureOverview}
+        trendData={trendData}
+        latestBaselinePsi={latestBaselinePsi}
+        overviewSubtitle={overviewSubtitle}
+        overviewLoading={overviewLoading}
+        overviewError={overviewError}
+      />
     </>
   );
 };
