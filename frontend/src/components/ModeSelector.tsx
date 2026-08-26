@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { IrrigationMode } from "../types";
 
 interface ModeSelectorProps {
@@ -6,7 +7,7 @@ interface ModeSelectorProps {
   disabled?: boolean;
 }
 
-const MODES: { value: IrrigationMode; label: string; icon: JSX.Element }[] = [
+const MODES: { value: IrrigationMode; label: string; icon: ReactNode }[] = [
   {
     value: "smart",
     label: "Smart",

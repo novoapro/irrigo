@@ -58,7 +58,7 @@ const ActionButton = ({
   onClick,
 }: ActionButtonProps) => {
   const [internalStatus, setInternalStatus] = useState<ActionStatus>("idle");
-  const timeoutRef = useRef<number>();
+  const timeoutRef = useRef<number>(undefined);
   const mountedRef = useRef(true);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -193,7 +193,7 @@ export default ActionButton;
 
 export function useActionStatus(feedbackDuration = 2000, onFeedbackComplete?: () => void) {
   const [status, setStatus] = useState<ActionStatus>("idle");
-  const timeoutRef = useRef<number>();
+  const timeoutRef = useRef<number>(undefined);
   const mountedRef = useRef(true);
   const onFeedbackCompleteRef = useRef(onFeedbackComplete);
   onFeedbackCompleteRef.current = onFeedbackComplete;
