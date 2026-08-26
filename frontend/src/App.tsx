@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, NavLink, Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import DateTimeInput from "./components/DateTimeInput";
 import RecordsPage from "./pages/RecordsPage";
@@ -8,43 +9,20 @@ import LogsPage from "./pages/LogsPage";
 import AIRunsPage from "./pages/AIRunsPage";
 import {
   buildRealtimeUrl,
-  fetchDeviceConfig,
   updateDeviceConfig,
-  fetchHeartbeatOverview,
-  fetchHeartbeats,
-  fetchHeartbeatSeries,
-  fetchIrrigationEvents,
-  fetchLatestIrrigationPerZone,
-  fetchStatus,
-  fetchAIScheduleConfig,
-  fetchScheduleRuns,
-  fetchScheduleRun,
-  fetchSystemConfig,
   triggerAIScheduleRun,
-  fetchWeatherForecast,
-  fetchDebugConfig,
   fetchStateSnapshot,
-  fetchZones,
-  fetchZoneStates,
-  getManualRunStatus
+  type RainPauseStatus
 } from "./api";
 import type {
   DeviceConfig,
-  Heartbeat,
-  HeartbeatListMeta,
-  HeartbeatOverviewStats,
+  DebugConfig,
   HeartbeatSeriesSample,
-  IrrigationEvent,
   IrrigationMode,
-  IrrigationRecord,
-  ScheduleEntry,
-  ScheduleRun,
-  StatusPayload,
-  WeatherOverviewPayload,
+  SystemConfig,
   WeatherConditionsSnapshot,
   RealtimeEvent,
   SequentialRun,
-  Zone,
   ZoneState
 } from "./types";
 import "./modal.css";
@@ -56,9 +34,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import OverviewSection, {
   type OverviewCardDefinition
 } from "./components/OverviewSection";
-import { GuardCard } from "./components/status/GuardCard";
 import {
-  SensorWidget,
   type StatusTone
 } from "./components/status/SensorWidgets";
 import { StatusPanel } from "./components/status/StatusPanel";
@@ -66,8 +42,6 @@ import {
   formatTimestamp,
   toQueryDateTime
 } from "./utils/date";
-import { getRainIndicatorIcon } from "./utils/weather";
-import { getSensorIcon } from "./utils/sensors";
 import {
   RefreshStatusIcon,
   type RefreshStatusKey
@@ -78,8 +52,24 @@ import HeaderHealthBar from "./components/HeaderHealthBar";
 import { useThemeContext } from "./ThemeContext";
 import type { ThemePreference } from "./hooks/useTheme";
 import { useChartTheme } from "./hooks/useChartTheme";
-
-type LoadState = "idle" | "loading" | "ready" | "error";
+import { queryKeys } from "./queries/keys";
+import {
+  useStatusQuery,
+  useHeartbeatPageQuery,
+  useHeartbeatSeriesQuery,
+  useHeartbeatOverviewQuery,
+  useIrrigationRecordsQuery,
+  useWeatherForecastQuery,
+  useDeviceConfigQuery,
+  useZonesQuery,
+  useZoneStatesQuery,
+  useSystemConfigQuery,
+  useAIScheduleConfigQuery,
+  useLastAIRunQuery,
+  useManualRunQuery,
+  useDebugConfigQuery,
+  useRainPauseQuery
+} from "./queries/dashboard";
 
 type RefreshPhase =
   | "idle"
@@ -90,42 +80,18 @@ type RefreshPhase =
   | "success"
   | "error";
 
-const HEARTBEAT_PAGE_SIZE = 15;
-const HEARTBEAT_SERIES_LIMIT = 250;
-const STATUS_REFRESH_MS = 15 * 60000;
-const HEARTBEAT_REFRESH_MS = 15 * 60000;
-const FORECAST_REFRESH_MS = 15 * 60000;
-const DEVICE_CONFIG_REFRESH_MS = 10 * 60000;
 const REFRESH_SUCCESS_RESET_MS = 4000;
 const LOCAL_REALTIME_PREF_KEY = "my-lawn-monitor:realtime-enabled";
 
-type ComparableValue = boolean | number;
+// Stable empty default so `?? EMPTY_SERIES` doesn't create a fresh array each
+// render (which would churn the useMemo deps that read it).
+const EMPTY_SERIES: HeartbeatSeriesSample[] = [];
 
-const getLastChangeTimestamp = <Value extends ComparableValue>(
-  heartbeats: Heartbeat[],
-  selector: (heartbeat: Heartbeat) => Value,
-  isEqual: (a: Value, b: Value) => boolean = (a, b) => a === b
-): string | null => {
-  if (heartbeats.length === 0) {
+const errorMessage = (error: unknown, fallback: string): string | null => {
+  if (!error) {
     return null;
   }
-
-  const sorted = [...heartbeats].sort(
-    (a, b) =>
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
-
-  let previousValue = selector(sorted[0]);
-
-  for (let index = 1; index < sorted.length; index += 1) {
-    const currentValue = selector(sorted[index]);
-    if (!isEqual(currentValue, previousValue)) {
-      return sorted[index - 1].timestamp;
-    }
-    previousValue = currentValue;
-  }
-
-  return sorted[sorted.length - 1].timestamp;
+  return error instanceof Error ? error.message : fallback;
 };
 
 const RefreshIcon = () => (
@@ -149,326 +115,27 @@ const RefreshIcon = () => (
 const THEME_CYCLE: ThemePreference[] = ["light", "dark", "system"];
 
 const App = () => {
+  const queryClient = useQueryClient();
   const { preference: themePreference, setPreference: setThemePreference } = useThemeContext();
   const chartTheme = useChartTheme();
-  const [status, setStatus] = useState<StatusPayload | null>(null);
-  const [heartbeatSeries, setHeartbeatSeries] = useState<HeartbeatSeriesSample[]>([]);
-  const [heartbeatPage, setHeartbeatPage] = useState<Heartbeat[]>([]);
-  const [heartbeatMeta, setHeartbeatMeta] = useState<HeartbeatListMeta | null>(null);
-  const [irrigationEvents, setIrrigationEvents] = useState<IrrigationEvent[]>([]);
-  const [irrigationMeta, setIrrigationMeta] = useState<HeartbeatListMeta | null>(null);
-  const [irrigationLoading, setIrrigationLoading] = useState<boolean>(false);
-  const [irrigationError, setIrrigationError] = useState<string | null>(null);
-  const [irrigationRecords, setIrrigationRecords] = useState<IrrigationRecord[]>([]);
+
+  // --- UI-only state (server data lives in the TanStack Query cache) ---
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
-  const [loadState, setLoadState] = useState<LoadState>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [forecast, setForecast] = useState<WeatherOverviewPayload | null>(null);
-  const [forecastLoading, setForecastLoading] = useState<boolean>(false);
-  const [forecastError, setForecastError] = useState<string | null>(null);
-  const [overviewStats, setOverviewStats] = useState<HeartbeatOverviewStats | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState<boolean>(false);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
-  const [latestHeartbeatSnapshot, setLatestHeartbeatSnapshot] = useState<Heartbeat | null>(null);
   const [page, setPage] = useState<number>(1);
-  const [nextStatusRefreshAt, setNextStatusRefreshAt] = useState<number | null>(null);
-  const [nextHeartbeatRefreshAt, setNextHeartbeatRefreshAt] = useState<number | null>(null);
-  const [nextForecastRefreshAt, setNextForecastRefreshAt] = useState<number | null>(null);
-  const [newForecastPushedAt, setNewForecastPushedAt] = useState<number | null>(null);
-  const [nextDeviceConfigRefreshAt, setNextDeviceConfigRefreshAt] = useState<number | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [deviceConfig, setDeviceConfig] = useState<DeviceConfig | null>(null);
-  const [deviceConfigLoading, setDeviceConfigLoading] = useState<boolean>(false);
   const [refreshPhase, setRefreshPhase] = useState<RefreshPhase>("idle");
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [zoneStates, setZoneStates] = useState<Record<string, ZoneState>>({});
-  const [zonesLoading, setZonesLoading] = useState(false);
-  const zoneStateVersionRef = useRef(0);
-  const [manualRun, setManualRun] = useState<SequentialRun | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"zones" | "device" | "irrigation" | "programs" | "integrations" | "preferences">("zones");
-  const [irrigationMode, setIrrigationMode] = useState<IrrigationMode>("smart");
-  const [aiScheduleEnabled, setAiScheduleEnabled] = useState(false);
-  const [lastAIRun, setLastAIRun] = useState<ScheduleRun | null>(null);
-  const [lastAIRunEntries, setLastAIRunEntries] = useState<ScheduleEntry[]>([]);
   const [aiRunExpanded, setAiRunExpanded] = useState(false);
   const [aiRunRefreshKey, setAiRunRefreshKey] = useState(0);
   const [dashboardRunningAI, setDashboardRunningAI] = useState(false);
-  const [debugModeActive, setDebugModeActive] = useState(false);
-  const [rainPause, setRainPause] = useState<import("./api").RainPauseStatus>({ active: false });
   const [rainAlertKey, setRainAlertKey] = useState(0);
+  const [deviceConfigBusy, setDeviceConfigBusy] = useState(false);
 
   const activeRefreshIdRef = useRef<number | null>(null);
   const refreshCompletionTimeoutRef = useRef<number | null>(null);
-  const hasForecastRef = useRef(false);
-  const lastDeviceConfigRef = useRef<DeviceConfig | null>(null);
-
-  useEffect(() => {
-    hasForecastRef.current = forecast !== null;
-  }, [forecast]);
-
-  useEffect(() => {
-    if (deviceConfig) {
-      lastDeviceConfigRef.current = deviceConfig;
-    }
-  }, [deviceConfig]);
-
   const historyFiltersRef = useRef<HTMLDivElement | null>(null);
   const realtimeEventHandlerRef = useRef<(event: RealtimeEvent) => void>(() => { });
-
-  const loadStatus = useCallback(
-    async (shouldAbort?: () => boolean) => {
-      try {
-        const current = await fetchStatus();
-        if (shouldAbort?.()) {
-          return;
-        }
-        setStatus(current);
-      } catch (err) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        console.error(err);
-      }
-    },
-    []
-  );
-
-  const loadHeartbeats = useCallback(
-    async (showLoading: boolean, shouldAbort?: () => boolean) => {
-      if (showLoading) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        setLoadState("loading");
-        setError(null);
-        setOverviewLoading(true);
-        setOverviewError(null);
-      }
-
-      const startIso = toQueryDateTime(startDate);
-      const endIso = toQueryDateTime(endDate);
-
-      try {
-        const [pageResponse, seriesResponse, overviewResponse] = await Promise.all([
-          fetchHeartbeats({
-            start: startIso,
-            end: endIso,
-            page,
-            pageSize: HEARTBEAT_PAGE_SIZE
-          }),
-          fetchHeartbeatSeries({
-            start: startIso,
-            end: endIso,
-            limit: HEARTBEAT_SERIES_LIMIT
-          }),
-          fetchHeartbeatOverview({
-            start: startIso,
-            end: endIso
-          })
-        ]);
-
-        if (shouldAbort?.()) {
-          return;
-        }
-
-        if (pageResponse.meta.totalPages > 0 && page > pageResponse.meta.totalPages) {
-          setOverviewLoading(false);
-          setLoadState("ready");
-          setPage(pageResponse.meta.totalPages);
-          return;
-        }
-
-        setHeartbeatPage(pageResponse.data);
-        setHeartbeatMeta(pageResponse.meta);
-        setHeartbeatSeries(seriesResponse);
-        if (pageResponse.data.length > 0) {
-          setLatestHeartbeatSnapshot((prev) => {
-            if (pageResponse.meta.page === 1) {
-              return pageResponse.data[0];
-            }
-            return prev ?? pageResponse.data[0];
-          });
-        } else if (pageResponse.meta.page === 1) {
-          setLatestHeartbeatSnapshot(null);
-        }
-        setOverviewStats(overviewResponse);
-        setOverviewError(null);
-        setError(null);
-        setLoadState("ready");
-      } catch (err) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        console.error(err);
-        const message = err instanceof Error ? err.message : "Unable to load heartbeats";
-        setError(message);
-        setLoadState(showLoading ? "error" : "ready");
-        setOverviewError(err instanceof Error ? err.message : "Unable to load heartbeat overview");
-      } finally {
-        if (!shouldAbort?.()) {
-          setOverviewLoading(false);
-        }
-      }
-    },
-    [startDate, endDate, page]
-  );
-
-  const loadIrrigationEvents = useCallback(
-    async (showLoading: boolean, shouldAbort?: () => boolean) => {
-      if (showLoading) {
-        setIrrigationLoading(true);
-        setIrrigationError(null);
-      }
-
-      const startIso = toQueryDateTime(startDate);
-      const endIso = toQueryDateTime(endDate);
-
-      try {
-        const response = await fetchIrrigationEvents({
-          start: startIso,
-          end: endIso,
-          page: 1,
-          pageSize: 500
-        });
-        if (shouldAbort?.()) {
-          return;
-        }
-        setIrrigationEvents(response.events);
-        setIrrigationMeta(response.meta);
-      } catch (err) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        console.error(err);
-        setIrrigationError(err instanceof Error ? err.message : "Unable to load irrigation events");
-      } finally {
-        if (!shouldAbort?.()) {
-          setIrrigationLoading(false);
-        }
-      }
-    },
-    [endDate, startDate]
-  );
-
-  const loadIrrigationRecords = useCallback(
-    async () => {
-      try {
-        const records = await fetchLatestIrrigationPerZone();
-        setIrrigationRecords(records);
-      } catch (err) {
-        console.error("Failed to load irrigation records:", err);
-      }
-    },
-    []
-  );
-
-  const loadForecastData = useCallback(
-    async (showLoading: boolean, shouldAbort?: () => boolean) => {
-      const shouldShowLoading = showLoading && !hasForecastRef.current;
-      if (showLoading) {
-        setForecastError(null);
-      }
-      if (shouldShowLoading) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        setForecastLoading(true);
-      }
-
-      try {
-        const data = await fetchWeatherForecast();
-        if (shouldAbort?.()) {
-          return;
-        }
-        setForecast(data);
-        setForecastError(null);
-      } catch (err) {
-        if (shouldAbort?.()) {
-          return;
-        }
-        console.error(err);
-        setForecastError(err instanceof Error ? err.message : "Unable to load forecast");
-        return false;
-      } finally {
-        if (shouldShowLoading && !shouldAbort?.()) {
-          setForecastLoading(false);
-        }
-      }
-    },
-    []
-  );
-
-  const loadDeviceConfig = useCallback(async () => {
-    setDeviceConfigLoading(true);
-    try {
-      const config = await fetchDeviceConfig();
-      setDeviceConfig(config ?? null);
-    } catch (error) {
-      console.error("Failed to fetch device config:", error);
-    } finally {
-      setDeviceConfigLoading(false);
-    }
-  }, []);
-
-  const loadZones = useCallback(async () => {
-    setZonesLoading(true);
-    const versionAtStart = zoneStateVersionRef.current;
-    try {
-      const [zoneList, states] = await Promise.all([fetchZones(), fetchZoneStates()]);
-      setZones(zoneList);
-      if (zoneStateVersionRef.current === versionAtStart) {
-        const stateMap: Record<string, ZoneState> = {};
-        states.forEach((s) => { stateMap[s.zoneId] = s; });
-        setZoneStates(stateMap);
-      }
-    } catch (err) {
-      console.error("Failed to load zones:", err);
-    } finally {
-      setZonesLoading(false);
-    }
-  }, []);
-
-  const loadManualRunStatus = useCallback(async () => {
-    try {
-      const status = await getManualRunStatus();
-      setManualRun(status);
-    } catch { /* ignore */ }
-  }, []);
-
-  const loadSystemConfig = useCallback(async () => {
-    try {
-      const config = await fetchSystemConfig();
-      setIrrigationMode(config.irrigationMode);
-    } catch (err) {
-      console.error("Failed to load system config:", err);
-    }
-  }, []);
-
-  const loadAIScheduleEnabled = useCallback(async () => {
-    try {
-      const config = await fetchAIScheduleConfig();
-      setAiScheduleEnabled(config?.enabled ?? false);
-    } catch {
-      setAiScheduleEnabled(false);
-    }
-  }, []);
-
-  const loadLastAIRun = useCallback(async () => {
-    try {
-      const runsResult = await fetchScheduleRuns(1);
-      const runs = runsResult?.data;
-      if (runs && runs.length > 0) {
-        const run = runs[0]!;
-        setLastAIRun(run);
-        try {
-          const detail = await fetchScheduleRun(run.scheduleRunId);
-          setLastAIRunEntries(Array.isArray(detail.entries) ? detail.entries : []);
-        } catch { /* ignore */ }
-      }
-    } catch { /* ignore */ }
-  }, []);
 
   const realtimeUrl = useMemo(() => buildRealtimeUrl(), []);
 
@@ -486,6 +153,55 @@ const App = () => {
     onEvent: (event) => realtimeEventHandlerRef.current(event)
   });
 
+  // --- history window shared by the heartbeat/overview query families ---
+  const historyWindow = useMemo(
+    () => ({ start: toQueryDateTime(startDate), end: toQueryDateTime(endDate) }),
+    [startDate, endDate]
+  );
+
+  // --- server-data queries ---
+  const statusQuery = useStatusQuery(isRealtimeActive);
+  const heartbeatPageQuery = useHeartbeatPageQuery(historyWindow, page, isRealtimeActive);
+  const heartbeatSeriesQuery = useHeartbeatSeriesQuery(historyWindow, isRealtimeActive);
+  const overviewQuery = useHeartbeatOverviewQuery(historyWindow, isRealtimeActive);
+  const irrigationRecordsQuery = useIrrigationRecordsQuery(isRealtimeActive);
+  const forecastQuery = useWeatherForecastQuery(isRealtimeActive);
+  const deviceConfigQuery = useDeviceConfigQuery();
+  const zonesQuery = useZonesQuery();
+  const zoneStatesQuery = useZoneStatesQuery();
+  const systemConfigQuery = useSystemConfigQuery();
+  const aiScheduleConfigQuery = useAIScheduleConfigQuery();
+  const lastAIRunQuery = useLastAIRunQuery();
+  const manualRunQuery = useManualRunQuery();
+  const debugConfigQuery = useDebugConfigQuery();
+  const rainPauseQuery = useRainPauseQuery();
+
+  // --- derived read-model (same names the JSX below already used) ---
+  const status = statusQuery.data ?? null;
+  const heartbeatSeries = heartbeatSeriesQuery.data ?? EMPTY_SERIES;
+  const latestHeartbeatSnapshot = heartbeatPageQuery.data?.data?.[0] ?? null;
+  const overviewStats = overviewQuery.data ?? null;
+  const irrigationRecords = irrigationRecordsQuery.data ?? [];
+  const forecast = forecastQuery.data ?? null;
+  const deviceConfig = deviceConfigQuery.data ?? null;
+  const zones = zonesQuery.data ?? [];
+  const zoneStates = zoneStatesQuery.data ?? {};
+  const zonesLoading = zonesQuery.isLoading;
+  const manualRun = manualRunQuery.data ?? null;
+  const irrigationMode = systemConfigQuery.data?.irrigationMode ?? "smart";
+  const aiScheduleEnabled = aiScheduleConfigQuery.data?.enabled ?? false;
+  const lastAIRun = lastAIRunQuery.data?.run ?? null;
+  const lastAIRunEntries = lastAIRunQuery.data?.entries ?? [];
+  const debugModeActive = debugConfigQuery.data?.enabled ?? false;
+  const rainPause: RainPauseStatus = rainPauseQuery.data ?? { active: false };
+
+  const error = errorMessage(heartbeatPageQuery.error, "Unable to load heartbeats");
+  const forecastLoading = forecastQuery.isLoading;
+  const forecastError = errorMessage(forecastQuery.error, "Unable to load forecast");
+  const overviewLoading = overviewQuery.isLoading;
+  const overviewError = errorMessage(overviewQuery.error, "Unable to load heartbeat overview");
+  const deviceConfigLoading = deviceConfigQuery.isLoading || deviceConfigBusy;
+
   const integrationHealth = useIntegrationHealth({
     realtimeStatus,
     isRealtimeActive,
@@ -493,188 +209,86 @@ const App = () => {
     hasForecast: forecast !== null
   });
 
+  // --- cache-write helpers used by the realtime handler & child callbacks ---
+  const loadZones = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.zones });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.zoneStates });
+  }, [queryClient]);
+
+  const loadStatus = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.status });
+  }, [queryClient]);
+
+  const loadDeviceConfig = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.deviceConfig });
+  }, [queryClient]);
+
+  const loadLastAIRun = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.lastAIRun }),
+    [queryClient]
+  );
+
+  const loadAIScheduleEnabled = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.aiScheduleConfig });
+  }, [queryClient]);
+
+  const setIrrigationMode = useCallback(
+    (mode: IrrigationMode) => {
+      queryClient.setQueryData<SystemConfig | null>(queryKeys.systemConfig, (old) => ({
+        ...(old ?? {}),
+        irrigationMode: mode
+      }));
+    },
+    [queryClient]
+  );
+
+  const setDebugModeActive = useCallback(
+    (enabled: boolean) => {
+      queryClient.setQueryData<DebugConfig | null>(queryKeys.debugConfig, (old) => ({
+        ...(old ?? {}),
+        enabled
+      }));
+    },
+    [queryClient]
+  );
+
+  const refreshRainPause = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.rainPause });
+    setRainAlertKey((k) => k + 1);
+  }, [queryClient]);
+
   const forceHearbeat = useCallback(async () => {
-    setDeviceConfigLoading(true);
+    setDeviceConfigBusy(true);
     try {
-      const baseConfig = deviceConfig ?? lastDeviceConfigRef.current ?? undefined;
+      const baseConfig = deviceConfig ?? undefined;
       const config = await updateDeviceConfig({
         ...(baseConfig ?? {}),
         forceHeartbeat: true
       });
-      setDeviceConfig(config ?? null);
+      if (config) {
+        queryClient.setQueryData(queryKeys.deviceConfig, config);
+      }
       return true;
     } catch (error) {
       console.error("Failed to force a heartBeat:", error);
       return false;
     } finally {
-      setDeviceConfigLoading(false);
+      setDeviceConfigBusy(false);
     }
-  }, [deviceConfig]);
+  }, [deviceConfig, queryClient]);
 
-  const handleDeviceConfigSave = useCallback(async (config: DeviceConfig) => {
-    const updated = await updateDeviceConfig(config);
-    if (updated) {
-      setDeviceConfig(updated);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let id: number | null = null;
-
-    const tick = async () => {
-      await loadStatus(() => cancelled);
-      if (!cancelled && !isRealtimeActive) {
-        setNextStatusRefreshAt(Date.now() + STATUS_REFRESH_MS);
+  const handleDeviceConfigSave = useCallback(
+    async (config: DeviceConfig) => {
+      const updated = await updateDeviceConfig(config);
+      if (updated) {
+        queryClient.setQueryData(queryKeys.deviceConfig, updated);
       }
-    };
+    },
+    [queryClient]
+  );
 
-    void tick();
-
-    if (isRealtimeActive) {
-      setNextStatusRefreshAt(null);
-    }
-
-    if (!isRealtimeActive) {
-      id = window.setInterval(() => {
-        void tick();
-      }, STATUS_REFRESH_MS);
-    }
-
-    return () => {
-      cancelled = true;
-      if (id !== null) {
-        window.clearInterval(id);
-      }
-    };
-  }, [isRealtimeActive, loadStatus]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let refreshId: number | null = null;
-
-    const tick = async (showLoading: boolean) => {
-      await Promise.all([
-        loadHeartbeats(showLoading, () => cancelled),
-        loadIrrigationEvents(showLoading, () => cancelled),
-        loadIrrigationRecords()
-      ]);
-      if (!cancelled && !isRealtimeActive) {
-        setNextHeartbeatRefreshAt(Date.now() + HEARTBEAT_REFRESH_MS);
-      }
-    };
-
-    void tick(true);
-
-    if (isRealtimeActive) {
-      setNextHeartbeatRefreshAt(null);
-    }
-
-    if (!isRealtimeActive) {
-      refreshId = window.setInterval(() => {
-        void tick(false);
-      }, HEARTBEAT_REFRESH_MS);
-    }
-
-    return () => {
-      cancelled = true;
-      if (refreshId !== null) {
-        window.clearInterval(refreshId);
-      }
-    };
-  }, [isRealtimeActive, loadHeartbeats, loadIrrigationEvents, loadIrrigationRecords]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let refreshId = 0;
-
-    const tick = async (showLoading: boolean) => {
-      await loadForecastData(showLoading, () => cancelled);
-    };
-
-    const scheduleNextRefresh = () => {
-      const msPerHour = 60 * 60 * 1000;
-      const delay = msPerHour - (Date.now() % msPerHour);
-      const nextRefreshAt = Date.now() + delay;
-      setNextForecastRefreshAt(nextRefreshAt);
-      refreshId = window.setTimeout(() => {
-        void tick(false);
-        if (!cancelled) {
-          scheduleNextRefresh();
-        }
-      }, delay);
-    };
-
-    const shouldFetchNow =
-      !forecast ||
-      !forecast.expiresAt ||
-      Date.now() > Date.parse(forecast.expiresAt ?? "");
-
-    if (shouldFetchNow) {
-      void tick(true);
-    }
-
-    if (!isRealtimeActive) {
-      scheduleNextRefresh();
-    } else {
-      setNextForecastRefreshAt(null);
-    }
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(refreshId);
-    };
-  }, [forecast, isRealtimeActive, loadForecastData, newForecastPushedAt]);
-
-  useEffect(() => {
-    if (deviceConfig) {
-      return;
-    }
-    let cancelled = false;
-    void loadDeviceConfig();
-    const id = window.setInterval(() => {
-      if (!cancelled) {
-        void loadDeviceConfig();
-      }
-    }, DEVICE_CONFIG_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [deviceConfig, loadDeviceConfig]);
-
-
-  useEffect(() => {
-    void loadZones();
-    void loadManualRunStatus();
-  }, [loadZones, loadManualRunStatus]);
-
-  useEffect(() => {
-    void loadSystemConfig();
-    void loadAIScheduleEnabled();
-    void loadLastAIRun();
-  }, [loadSystemConfig, loadAIScheduleEnabled, loadLastAIRun]);
-
-  useEffect(() => {
-    fetchDebugConfig()
-      .then((c) => setDebugModeActive(c?.enabled ?? false))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, []);
-
-  useEffect(() => {
-    setPage(1);
-  }, [startDate, endDate]);
+  // Page is reset to 1 directly in the date-filter change handlers, so no
+  // filter-watching effect is needed here.
 
   const trendData = useMemo(
     () =>
@@ -697,7 +311,11 @@ const App = () => {
       return {
         locationName: forecast.locationName,
         fetchedAt: forecast.fetchedAt,
-        expiresAt: forecast.expiresAt ?? new Date(Date.now() + 3600000).toISOString(),
+        // Fall the expiry back to one hour after the fetch time (a pure value)
+        // rather than the render clock, so the mapping stays idempotent.
+        expiresAt:
+          forecast.expiresAt ??
+          new Date(new Date(forecast.fetchedAt).getTime() + 3600000).toISOString(),
         periodStart: forecast.periodStart ?? null,
         periodEnd: forecast.periodEnd ?? null,
         temperature: forecast.temperature ?? null,
@@ -725,10 +343,10 @@ const App = () => {
   const lastUpdate =
     status?.lastUpdatedAt ??
     latestHeartbeatSnapshot?.timestamp ??
-    new Date().toISOString();
+    null;
 
   const hasHeartbeatData = Boolean(status || latestHeartbeatSnapshot);
-  const lastHeartbeatText = hasHeartbeatData
+  const lastHeartbeatText = hasHeartbeatData && lastUpdate
     ? formatTimestamp(lastUpdate)
     : "—";
 
@@ -788,43 +406,6 @@ const App = () => {
         : "informative")
     : "warning";
 
-  const fallbackGuardChange = useMemo(
-    () =>
-      getLastChangeTimestamp(
-        heartbeatPage,
-        (heartbeat) => heartbeat.guard
-      ),
-    [heartbeatPage]
-  );
-
-  const fallbackRainChange = useMemo(
-    () =>
-      getLastChangeTimestamp(
-        heartbeatPage,
-        (heartbeat) => heartbeat.sensors.rain
-      ),
-    [heartbeatPage]
-  );
-
-  const fallbackSoilChange = useMemo(
-    () =>
-      getLastChangeTimestamp(
-        heartbeatPage,
-        (heartbeat) => heartbeat.sensors.soil
-      ),
-    [heartbeatPage]
-  );
-
-  const fallbackPressureChange = useMemo(
-    () =>
-      getLastChangeTimestamp(
-        heartbeatPage,
-        (heartbeat) => heartbeat.sensors.waterPsi,
-        (a, b) => Math.abs(a - b) < 0.1
-      ),
-    [heartbeatPage]
-  );
-
   const statusIrrigation = useMemo(() => {
     const irrigation = status?.irrigation;
     if (!irrigation) return null;
@@ -840,20 +421,15 @@ const App = () => {
     return parsed && Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
   }, [status]);
 
-  const lastGuardChange = status?.changes?.guard ?? fallbackGuardChange;
-  const lastRainChange = connectedSensors.includes("RAIN") ? (status?.changes?.sensors?.rain ?? fallbackRainChange) : null;
-  const lastSoilChange = connectedSensors.includes("SOIL") ? (status?.changes?.sensors?.soil ?? fallbackSoilChange) : null;
-  const lastPressureChange =
-    status?.changes?.sensors?.waterPsi ?? fallbackPressureChange;
-
-
   const precipitationSeries = useMemo<PrecipitationPoint[]>(() => {
     if (!forecast) {
       return [];
     }
-    const now = Date.now();
+    // Anchor "future" to the forecast fetch time (a pure value) instead of the
+    // render clock; the forecast refetches often enough to stay current.
+    const anchor = new Date(forecast.fetchedAt).getTime();
     return forecast.precipitationOutlook
-      .filter((entry) => new Date(entry.periodStart).getTime() >= now)
+      .filter((entry) => new Date(entry.periodStart).getTime() >= anchor)
       .map((entry) => ({
         timestamp: entry.periodStart,
         probability: entry.probability ?? 0
@@ -992,20 +568,6 @@ const App = () => {
     return filterSummary;
   }, [filterSummary]);
 
-  const nextAutoRefreshAt = useMemo(() => {
-    const candidates = [
-      nextStatusRefreshAt,
-      nextHeartbeatRefreshAt,
-      nextForecastRefreshAt
-    ].filter((value): value is number => typeof value === "number");
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    return Math.min(...candidates);
-  }, [nextStatusRefreshAt, nextHeartbeatRefreshAt, nextForecastRefreshAt]);
-
   const clearRefreshCompletionTimer = useCallback(() => {
     if (refreshCompletionTimeoutRef.current) {
       window.clearTimeout(refreshCompletionTimeoutRef.current);
@@ -1013,16 +575,7 @@ const App = () => {
     }
   }, []);
 
-  const scheduleRefreshMarkers = useCallback(() => {
-    const nowTs = Date.now();
-    setNextStatusRefreshAt(nowTs + STATUS_REFRESH_MS);
-    setNextHeartbeatRefreshAt(nowTs + HEARTBEAT_REFRESH_MS);
-    setNextForecastRefreshAt(nowTs + FORECAST_REFRESH_MS);
-    setNextDeviceConfigRefreshAt(nowTs + DEVICE_CONFIG_REFRESH_MS);
-  }, []);
-
   const markRefreshSuccess = useCallback(() => {
-    scheduleRefreshMarkers();
     clearRefreshCompletionTimer();
     setRefreshPhase("success");
     deactivateManualSession();
@@ -1030,7 +583,7 @@ const App = () => {
       setRefreshPhase("idle");
       refreshCompletionTimeoutRef.current = null;
     }, REFRESH_SUCCESS_RESET_MS);
-  }, [clearRefreshCompletionTimer, scheduleRefreshMarkers, deactivateManualSession]);
+  }, [clearRefreshCompletionTimer, deactivateManualSession]);
 
   const markRefreshError = useCallback(() => {
     activeRefreshIdRef.current = null;
@@ -1067,11 +620,13 @@ const App = () => {
   const handleResetFilters = useCallback(() => {
     setStartDate(null);
     setEndDate(null);
+    setPage(1);
   }, []);
 
   const handleStartDateChange = useCallback(
     (value: Date | null) => {
       setStartDate(value);
+      setPage(1);
       if (value && endDate && value > endDate) {
         setEndDate(null);
       }
@@ -1081,6 +636,7 @@ const App = () => {
 
   const handleEndDateChange = useCallback((value: Date | null) => {
     setEndDate(value);
+    setPage(1);
   }, []);
 
   const toggleSettingsPanel = useCallback(() => {
@@ -1091,11 +647,11 @@ const App = () => {
     setDashboardRunningAI(true);
     try {
       await triggerAIScheduleRun();
-      await loadLastAIRun();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.lastAIRun });
       setAiRunRefreshKey((k) => k + 1);
     } catch { /* ignore */ }
     setDashboardRunningAI(false);
-  }, [loadLastAIRun]);
+  }, [queryClient]);
 
   const handleForceRefresh = useCallback(async () => {
     if (isRefreshAnimating) {
@@ -1108,16 +664,14 @@ const App = () => {
     setRefreshPhase("sending");
 
     try {
-      const tasks = await Promise.all([
-        loadStatus(),
-        loadHeartbeats(true),
-        loadIrrigationEvents(true),
-        loadIrrigationRecords(),
-        loadForecastData(true),
-        forceHearbeat()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+        queryClient.invalidateQueries({ queryKey: ["heartbeats"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.irrigationRecords }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.weatherForecast })
       ]);
-      scheduleRefreshMarkers();
-      if (tasks.some((value) => value === false)) {
+      const forced = await forceHearbeat();
+      if (!forced) {
         markRefreshError();
       } else {
         setRefreshPhase("waiting-device");
@@ -1131,13 +685,8 @@ const App = () => {
     activateManualSession,
     resetRealtimeBackoff,
     clearRefreshCompletionTimer,
-    loadStatus,
-    loadHeartbeats,
-    loadIrrigationEvents,
-    loadIrrigationRecords,
-    loadForecastData,
+    queryClient,
     forceHearbeat,
-    scheduleRefreshMarkers,
     markRefreshError
   ]);
 
@@ -1148,28 +697,18 @@ const App = () => {
     [toggleRealtimePreference]
   );
 
-  const refreshRainPause = useCallback(() => {
-    fetchStateSnapshot()
-      .then((snapshot) => { if (snapshot.rainPause) setRainPause(snapshot.rainPause); })
-      .catch(() => {});
-    setRainAlertKey((k) => k + 1);
-  }, []);
-
   const syncDataAfterHeartbeat = useCallback(
     async (shouldMarkRefresh: boolean) => {
       try {
         await Promise.all([
-          loadStatus(),
-          loadHeartbeats(false),
-          loadIrrigationEvents(false),
-          loadIrrigationRecords(),
-          loadForecastData(false)
+          queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+          queryClient.invalidateQueries({ queryKey: ["heartbeats"] }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.irrigationRecords }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.weatherForecast })
         ]);
         refreshRainPause();
         if (shouldMarkRefresh) {
           markRefreshSuccess();
-        } else {
-          scheduleRefreshMarkers();
         }
       } catch (error) {
         console.error("Failed to synchronise after heartbeat:", error);
@@ -1178,17 +717,7 @@ const App = () => {
         }
       }
     },
-    [
-      loadStatus,
-      loadHeartbeats,
-      loadIrrigationEvents,
-      loadIrrigationRecords,
-      loadForecastData,
-      refreshRainPause,
-      markRefreshSuccess,
-      markRefreshError,
-      scheduleRefreshMarkers
-    ]
+    [queryClient, refreshRainPause, markRefreshSuccess, markRefreshError]
   );
 
   const handleRealtimeEvent = useCallback(
@@ -1197,26 +726,24 @@ const App = () => {
         case "connection:ready": {
           void fetchStateSnapshot().then((snapshot) => {
             if (snapshot.status) {
-              setStatus(snapshot.status);
+              queryClient.setQueryData(queryKeys.status, snapshot.status);
             }
-            if (snapshot.activeRun) {
-              setManualRun(snapshot.activeRun as SequentialRun);
-            } else {
-              setManualRun(null);
-            }
+            queryClient.setQueryData(
+              queryKeys.manualRun,
+              (snapshot.activeRun as SequentialRun) ?? null
+            );
             if (snapshot.irrigationMode) {
               setIrrigationMode(snapshot.irrigationMode as IrrigationMode);
             }
             if (snapshot.rainPause) {
-              setRainPause(snapshot.rainPause);
+              queryClient.setQueryData(queryKeys.rainPause, snapshot.rainPause);
             }
             if (snapshot.zoneStates) {
               const stateMap: Record<string, ZoneState> = {};
               for (const zs of snapshot.zoneStates) {
                 stateMap[zs.zoneId] = zs;
               }
-              zoneStateVersionRef.current++;
-              setZoneStates(stateMap);
+              queryClient.setQueryData(queryKeys.zoneStates, stateMap);
             }
           }).catch(() => {});
           break;
@@ -1228,7 +755,7 @@ const App = () => {
           break;
         }
         case "forceHeartbeat:acknowledged": {
-          void loadDeviceConfig();
+          loadDeviceConfig();
           if (activeRefreshIdRef.current !== null) {
             setRefreshPhase("waiting-data");
           }
@@ -1245,54 +772,56 @@ const App = () => {
         }
 
         case "forecast:new": {
-          if (event?.payload) setForecast(event?.payload);
-          setNewForecastPushedAt(Date.now());
+          if (event?.payload) {
+            queryClient.setQueryData(queryKeys.weatherForecast, event.payload);
+          }
           break;
         }
         case "status:updated": {
-          void loadStatus();
+          loadStatus();
           break;
         }
         case "irrigation:updated": {
-          void loadIrrigationEvents(false);
-          void loadIrrigationRecords();
-          void loadZones();
-          void loadStatus();
+          void queryClient.invalidateQueries({ queryKey: queryKeys.irrigationRecords });
+          loadZones();
+          loadStatus();
           break;
         }
         case "deviceConfig:updated": {
           if (event.payload) {
-            setDeviceConfig(event.payload);
+            queryClient.setQueryData(queryKeys.deviceConfig, event.payload);
           } else {
-            void loadDeviceConfig();
+            loadDeviceConfig();
           }
           break;
         }
         case "zone:created":
         case "zone:updated":
         case "zone:deleted": {
-          void loadZones();
+          loadZones();
           break;
         }
         case "command:created":
         case "command:updated": {
-          void loadZones();
+          loadZones();
           break;
         }
         case "zoneState:changed": {
           if (event.payload && "zoneId" in event.payload) {
             const statePayload = event.payload as ZoneState;
-            zoneStateVersionRef.current++;
-            setZoneStates((prev) => ({ ...prev, [statePayload.zoneId]: statePayload }));
+            queryClient.setQueryData<Record<string, ZoneState>>(
+              queryKeys.zoneStates,
+              (prev) => ({ ...(prev ?? {}), [statePayload.zoneId]: statePayload })
+            );
           } else {
-            void loadZones();
+            loadZones();
           }
           break;
         }
         case "schedule:runCompleted": {
-          void loadLastAIRun();
-          void loadAIScheduleEnabled();
-          void loadZones();
+          loadLastAIRun();
+          loadAIScheduleEnabled();
+          loadZones();
           setAiRunRefreshKey((k) => k + 1);
           setDashboardRunningAI(false);
           break;
@@ -1308,17 +837,17 @@ const App = () => {
         case "sequentialRun:completed":
         case "sequentialRun:cancelled": {
           if (event.payload) {
-            setManualRun(event.payload as SequentialRun);
+            queryClient.setQueryData(queryKeys.manualRun, event.payload as SequentialRun);
           }
           if (event.type === "sequentialRun:completed" || event.type === "sequentialRun:cancelled") {
-            void loadZones();
+            loadZones();
           }
           break;
         }
         case "deferral:triggered":
         case "deferral:recovered":
         case "deferral:expired": {
-          void loadZones();
+          loadZones();
           setAiRunRefreshKey((k) => k + 1);
           break;
         }
@@ -1348,7 +877,7 @@ const App = () => {
           break;
       }
   },
-  [loadDeviceConfig, loadIrrigationEvents, loadIrrigationRecords, loadStatus, syncDataAfterHeartbeat, loadZones, loadLastAIRun, loadAIScheduleEnabled, refreshRainPause]
+  [queryClient, loadDeviceConfig, loadStatus, loadZones, loadLastAIRun, loadAIScheduleEnabled, syncDataAfterHeartbeat, refreshRainPause, setIrrigationMode, setDebugModeActive]
   );
 
   useEffect(() => {
