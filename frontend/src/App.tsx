@@ -1117,9 +1117,11 @@ const App = () => {
         forceHearbeat()
       ]);
       scheduleRefreshMarkers();
-      tasks.some((value) => value === false)
-        ? markRefreshError()
-        : setRefreshPhase("waiting-device");
+      if (tasks.some((value) => value === false)) {
+        markRefreshError();
+      } else {
+        setRefreshPhase("waiting-device");
+      }
     } catch (error) {
       console.error("Failed to trigger refresh:", error);
       markRefreshError();
