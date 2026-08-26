@@ -1,9 +1,38 @@
+/**
+ * ZoneCard — one card in the zone grid, representing a single irrigation zone.
+ *
+ * Two visual modes, chosen by whether `onEdit` is provided:
+ *  - Control card (no `onEdit`): a start/stop toggle, a duration slider, a live
+ *    countdown/progress bar while running, and the last-run summary.
+ *  - Manage card (`onEdit` given): shows an edit button instead of the controls.
+ *
+ * Why this component owns local state (and why the parent's list `key` matters):
+ * each row keeps its *own* `selectedDuration` (the slider position, also
+ * persisted to localStorage) and derives its own countdown. Because that state
+ * lives per-row, the parent must key the list by a stable `zoneId` — if it keyed
+ * by array index, React could reuse this card's state for a different zone when
+ * the list reorders.
+ *
+ * The countdown is *derived*, not stored: instead of an interval + setState
+ * effect, `useNow` provides a ticking clock and the countdown is recomputed from
+ * it during render (see below). This keeps the value a pure function of props +
+ * clock and avoids the `set-state-in-effect` anti-pattern.
+ *
+ * Key props:
+ *  - `zone` / `state`: the zone config and its live realtime state.
+ *  - `onCommand(zoneId, "on"|"off", durationMinutes?)`: fire a valve command.
+ *  - `commandPending` / `awaitingConfirmation`: reflect the parent's optimistic
+ *    command flow so the card can show the right spinner.
+ *  - `manualRunActive` / `manualRunZoneEntry`: this zone's role in a "run all"
+ *    program; when a run is active the manual toggle is locked out.
+ */
 import { useCallback, useState } from "react";
 import type { SequentialRunZoneEntry, Zone, ZoneState } from "../types";
 import { formatDurationLabel, formatElapsedSince, formatTimestampShort } from "../utils/date";
 import { useNow } from "../hooks/useNow";
 import { DURATION_STORAGE_KEY, getPersistedDuration } from "../utils/zoneDuration";
 
+// Bounds of the duration slider, in minutes.
 const MIN_DURATION = 1;
 const MAX_DURATION = 60;
 
@@ -37,12 +66,15 @@ interface ZoneCardProps {
   onToggleManualRunExclusion?: (zone: Zone) => void;
 }
 
+// Render a seconds count as "m:ss" (e.g. 75 -> "1:15").
 const formatCountdown = (seconds: number) => {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
+// Maps for the manual-run status pill: raw backend status -> human label and ->
+// CSS modifier class.
 const RUN_STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
   activating: "Activating",
@@ -63,35 +95,51 @@ const RUN_STATUS_CLASS: Record<string, string> = {
 
 const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPending, awaitingConfirmation, lastIrrigation, baselinePsi, locked, manualRunActive, manualRunZoneEntry, onToggleManualRunExclusion }: ZoneCardProps) => {
   const isActive = state?.isActive ?? false;
+  // Per-row slider state. The lazy initializer runs once on mount, seeding from
+  // localStorage (falling back to the zone's default) so a user's chosen duration
+  // survives reloads.
   const [selectedDuration, setSelectedDuration] = useState(() =>
     getPersistedDuration(zone.zoneId, zone.defaultDurationMinutes)
   );
   const handleDurationChange = useCallback((value: number) => {
     setSelectedDuration(value);
+    // Persist per zone; wrapped in try/catch because localStorage can throw
+    // (private mode, quota) and a failed save shouldn't break the slider.
     try { localStorage.setItem(DURATION_STORAGE_KEY + zone.zoneId, String(value)); } catch { /* ignore */ }
   }, [zone.zoneId]);
 
+  // The duration the countdown should count down from. Prefer what the controller
+  // reports for a live run, then the value we optimistically sent, then the
+  // slider — so the number stays sensible at every stage of the command flow.
   const activeDuration = state?.activeDurationMinutes
     ?? awaitingConfirmation?.durationMinutes
     ?? selectedDuration;
 
-  // Live countdown derived from a ticking clock (only while a run is active)
-  // instead of an interval + setState effect (set-state-in-effect).
+  // Live countdown derived from a ticking clock instead of an interval + setState
+  // effect (which would be the `set-state-in-effect` anti-pattern). `useNow`
+  // ticks every 1000ms *only* while a run is active (passing `null` stops the
+  // ticker), so the component re-renders once a second and the IIFE below
+  // recomputes the remaining seconds purely from `now`.
   const now = useNow(isActive && state?.lastEventAt ? 1000 : null);
   const countdown = ((): number | null => {
     if (!isActive || !state?.lastEventAt) {
-      return null;
+      return null; // not running -> nothing to count down
     }
+    // Preferred path: controller told us the remaining seconds at a known instant;
+    // extrapolate from there using the live clock.
     if (state.remainingSeconds != null && state.remainingUpdatedAt) {
       const updatedAtMs = new Date(state.remainingUpdatedAt).getTime();
       const elapsed = (now - updatedAtMs) / 1000;
       return Math.max(0, Math.ceil(state.remainingSeconds - elapsed));
     }
+    // Fallback: estimate from when the run started plus the intended duration.
     const startMs = new Date(state.lastEventAt).getTime();
     const totalMs = activeDuration * 60_000;
     return Math.max(0, Math.ceil((totalMs - (now - startMs)) / 1000));
   })();
 
+  // Single toggle button: stop if running, otherwise start for the chosen
+  // duration. Actual command execution + confirmation lives in the parent.
   const handleToggle = useCallback(() => {
     if (isActive) {
       onCommand(zone.zoneId, "off");
@@ -100,6 +148,7 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
     }
   }, [isActive, zone.zoneId, selectedDuration, onCommand]);
 
+  // Progress fraction (0..1) for the active bar: fraction of the run elapsed.
   const totalSeconds = activeDuration * 60;
   const progress = countdown != null && totalSeconds > 0
     ? 1 - (countdown / totalSeconds)
@@ -107,6 +156,8 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
 
   const isExcluded = zone.excludeFromManualRun === true;
 
+  // Build the card's className by listing conditional modifiers and dropping the
+  // falsy ones — a common pattern for readable conditional classes.
   const cardClass = [
     "zone-card",
     isActive ? "zone-card--active" : "",
@@ -117,6 +168,9 @@ const ZoneCard = ({ zone, state, onEdit, onToggleEnabled, onCommand, commandPend
     .filter(Boolean)
     .join(" ");
 
+  // "Busy" states that should disable the toggle and/or show a spinner:
+  // a command POST in flight, awaiting realtime confirmation, or this zone being
+  // spun up as part of a manual run.
   const isWaiting = !!awaitingConfirmation;
   const runZoneActivating = manualRunZoneEntry?.status === "activating";
   const runZoneRunning = manualRunZoneEntry?.status === "running";

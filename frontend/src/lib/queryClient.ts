@@ -9,6 +9,22 @@ import { QueryClient } from "@tanstack/react-query";
  * defaults here are deliberately conservative — no window-focus refetch storms,
  * a long stale time, and one retry.
  */
+/**
+ * Builds the single QueryClient the whole app shares (provided near the root via
+ * `<QueryClientProvider>`). The QueryClient is TanStack Query's cache + engine:
+ * it stores every query's data by key, tracks staleness, and dedupes fetches.
+ *
+ * The defaults below apply to *every* `useQuery` unless a hook overrides them:
+ *   - staleTime 30s   — data is considered fresh for 30s, so re-mounting a
+ *                       component within that window reads the cache instead of
+ *                       refetching.
+ *   - gcTime 5m       — how long unused (unmounted) query data lingers in cache
+ *                       before garbage collection.
+ *   - refetchOnWindowFocus false — no automatic refetch when the tab regains
+ *                       focus; we rely on realtime pushes + explicit intervals
+ *                       instead, avoiding "refetch storms."
+ *   - retry 1         — retry a failed fetch once before surfacing the error.
+ */
 export const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {

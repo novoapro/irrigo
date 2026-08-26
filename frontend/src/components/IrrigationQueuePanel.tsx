@@ -1,3 +1,34 @@
+/**
+ * IrrigationQueuePanel — shows the upcoming irrigation "queue" and lets the user
+ * skip / defer / reschedule / cancel entries.
+ *
+ * The defining concept here is that the panel is **mode-switched** between two
+ * data sources, and each source is its own React Query:
+ *  - `"smart"`: AI-generated schedule (`smartQuery`) — fetches AI config + the
+ *    planned AI programs.
+ *  - `"scheduled"`: user-defined cron programs (`scheduledQuery`) — fetches the
+ *    manual programs and their materialized entries.
+ *
+ * Only one is ever active at a time. Rather than fetch both and throw one away,
+ * each `useQuery` is gated by `enabled: activeMode === ...`, so the inactive
+ * query never runs. Switching modes flips which query is enabled; React Query
+ * fetches the newly-enabled one (and caches it). This replaced an older pattern
+ * of manual load-effects that called setState — the `enabled` flag is the idiom
+ * for "only run this query when it's relevant".
+ *
+ * Both sources are normalized into a common `QueueSequence[]` shape (via the
+ * `build*Sequences` helpers) so a single `QueueSequenceCard` can render either.
+ *
+ * `activeMode` also depends on `aiScheduleEnabled`: if the AI schedule is off, the
+ * user can't toggle to smart mode and the panel is forced to "scheduled".
+ *
+ * Key props:
+ *  - `zones`: used to resolve zoneId -> display name.
+ *  - `irrigationMode` / `aiScheduleEnabled`: drive `activeMode`.
+ *  - `refreshKey`: bumped by the parent to force a refetch (it's part of each
+ *    query key).
+ *  - `onModeChanged` / `onScheduleChanged`: notify the parent of user actions.
+ */
 import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -64,6 +95,8 @@ const formatDate = (iso: string) => {
   });
 };
 
+// Parse the day-of-week field of a cron expression ("*", "1,3", "1-5") into a
+// Set of allowed weekday numbers, or null for "*" (any day).
 const parseDowField = (field: string): Set<number> | null => {
   if (field === "*") return null;
   const values = new Set<number>();
@@ -81,6 +114,10 @@ const parseDowField = (field: string): Set<number> | null => {
   return values.size > 0 ? values : null;
 };
 
+// Lightweight client-side "when will this cron next fire?" estimator. Supports
+// only the fields this app uses (minute, hour, day-of-month step, day-of-week);
+// it walks forward day by day (up to 60) until it finds a matching date. Not a
+// full cron implementation — just enough to show an approximate next run time.
 const nextCronRun = (cron: string, after?: Date): Date | null => {
   const parts = cron.trim().split(/\s+/);
   if (parts.length < 5) return null;
@@ -110,6 +147,8 @@ const nextCronRun = (cron: string, after?: Date): Date | null => {
 
 // ── Build unified queue sequences ──
 
+// Turn user-defined cron programs into queue sequences, using nextCronRun to
+// estimate each one's next start, then sort soonest-first.
 const buildProgramSequences = (
   programs: IrrigationProgram[],
   getZoneName: (id: string) => string
@@ -135,6 +174,7 @@ const buildProgramSequences = (
     })
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
+// Translate a backend program status into the queue's unified status vocabulary.
 const mapProgramStatus = (status?: string): QueueSequence["status"] => {
   switch (status) {
     case "planned": return "pending";
@@ -147,6 +187,8 @@ const mapProgramStatus = (status?: string): QueueSequence["status"] => {
   }
 };
 
+// Turn AI-schedule programs into queue sequences (smart mode). Filters out
+// cancelled ones and carries the AI's reasoning text through for display.
 const buildSmartSequences = (
   aiPrograms: IrrigationProgram[],
   getZoneName: (id: string) => string
@@ -170,10 +212,14 @@ const buildSmartSequences = (
     }))
     .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
+// Turn *materialized* schedule entries into queue sequences. Each "run" is a
+// group of per-zone entries sharing a `scheduleRunId`, so we group by that id and
+// then roll the group's individual statuses up into one sequence status.
 const buildScheduledEntrySequences = (
   entries: ScheduleEntry[],
   getZoneName: (id: string) => string
 ): QueueSequence[] => {
+  // Group entries by their run id.
   const byRun = new Map<string, ScheduleEntry[]>();
   for (const e of entries) {
     const key = e.scheduleRunId;
@@ -186,6 +232,8 @@ const buildScheduledEntrySequences = (
       (a, b) => new Date(a.plannedStartAt).getTime() - new Date(b.plannedStartAt).getTime()
     );
     const first = sorted[0]!;
+    // Roll individual entry statuses up into a single run status (precedence
+    // applied below: completed > failed > skipped > deferred > running).
     const allCompleted = sorted.every((e) => e.status === "completed");
     const anyExecuting = sorted.some((e) => e.status === "executing" || e.status === "queued");
     const anyFailed = sorted.some((e) => e.status === "skipped" && e.skipReason?.toLowerCase().includes("error"));
@@ -225,6 +273,13 @@ const buildScheduledEntrySequences = (
 
 // ── Queue card (unified for both modes) ──
 
+/**
+ * QueueSequenceCard — one collapsible row in the queue, shared by both modes.
+ * Holds only local UI state (expanded/notes/defer-editor/confirm dialogs); all
+ * the real actions are delegated up through the `on*` callbacks. Which action
+ * buttons appear depends on the sequence's status (pending/deferred/running/
+ * skipped).
+ */
 const QueueSequenceCard = ({
   seq,
   onSkip,
@@ -486,9 +541,12 @@ const IrrigationQueuePanel = ({
   const [error] = useState<string | null>(null);
   const [modeChanging, setModeChanging] = useState(false);
 
+  // The user may only pick smart mode when AI scheduling is enabled; otherwise
+  // the panel is locked to "scheduled".
   const canToggleMode = aiScheduleEnabled;
   const activeMode = !canToggleMode ? "scheduled" : (irrigationMode === "scheduled" ? "scheduled" : "smart");
 
+  // Resolve a zoneId to its display name (falling back to the id itself).
   const getZoneName = useCallback((zoneId: string) => {
     const zone = zones.find((z) => z.zoneId === zoneId);
     return zone?.name ?? zoneId;
@@ -506,7 +564,7 @@ const IrrigationQueuePanel = ({
       ]);
       return { config: cfg ?? null, aiPrograms: progs ?? [] };
     },
-    enabled: activeMode === "smart"
+    enabled: activeMode === "smart" // only runs in smart mode
   });
 
   const scheduledQuery = useQuery({
@@ -518,15 +576,20 @@ const IrrigationQueuePanel = ({
       ]);
       return { programs: data ?? [], programEntries: matEntries ?? [] };
     },
-    enabled: activeMode === "scheduled"
+    enabled: activeMode === "scheduled" // only runs in scheduled mode
   });
 
+  // Read whichever query is active; the other returns undefined data. `loading`
+  // reflects only the active query so the inactive one never shows a spinner.
   const config = smartQuery.data?.config ?? null;
   const aiPrograms = smartQuery.data?.aiPrograms ?? [];
   const programs = scheduledQuery.data?.programs ?? [];
   const programEntries = scheduledQuery.data?.programEntries ?? [];
   const loading = activeMode === "smart" ? smartQuery.isLoading : scheduledQuery.isLoading;
 
+  // Invalidate a mode's query so React Query refetches it after a mutation
+  // (skip/defer/cancel/reschedule). Prefix-matching the key covers every
+  // refreshKey variant.
   const reloadSmart = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["queuePanel", "smart"] });
   }, [queryClient]);
@@ -534,6 +597,8 @@ const IrrigationQueuePanel = ({
     void queryClient.invalidateQueries({ queryKey: ["queuePanel", "scheduled"] });
   }, [queryClient]);
 
+  // Persist the mode change to the backend, then let the parent update
+  // `irrigationMode` (which flips which query is enabled).
   const handleModeToggle = useCallback(async (mode: "smart" | "scheduled") => {
     if (mode === activeMode) return;
     setModeChanging(true);
@@ -547,6 +612,9 @@ const IrrigationQueuePanel = ({
     }
   }, [activeMode, onModeChanged]);
 
+  // Skipping/deferring acts on concrete entry ids. A program sequence built from
+  // cron may not have been "materialized" into entries yet, so create them on
+  // demand. Sequences that already carry `entryIds` are used as-is.
   const materializeIfNeeded = useCallback(async (seq: QueueSequence): Promise<string[]> => {
     if (seq.entryIds && seq.entryIds.length > 0) return seq.entryIds;
     if (seq.source === "program" && seq.programId) {
@@ -602,6 +670,11 @@ const IrrigationQueuePanel = ({
 
   const enabledPrograms = programs.filter((p) => p.enabled);
 
+  // Build the unified list of queue sequences for the active mode. In scheduled
+  // mode this merges two views: materialized entries (concrete, in-progress runs)
+  // take precedence, and any cron program that isn't already represented by a
+  // materialized run is appended as its estimated next run. Result is sorted by
+  // start time.
   const queueSequences = (() => {
     if (activeMode === "smart") return buildSmartSequences(aiPrograms, getZoneName);
 
@@ -624,6 +697,8 @@ const IrrigationQueuePanel = ({
       }
     });
 
+    // Drop cron programs that already have a materialized run so they aren't
+    // listed twice.
     const remainingPrograms = programSeqs.filter((ps) => !activeProgramIds.has(ps.programId!));
 
     return [...materializedSeqs, ...remainingPrograms]
@@ -640,6 +715,8 @@ const IrrigationQueuePanel = ({
     }
   }, [reloadScheduled]);
 
+  // Only forward-looking / in-progress sequences belong in the visible queue;
+  // completed/skipped/failed ones are filtered out.
   const activeSequences = queueSequences.filter((s) => s.status === "pending" || s.status === "running" || s.status === "deferred");
   const hasQueue = activeSequences.length > 0;
 

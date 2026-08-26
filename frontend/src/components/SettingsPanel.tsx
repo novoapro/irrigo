@@ -1,3 +1,21 @@
+/**
+ * SettingsPanel — the modal settings dialog, organized into tabs (Zones, Device,
+ * Irrigation, Programs, Integrations, Preferences).
+ *
+ * OPEN-WRAPPER + KEYED-BODY PATTERN (see the two components below):
+ *  - `SettingsPanel` is a thin wrapper: it renders nothing when closed, and when
+ *    open mounts `SettingsPanelContent` with a React `key` derived from the
+ *    requested `initialTab`.
+ *  - Because React treats a changed `key` as a brand-new component instance, the
+ *    body REMOUNTS whenever it opens (or is re-targeted at a different tab). Its
+ *    `useState(initialTab ?? "zones")` therefore re-initializes from the current
+ *    props every time. That's why there is no effect syncing `initialTab` into
+ *    `activeTab` — remounting does the initialization for us. (Writing state from
+ *    an effect to mirror a prop is the anti-pattern this avoids.)
+ *
+ * The dialog itself is rendered through a portal into document.body so it escapes
+ * any parent stacking/overflow context.
+ */
 import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { DeviceConfig, Zone, ZoneState } from "../types";
@@ -108,6 +126,8 @@ const SettingsPanelContent = ({
         </header>
 
         <div className="settings-panel__body">
+          {/* Tab strip: clicking a tab just sets `activeTab`; the content area
+              below renders exactly one tab's panel via `activeTab === ...`. */}
           <nav className="settings-panel__tabs" role="tablist">
             {TABS.map((tab) => (
               <button

@@ -1,3 +1,27 @@
+/**
+ * WeatherWidget — the forecast card on the dashboard.
+ *
+ * Purely presentational: it takes already-fetched data via props and decides
+ * what to render. It shows one of four states — loading, error, "no data", or
+ * the forecast body (current conditions on the left, a precipitation-probability
+ * line chart on the right).
+ *
+ * Key props:
+ *  - `loading` / `error`: drive the non-data states.
+ *  - `currentWeather`: the current-conditions snapshot (temp, forecast, etc.).
+ *  - `fallbackLocation` / `fallbackUpdatedAt`: used when the snapshot lacks its
+ *    own location/timestamp — hence the `??` chains below.
+ *  - `precipitationSeries`: points for the rain-chance chart.
+ *
+ * Notable React/derivation notes:
+ *  - All display values are *derived* from props + theme hooks in render; the
+ *    component holds no state of its own.
+ *  - Theme-aware: `useThemeContext` + `useChartTheme` supply colors so the card
+ *    and chart match light/dark mode.
+ *  - `useMediaQuery` gives the chart a fixed pixel height on mobile but a fluid
+ *    "100%" on desktop, and there are separate desktop/mobile "updated" rows
+ *    toggled purely by CSS.
+ */
 import {
   CartesianGrid,
   Line,
@@ -37,13 +61,18 @@ const WeatherWidget = ({
   fallbackUpdatedAt,
   precipitationSeries
 }: WeatherWidgetProps) => {
+  // Prefer the snapshot's own location/timestamp, but fall back to the props the
+  // parent supplies (e.g. last known location) so the card still labels itself.
   const locationName = currentWeather?.locationName ?? fallbackLocation ?? "";
   const updatedAt = currentWeather?.fetchedAt ?? fallbackUpdatedAt ?? null;
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { theme } = useThemeContext();
-  const ct = useChartTheme();
+  const ct = useChartTheme(); // chart color tokens for the current theme
   const isLightForecastCard = theme === "light";
+  // Weather icons need a light/dark variant to sit on the card background.
   const iconBackground = isLightForecastCard ? "light" : "dark";
+  // On mobile the chart needs a concrete height (its container isn't sized);
+  // on desktop it fills its flex column.
   const chartHeight = isMobile ? 220 : "100%";
 
   return (
@@ -97,6 +126,8 @@ const WeatherWidget = ({
                 </div>
               </div>
 
+              {/* Rain-chance chart: only render when there are points, else a
+                  placeholder. ResponsiveContainer makes Recharts fill its box. */}
               <div className="forecast-chart">
                 {precipitationSeries.length > 0 ? (
                   <ResponsiveContainer width="100%" height={chartHeight}>

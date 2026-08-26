@@ -1,3 +1,17 @@
+/**
+ * IrrigationsPage — a paginated, filterable table of irrigation records (each a
+ * watering event, with its zone, source, duration, and start/end pressure).
+ *
+ * Same TanStack Query pattern as the other record pages: ONE query whose
+ * `queryKey` lists every input that shapes the request — page, date range, zone,
+ * and source. Changing any of those produces a new key, so the query refetches
+ * automatically and caches each combination; there's no manual refetch effect.
+ * Deleting calls `invalidateQueries(["irrigationRecordsPage"])` to refresh the list.
+ *
+ * Note the second query: `useZonesQuery()` loads the zone list separately (and is
+ * shared/cached app-wide by its own key), used here to turn stored zoneIds into
+ * human-readable names via `zoneName()`.
+ */
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
@@ -46,6 +60,8 @@ const IrrigationsPage = () => {
   const end = endDate ? toQueryDateTime(endDate) : undefined;
 
   const query = useQuery({
+    // page + dates + both filters are all in the key: change one and TanStack
+    // Query refetches and caches that specific combination.
     queryKey: [
       "irrigationRecordsPage",
       { page, start, end, zoneFilter, sourceFilter }
@@ -97,6 +113,7 @@ const IrrigationsPage = () => {
       await deleteIrrigationRecords(query);
       setConfirmDelete(false);
       setPage(1);
+      // Mark every cached page/filter combination stale so the list refetches.
       queryClient.invalidateQueries({ queryKey: ["irrigationRecordsPage"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete records");

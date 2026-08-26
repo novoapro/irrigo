@@ -1,4 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+/**
+ * RecordsPage — a paginated, filterable browser for device "heartbeat" records.
+ *
+ * The heart of this page is a single TanStack Query whose `queryKey` lists EVERY
+ * input that shapes the request: the page number, each dropdown filter, the date
+ * range, and the debounced PSI range. TanStack Query treats each distinct key as
+ * a separate cache entry, and refetches automatically whenever the key changes.
+ * That means we never write a manual "when a filter changes, refetch" effect —
+ * we just change the state that feeds the key, and the query reacts. Revisiting a
+ * previous filter combination serves its cached result instantly.
+ *
+ * Two patterns worth studying here:
+ *  - The PSI min/max inputs are debounced (see `useDebouncedValue` below) so that
+ *    typing doesn't fire one request per keystroke.
+ *  - Deleting records calls `queryClient.invalidateQueries(["records"])`, which
+ *    marks every cached "records" entry stale so the list refetches with fresh
+ *    data — no manual state juggling after a mutation.
+ */
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { deleteHeartbeats, fetchHeartbeats, type HeartbeatQuery } from "../api";
@@ -57,6 +75,9 @@ const RecordsPage = () => {
   const end = endDate ? toQueryDateTime(endDate) : undefined;
 
   const query = useQuery({
+    // Every value that changes the request lives inside this key. Change any of
+    // them (page, a dropdown, a date, the debounced PSI range) and TanStack Query
+    // sees a new key, refetches, and caches the result under that exact key.
     queryKey: [
       "records",
       {
@@ -137,6 +158,8 @@ const RecordsPage = () => {
       await deleteHeartbeats(query);
       setConfirmDelete(false);
       setPage(1);
+      // Invalidating by the ["records"] prefix marks every cached page/filter
+      // combination stale, so the visible list refetches fresh after the delete.
       queryClient.invalidateQueries({ queryKey: ["records"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete records");
@@ -172,6 +195,9 @@ const RecordsPage = () => {
 
       {displayError ? <div className="error-banner">{displayError}</div> : null}
 
+      {/* Each filter's onChange also calls setPage(1): changing a filter should
+          send you back to the first page of the new result set, not leave you on
+          a page number that may no longer exist. */}
       <div className="records-filters records-filters--no-border">
         <div className="records-filters__row">
           <div className="records-filter-group">

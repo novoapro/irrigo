@@ -1,3 +1,23 @@
+/**
+ * types.ts — the shared TypeScript vocabulary for the whole frontend.
+ *
+ * Role in the app: a single source of truth for the shapes of data exchanged
+ * with the backend (heartbeats, zones, commands, schedules, realtime events).
+ * Components, hooks, and query functions all import from here so the same
+ * concept has exactly one definition.
+ *
+ * The domain in brief: an IoT irrigation controller emits periodic *heartbeats*
+ * (sensor + device readings). *Zones* are waterable areas; each has a live
+ * *ZoneState*. *Commands* turn zones on/off. A *SequentialRun* waters several
+ * zones in order. An AI *ScheduleRun* plans future watering. The backend pushes
+ * changes to the UI as *RealtimeEvent*s (see the big union near the bottom).
+ *
+ * Concept demonstrated: TypeScript `interface`/`type` modeling, string-literal
+ * unions for closed sets of values (e.g. `"on" | "off"`), and — most
+ * importantly — a discriminated union for realtime events.
+ */
+
+/** Raw sensor readings carried on every heartbeat. */
 export interface HeartbeatSensors {
   waterPsi: number;
   rain: boolean;
@@ -27,6 +47,11 @@ export interface WeatherConditionsSnapshot {
   shortForecast: string | null;
 }
 
+/**
+ * A single telemetry sample from the device. `guard` is the safety-cutoff flag;
+ * `sensors`/`device` carry the readings; `weather` is an optional snapshot taken
+ * at the same time. The stream of heartbeats is the app's primary data feed.
+ */
 export interface Heartbeat {
   _id?: string;
   guard: boolean;
@@ -67,6 +92,11 @@ export interface CompAIZoneConfig {
   characteristics?: CompAICharacteristics;
 }
 
+/**
+ * A configured waterable area (its durations, ordering, metadata, and optional
+ * CompAI mapping). This is *configuration* — the live runtime status lives in
+ * `ZoneState` below.
+ */
 export interface Zone {
   _id?: string;
   zoneId: string;
@@ -83,6 +113,8 @@ export interface Zone {
   updatedAt?: string;
 }
 
+/** The live runtime status of one zone: is it on right now, what was the last
+ * action, and how much of the current run remains. Pairs with `Zone`. */
 export interface ZoneState {
   zoneId: string;
   isActive: boolean;
@@ -94,6 +126,9 @@ export interface ZoneState {
   remainingUpdatedAt?: string | null;
 }
 
+/** A single on/off instruction sent to a zone, tracked through its delivery
+ * lifecycle (`status`: pending -> sent -> acknowledged/failed/timeout) along with
+ * the controller response for debugging. */
 export interface IrrigationCommand {
   _id: string;
   zoneId: string;
@@ -142,6 +177,13 @@ export interface ExternalControllerConfig {
   updatedAt?: string;
 }
 
+/**
+ * The consolidated "current state of the system" object the dashboard renders at
+ * the top. Combines the latest guard/sensor/device readings with derived flags
+ * (`ready`, active `irrigation`) and a `changes` map describing what just moved.
+ * Delivered both by a REST status endpoint and by `status:updated` realtime
+ * events.
+ */
 export interface StatusPayload {
   guard: boolean;
   ready: boolean;
@@ -282,6 +324,9 @@ export interface SequentialRunZoneEntry {
   error?: string | null;
 }
 
+/** One "water these zones in order" job: its ordered `zones`, which one is
+ * current (`currentZoneIndex`), and lifecycle status. Can be deferred (e.g. by
+ * rain) and later recovered. */
 export interface SequentialRun {
   _id: string;
   source: SequentialRunSource;
@@ -296,6 +341,11 @@ export interface SequentialRun {
   deferralDeadline?: string | null;
 }
 
+// These `ManualRun*` names are the *old* names for the `SequentialRun*` types.
+// Rather than rename every call site at once (risky), we keep the old names as
+// type aliases pointing at the new ones and mark them `@deprecated`. Editors
+// strike through deprecated identifiers, nudging callers to migrate gradually
+// while nothing breaks. This is a safe, incremental rename technique.
 /** @deprecated Use SequentialRun */
 export type ManualRun = SequentialRun;
 /** @deprecated Use SequentialRunZoneEntry */
@@ -303,6 +353,19 @@ export type ManualRunZoneEntry = SequentialRunZoneEntry;
 /** @deprecated Use SequentialRunZoneStatus */
 export type ManualRunZoneStatus = SequentialRunZoneStatus;
 
+/**
+ * Every message the backend can push over the websocket, as a DISCRIMINATED
+ * UNION. Each member shares a string-literal `type` field (the "discriminant")
+ * and carries its own `payload` shape.
+ *
+ * Why this pattern is powerful: inside `switch (event.type) { ... }`, TypeScript
+ * *narrows* the union in each `case`. In `case "heartbeat:new":` it knows
+ * `event.payload` is a `Heartbeat`; in `case "zone:deleted":` it knows it's
+ * `{ zoneId: string }`. You get exhaustive, type-safe event handling with no
+ * casts — add a new event variant and the compiler flags every switch that
+ * hasn't handled it. `payload` is optional (`?`) because a few events (e.g.
+ * `connection:ready`) carry no data. `at` is an optional server timestamp.
+ */
 export type RealtimeEvent =
   | {
       type: "connection:ready";
@@ -576,6 +639,9 @@ export interface AIScheduleConfig {
   updatedAt?: string;
 }
 
+/** One execution of the AI scheduler: which model was used, token counts, the
+ * model's `reasoning`, and the raw prompt/response for auditability. Its planned
+ * watering slots are `ScheduleEntry`s. */
 export interface ScheduleRun {
   _id?: string;
   scheduleRunId: string;

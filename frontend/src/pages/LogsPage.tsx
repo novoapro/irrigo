@@ -1,3 +1,18 @@
+/**
+ * LogsPage — a three-tab log viewer: "Commands Sent" (controller commands),
+ * "Incoming Events" (webhook events from the device), and "Program Runs".
+ *
+ * KEY PATTERN — one query per tab, gated by `enabled`. Each tab has its own
+ * TanStack Query with its own state (page + filters) and its own `queryKey`.
+ * Crucially, each query sets `enabled: activeTab === "..."`, so only the visible
+ * tab's query actually runs. Switching tabs flips which query is enabled; the
+ * inactive tabs sit idle instead of firing needless network requests. Their state
+ * and cache still persist, so returning to a tab shows it exactly as you left it.
+ *
+ * As on the other pages, every filter/page value lives in its tab's `queryKey`,
+ * so changing a filter refetches automatically (no manual effect), and deletes
+ * call `invalidateQueries` on that tab's key to refresh the list.
+ */
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
@@ -94,6 +109,8 @@ const LogsPage = () => {
       "controllerLogs",
       { page, start, end, zoneFilter, sourceFilter, actionFilter, statusFilter }
     ],
+    // Only fetch commands while the Commands tab is active; on the other tabs
+    // this query stays idle (disabled) and never hits the network.
     enabled: activeTab === "commands",
     queryFn: async () => {
       const q: ControllerLogQuery = {
@@ -122,6 +139,7 @@ const LogsPage = () => {
       "webhookEvents",
       { webhookPage, webhookStart, webhookEnd, webhookZoneFilter, webhookTypeFilter }
     ],
+    // Enabled only on the Incoming Events tab — same gate-per-tab idea.
     enabled: activeTab === "events",
     queryFn: async () => {
       const q: WebhookEventQuery = {
@@ -142,6 +160,7 @@ const LogsPage = () => {
 
   const runsQuery = useQuery({
     queryKey: ["sequentialRuns", { runsPage, runsSourceFilter, runsStatusFilter }],
+    // Enabled only on the Program Runs tab.
     enabled: activeTab === "runs",
     queryFn: async () => {
       const q: SequentialRunQuery = { page: runsPage, pageSize: PAGE_SIZE };
@@ -155,6 +174,8 @@ const LogsPage = () => {
   const runsMeta = runsQuery.data?.meta ?? null;
   const runsLoading = runsQuery.isLoading;
 
+  // Surface only the active tab's error — the inactive queries are disabled and
+  // hold no meaningful error state to show.
   const queryError =
     (activeTab === "commands" && logsQuery.error) ||
     (activeTab === "events" && webhookQuery.error) ||

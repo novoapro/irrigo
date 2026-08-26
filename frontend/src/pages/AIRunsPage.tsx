@@ -1,3 +1,19 @@
+/**
+ * AIRunsPage — history of AI scheduling runs (the model's periodic decisions
+ * about when/whether to water), each expandable to show the irrigation entries
+ * it created and the raw prompt/response interaction.
+ *
+ * Two levels of data fetching to notice:
+ *  - The LIST uses one TanStack Query whose `queryKey` carries the page and date
+ *    range. Change any of those and the key changes, so the query refetches and
+ *    caches that combination automatically — no manual refetch effect.
+ *  - The per-run DETAIL is fetched lazily on expand (`handleToggleExpand`) and
+ *    cached in local component state (`runDetails`), keyed by run id, so
+ *    re-expanding a run doesn't re-request it.
+ *
+ * Deleting runs calls `queryClient.invalidateQueries(["aiRuns"])`, marking every
+ * cached list page stale so it refetches fresh.
+ */
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
@@ -46,6 +62,8 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
   const end = endDate ? toQueryDateTime(endDate) : undefined;
 
   const query = useQuery({
+    // page + date range fully describe the request; a change to any of them is a
+    // new key, which triggers an automatic refetch and its own cache entry.
     queryKey: ["aiRuns", { page, start, end }],
     queryFn: async (): Promise<{ data: ScheduleRun[]; meta: HeartbeatListMeta } | null> => {
       const q: { start?: string; end?: string } = {};
@@ -86,6 +104,7 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
       await deleteScheduleRuns(query);
       setConfirmDelete(false);
       setPage(1);
+      // Invalidate the whole ["aiRuns"] family so the list refetches post-delete.
       queryClient.invalidateQueries({ queryKey: ["aiRuns"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete runs");
@@ -100,6 +119,8 @@ const AIRunsPage = ({ zones = [] }: AIRunsPageProps) => {
       return;
     }
     setExpandedRunId(runId);
+    // Lazy detail load: only fetch a run's full detail the first time it's
+    // expanded. Once cached in `runDetails[runId]`, later expands skip the fetch.
     if (!runDetails[runId]) {
       setLoadingDetail(runId);
       try {

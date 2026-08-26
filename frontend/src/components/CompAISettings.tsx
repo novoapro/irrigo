@@ -1,3 +1,25 @@
+/**
+ * CompAISettings — the "Integrations" tab: configure the connection to the CompAI
+ * controller, test/discover it, and map each zone to a discovered service.
+ *
+ * LOADER + KEYED-FORM PATTERN (two components below):
+ *  - `CompAISettings` is the loader. It reads the saved config with a TanStack
+ *    Query (`["compAIConfig"]`), shows a spinner while loading, then renders the
+ *    editable form.
+ *  - `CompAISettingsForm` holds the actual editable fields in `useState`, each
+ *    initialized FROM the loaded config (e.g. `useState(initialConfig?.endpoint …)`).
+ *    Local `useState` only reads its initializer once, so to re-seed the form when
+ *    the config changes we give the child a `key` derived from the config
+ *    (`config?.updatedAt ?? config?._id`). A changed key remounts the form, which
+ *    re-runs those initializers — no effect syncing props into state.
+ *  - On save, `handleSave` PATCHes the config then calls
+ *    `invalidateQueries(["compAIConfig"])`. That refetches the config; its new
+ *    `updatedAt` changes the child key, remounting the form with the saved values.
+ *
+ * Note the masking guard in `handleSave`: secret fields come back masked as
+ * "••••", so we only send them if the user typed a real (unmasked) value —
+ * otherwise we'd overwrite the stored secret with the mask.
+ */
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CompAIConfig, CompAIDiscoveredService, CompAIZoneConfig, Zone } from "../types";
@@ -36,6 +58,9 @@ const CompAISettings = ({ zones, onZonesChanged, onHealthChanged }: CompAISettin
   }
 
   return (
+    // key derived from the config: when the config changes (e.g. after a save
+    // invalidates + refetches it), the key changes, remounting the form so its
+    // useState initializers re-read the fresh `initialConfig`.
     <CompAISettingsForm
       key={config?.updatedAt ?? config?._id ?? "new"}
       initialConfig={config ?? null}
@@ -60,6 +85,9 @@ const CompAISettingsForm = ({ initialConfig, zones, onZonesChanged, onHealthChan
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Each field is seeded once from `initialConfig`. Because this component is
+  // remounted (via its key) whenever the config changes, these initializers act
+  // as the sync point — no useEffect mirroring props into state.
   const [enabled, setEnabled] = useState(initialConfig?.enabled ?? false);
   const [deviceId, setDeviceId] = useState(initialConfig?.deviceId ?? "");
   const [endpoint, setEndpoint] = useState(initialConfig?.endpoint ?? "");
@@ -93,6 +121,9 @@ const CompAISettingsForm = ({ initialConfig, zones, onZonesChanged, onHealthChan
           authType,
           timeoutMs
         };
+        // Secrets are returned masked ("••••"); only send them when the user
+        // typed a new, unmasked value, so we never overwrite a stored secret
+        // with its mask.
         if (authToken && !authToken.includes("••••")) {
           payload.authToken = authToken;
         }
@@ -100,6 +131,7 @@ const CompAISettingsForm = ({ initialConfig, zones, onZonesChanged, onHealthChan
           payload.webhookSecret = webhookSecret;
         }
         await updateCompAIConfig(payload);
+        // Refetch the saved config; its new updatedAt re-keys and remounts the form.
         await queryClient.invalidateQueries({ queryKey: ["compAIConfig"] });
       });
     } catch (err) {

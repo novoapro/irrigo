@@ -1,3 +1,25 @@
+/**
+ * OverviewSection — the statistics block on the dashboard.
+ *
+ * Purely presentational: the parent does all the aggregation and hands this
+ * component ready-to-render props. It renders, side by side:
+ *  - an optional "Water Pressure" trend (a line chart with a dashed baseline
+ *    reference line), and
+ *  - one donut (Pie) chart per `card`, each with a custom legend showing each
+ *    slice's share of the card total.
+ *
+ * Key props:
+ *  - `cards`: the donut definitions (title, unit, total, slices).
+ *  - `pressureOverview` / `trendData` / `latestBaselinePsi`: the pressure panel;
+ *    when `pressureOverview` is null the whole pressure panel is omitted.
+ *  - `loading` / `error`: gate the loading and error states.
+ *
+ * Notable notes:
+ *  - Holds no state — every value is derived from props (e.g. each legend
+ *    `percentage` is computed inline from `entry.value / card.total`).
+ *  - Theme-aware via `useChartTheme`; `tooltipStyle` is built once per render and
+ *    spread into every Recharts `<Tooltip>` so all tooltips look identical.
+ */
 import React from "react";
 import {
   CartesianGrid,
@@ -59,7 +81,9 @@ const OverviewSection = ({
   loading,
   error
 }: OverviewSectionProps) => {
-  const ct = useChartTheme();
+  const ct = useChartTheme(); // theme-aware chart colors
+  // Shared Recharts tooltip styling, spread into each <Tooltip> below so they
+  // stay visually consistent and there's one place to change them.
   const tooltipStyle = {
     contentStyle: { backgroundColor: ct.surface, borderColor: ct.borderColor, color: ct.text, borderRadius: "var(--radius-md)" },
     labelStyle: { color: ct.text },
@@ -111,6 +135,8 @@ const OverviewSection = ({
                               strokeWidth={2}
                               dot={false}
                             />
+                            {/* Dashed horizontal line marking the pressure
+                                baseline, drawn only when one is known. */}
                             {latestBaselinePsi !== undefined ? (
                               <ReferenceLine
                                 y={latestBaselinePsi}
@@ -180,6 +206,8 @@ const OverviewSection = ({
                   </div>
                   <div className="overview-legend compact">
                     {card.data.map((entry) => {
+                      // Each slice's share of the card total, derived inline
+                      // (guard against divide-by-zero when total is 0).
                       const percentage =
                         card.total > 0
                           ? Math.round((entry.value / card.total) * 100)

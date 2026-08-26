@@ -1,3 +1,43 @@
+/**
+ * ZoneControlPanel — the grid of irrigation zones, and the brain behind
+ * turning zones on/off.
+ *
+ * It renders a header (title + actions) and a `<ZoneCard>` per zone. Its most
+ * interesting responsibility is the **optimistic command flow with out-of-band
+ * confirmation**:
+ *
+ *  1. The user taps a zone toggle -> `handleCommand` -> `executeCommand`.
+ *  2. `executeCommand` marks the zone as `pendingCommands` (spinner) and POSTs
+ *     the on/off command via `sendZoneCommand`. Awaiting that POST only tells us
+ *     the controller *accepted* the command, NOT that the valve actually moved.
+ *  3. So once the POST resolves we drop `pendingCommands` and instead record an
+ *     `awaitingConfirmation` entry: "I expect this zone to become on/off".
+ *  4. The real confirmation arrives *out of band*: the controller later emits a
+ *     realtime `zoneState:changed` event, which flows into this component as an
+ *     updated `zoneStates` prop. An effect (below) watches `zoneStates` and, when
+ *     a zone reaches its `expectedActive` value, clears the confirmation.
+ *  5. A safety timeout (`COMMAND_CONFIRM_TIMEOUT_MS`) clears the confirmation if
+ *     no realtime event ever arrives, so the UI never gets stuck spinning.
+ *
+ * This "await the request, but confirm via a separate realtime channel" split is
+ * the key concept — the awaited POST and the confirming event are two different
+ * things.
+ *
+ * Dual `mode` prop:
+ *  - `"control"` (default): the operational dashboard. Shows only enabled zones,
+ *    a Run-All manual program button, on/off toggles, and manual-run exclusion.
+ *  - `"manage"`: the settings/CRUD view. Shows *all* zones plus add/edit/delete
+ *    controls (via `ZoneFormModal`) and hides the run controls.
+ * One component serves both screens; `isManage` gates which UI branches render.
+ *
+ * Key props:
+ *  - `zones` / `zoneStates`: the configured zones and their live realtime state.
+ *  - `onZonesChanged`: callback asking the parent to refetch after a mutation.
+ *  - `mode`: `"control" | "manage"` (see above).
+ *  - `guardActive`: when true, starting irrigation first pops a confirm dialog
+ *    because conditions are flagged as unsuitable.
+ *  - `manualRun`: the in-progress "run all zones" sequence, if any.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { IrrigationRecord, ManualRun, Zone, ZoneState } from "../types";
@@ -28,10 +68,15 @@ interface ZoneControlPanelProps {
   guardActive?: boolean;
 }
 
+/**
+ * Collapse a flat list of irrigation records into "the latest record per zone".
+ * `records` is assumed newest-first, so the first record seen for a zone wins and
+ * later (older) ones are skipped.
+ */
 function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrrigationSummary> {
   const result: Record<string, ZoneIrrigationSummary> = {};
   for (const r of records) {
-    if (result[r.zoneId]) continue;
+    if (result[r.zoneId]) continue; // already captured the newest record for this zone
     result[r.zoneId] = {
       start: r.startedAt,
       end: r.endedAt ?? null,
@@ -44,13 +89,22 @@ function buildZoneSummaries(records: IrrigationRecord[]): Record<string, ZoneIrr
   return result;
 }
 
+// How long to keep waiting for a realtime `zoneState:changed` confirmation
+// before giving up and clearing the pending state, so a dropped event can't
+// leave a zone spinning forever.
 const COMMAND_CONFIRM_TIMEOUT_MS = 15_000;
 
 const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "control", onOpenSettings, irrigationRecords, baselinePsi, manualRun, guardActive }: ZoneControlPanelProps) => {
   const [formOpen, setFormOpen] = useState(false);
   const [editingZone, setEditingZone] = useState<Zone | null>(null);
+  // Zones whose command POST is still in flight (show a spinner). Cleared as soon
+  // as the request resolves, at which point the zone moves to awaitingConfirmation.
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
+  // Zones whose command was accepted but whose valve hasn't yet reported the
+  // expected state via realtime. Keyed by zoneId -> the state we're waiting for.
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, { expectedActive: boolean; durationMinutes?: number }>>({});
+  // Per-zone safety timeouts (kept in a ref, not state, since changing them must
+  // not trigger a re-render).
   const confirmTimersRef = useRef<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [runningAll, setRunningAll] = useState(false);
@@ -111,6 +165,8 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [onZonesChanged]
   );
 
+  // Drop a zone's pending confirmation and cancel its safety timeout. Called both
+  // when the realtime event confirms the change and when the timeout fires.
   const clearConfirmation = useCallback((zoneId: string) => {
     setAwaitingConfirmation((prev) => {
       const next = { ...prev };
@@ -124,10 +180,12 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
   }, []);
 
   useEffect(() => {
-    // Reconcile pending command confirmations against the latest (realtime)
-    // zone states: once a zone reaches its expected state, drop the pending
-    // confirmation and its timeout. This reacts to external state changes, so
-    // the state update legitimately lives in an effect.
+    // This is step 4 of the optimistic-command flow described at the top of the
+    // file: reconcile local "awaiting" UI state against incoming realtime zone
+    // states. When a zone reaches the state we expected, drop the pending
+    // confirmation and its timeout. Because it *reacts* to an external change
+    // (the realtime prop) rather than deriving from render inputs, updating state
+    // here is legitimate — hence the deliberate `eslint-disable` on the setState.
     const awaiting = Object.entries(awaitingConfirmation);
     for (const [zoneId, { expectedActive }] of awaiting) {
       const currentActive = zoneStates[zoneId]?.isActive ?? false;
@@ -138,6 +196,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     }
   }, [zoneStates, awaitingConfirmation, clearConfirmation]);
 
+  // Clean up any outstanding safety timeouts when the panel unmounts.
   useEffect(() => {
     const timers = confirmTimersRef.current;
     return () => {
@@ -145,14 +204,19 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     };
   }, []);
 
+  // The optimistic command flow itself (steps 1-3 + 5 from the top-of-file docs).
   const executeCommand = useCallback(
     async (zoneId: string, action: "on" | "off", durationMinutes?: number) => {
+      // Step 2: show a spinner and fire the command.
       setPendingCommands((prev) => new Set(prev).add(zoneId));
       setError(null);
       try {
+        // Awaiting this only confirms the controller *accepted* the command.
         await sendZoneCommand(zoneId, { action, durationMinutes });
         onZonesChanged();
 
+        // Step 3: request done -> stop spinning, but we still don't trust the
+        // valve moved. Move the zone into "awaiting realtime confirmation".
         setPendingCommands((prev) => {
           const next = new Set(prev);
           next.delete(zoneId);
@@ -162,6 +226,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
         const expectedActive = action === "on";
         setAwaitingConfirmation((prev) => ({ ...prev, [zoneId]: { expectedActive, durationMinutes } }));
 
+        // Step 5: arm the safety timeout in case the realtime event never lands.
         if (confirmTimersRef.current[zoneId]) {
           window.clearTimeout(confirmTimersRef.current[zoneId]);
         }
@@ -180,6 +245,11 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [onZonesChanged, clearConfirmation]
   );
 
+  // Entry point from each ZoneCard. When the guard is active and the user is
+  // trying to turn a zone ON, we stash the intended command as a thunk and let
+  // the confirm dialog decide whether to run it. (Storing a function in state
+  // needs the `() => () => ...` form, since a bare updater would be *called* by
+  // setState instead of stored.)
   const handleCommand = useCallback(
     (zoneId: string, action: "on" | "off", durationMinutes?: number) => {
       if (action === "on" && guardActive) {
@@ -191,6 +261,7 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     [guardActive, executeCommand]
   );
 
+  // ── Manual "run all zones" program state ──
   const isManualRunActive = manualRun?.status === "running";
   const manualRunZoneIds = useMemo(
     () => manualRun?.zones.map((z) => z.zoneId) ?? [],
@@ -212,6 +283,9 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     if (cancelling && !anyManualRunZoneActive) setCancelling(false);
   }, [cancelling, anyManualRunZoneActive]);
 
+  // Derived lists (recomputed every render — cheap, no memo needed).
+  // enabledZones drives the control view; eligibleZones is the subset that a
+  // manual "run all" will actually water (some zones opt out).
   const enabledZones = zones.filter((z) => z.enabled);
   const eligibleZones = enabledZones.filter((z) => !z.excludeFromManualRun);
 
@@ -258,6 +332,8 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
     }
   }, [onZonesChanged]);
 
+  // Index the manual run's per-zone entries by zoneId so each ZoneCard can look up
+  // its own step (status, progress) in O(1) rather than scanning the array.
   const manualRunZoneMap = useMemo(() => {
     if (!manualRun) return {};
     const map: Record<string, (typeof manualRun.zones)[number]> = {};
@@ -328,6 +404,10 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
         </div>
       ) : (
         <div className="zone-grid">
+          {/* Manage mode lists every zone; control mode only enabled ones. Each
+              ZoneCard keeps its own local state (selected duration, countdown),
+              so the list key must be the stable `zoneId` — using an array index
+              would let React reuse a card's state for a different zone. */}
           {(isManage ? zones : enabledZones).map((zone) => (
             <ZoneCard
               key={zone.zoneId}
@@ -360,6 +440,9 @@ const ZoneControlPanel = ({ zones, zoneStates, loading, onZonesChanged, mode = "
         />
       )}
 
+      {/* Guard confirmation dialog. Rendered through a portal into <body> so it
+          escapes the panel's stacking/overflow context and overlays the page.
+          Clicking "Proceed anyway" runs the stashed command thunk. */}
       {guardConfirmAction && createPortal(
         <div className="modal-overlay confirm-dialog-overlay" role="alertdialog" aria-modal="true">
           <div className="confirm-dialog">

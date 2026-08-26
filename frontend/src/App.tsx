@@ -1,3 +1,19 @@
+/**
+ * App.tsx — the top-level component of the SPA.
+ *
+ * Role in the app: this is the application "shell." It renders the persistent
+ * chrome (header, theme/refresh/settings buttons, nav, the settings panel) and
+ * the router outlet that swaps pages in and out. It owns no business logic of
+ * its own.
+ *
+ * Concept demonstrated — "container-as-a-hook": every piece of state, data
+ * loading, realtime wiring, and refresh orchestration is pulled out into a
+ * single custom hook (`useDashboardController`). App simply calls that hook and
+ * spreads its return value into JSX. This keeps the component almost purely
+ * presentational: easy to read top-to-bottom, with the "how" hidden behind the
+ * hook and only the "what to render" living here. It is the React equivalent of
+ * a thin controller/view split.
+ */
 import { Routes, Route, NavLink, Link } from "react-router-dom";
 import RecordsPage from "./pages/RecordsPage";
 import IrrigationsPage from "./pages/IrrigationsPage";
@@ -11,6 +27,8 @@ import HeaderHealthBar from "./components/HeaderHealthBar";
 import type { ThemePreference } from "./hooks/useTheme";
 import { useDashboardController } from "./hooks/useDashboardController";
 
+/** Inline SVG spinner/refresh glyph. A component (not an asset) so it inherits
+ * `currentColor` and can be swapped out for a live status icon below. */
 const RefreshIcon = () => (
   <svg
     className="refresh-icon__svg"
@@ -29,11 +47,18 @@ const RefreshIcon = () => (
   </svg>
 );
 
+// Order the theme button steps through on each click. Clicking wraps around
+// with modulo (see the toggle handler below): light -> dark -> system -> light.
 const THEME_CYCLE: ThemePreference[] = ["light", "dark", "system"];
 
 /**
  * Thin app shell: header + nav + routes + settings panel. All data, realtime,
  * and refresh orchestration live in `useDashboardController`.
+ *
+ * Note how the single `useDashboardController()` call below destructures dozens
+ * of values — that one hook is the app's "brain," and this component is just its
+ * "face." If you want to understand behavior, read the hook; if you want to
+ * understand layout, read this JSX.
  */
 const App = () => {
   const {
@@ -115,6 +140,9 @@ const App = () => {
               type="button"
               className={`refresh-icon-button${refreshStatusDisplay ? " refresh-icon-button--active" : ""}`}
               onClick={() => {
+                // `void` deliberately ignores the returned promise: the click
+                // handler is fire-and-forget, and `void` documents that we are
+                // not awaiting it (and silences lint about a floating promise).
                 void handleForceRefresh();
               }}
               disabled={isRefreshAnimating}
@@ -136,6 +164,8 @@ const App = () => {
               type="button"
               className="theme-toggle-button"
               onClick={() => {
+                // Advance one step through THEME_CYCLE, wrapping to the start
+                // via modulo so the button cycles endlessly.
                 const i = THEME_CYCLE.indexOf(themePreference);
                 setThemePreference(THEME_CYCLE[(i + 1) % THEME_CYCLE.length]);
               }}
@@ -212,6 +242,9 @@ const App = () => {
         </NavLink>
       </nav>
 
+      {/* react-router: <Routes> picks the first <Route> whose path matches the
+          URL and renders its element. The dashboard ("/") gets the full slice of
+          controller state as props; the other pages are mostly self-contained. */}
       <Routes>
         <Route path="/" element={
           <DashboardView

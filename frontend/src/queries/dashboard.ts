@@ -47,9 +47,17 @@ export const DEVICE_CONFIG_REFRESH_MS = 10 * 60_000;
 export const HEARTBEAT_PAGE_SIZE = 15;
 export const HEARTBEAT_SERIES_LIMIT = 250;
 
+/**
+ * The heart of the "realtime-first" strategy. `refetchInterval` accepts a number
+ * (poll every N ms) or `false` (never poll). When the websocket is live we
+ * return `false` so the query stops polling and instead receives fresh data
+ * pushed from the realtime handler; when it's down we fall back to interval `ms`.
+ */
 const interval = (realtimeActive: boolean, ms: number): number | false =>
   realtimeActive ? false : ms;
 
+/** Current device/system status (guard, sensors, active irrigation). Polls
+ * every 15m only when realtime is off. */
 export const useStatusQuery = (realtimeActive: boolean) =>
   useQuery({
     queryKey: queryKeys.status,
@@ -62,6 +70,8 @@ export type HeartbeatPageResult = {
   meta: HeartbeatListMeta;
 };
 
+/** One page of heartbeat history for the given date window. The window + page
+ * are part of the query key, so each page/window is cached separately. */
 export const useHeartbeatPageQuery = (
   window: HistoryWindow,
   page: number,
@@ -79,6 +89,8 @@ export const useHeartbeatPageQuery = (
     refetchInterval: interval(realtimeActive, HEARTBEAT_REFRESH_MS)
   });
 
+/** Downsampled pressure time-series for charts (up to HEARTBEAT_SERIES_LIMIT
+ * points) over the window. */
 export const useHeartbeatSeriesQuery = (
   window: HistoryWindow,
   realtimeActive: boolean
@@ -94,6 +106,8 @@ export const useHeartbeatSeriesQuery = (
     refetchInterval: interval(realtimeActive, HEARTBEAT_REFRESH_MS)
   });
 
+/** Aggregate stats (guard active time, rain/soil day counts, etc.) for the
+ * window — powers the summary tiles. */
 export const useHeartbeatOverviewQuery = (
   window: HistoryWindow,
   realtimeActive: boolean
@@ -106,6 +120,7 @@ export const useHeartbeatOverviewQuery = (
     refetchInterval: interval(realtimeActive, HEARTBEAT_REFRESH_MS)
   });
 
+/** Raw on/off irrigation valve events within the window. */
 export const useIrrigationEventsQuery = (
   window: HistoryWindow,
   realtimeActive: boolean
@@ -122,6 +137,7 @@ export const useIrrigationEventsQuery = (
     refetchInterval: interval(realtimeActive, HEARTBEAT_REFRESH_MS)
   });
 
+/** The latest irrigation record per zone (a rolled-up "last run" view). */
 export const useIrrigationRecordsQuery = (realtimeActive: boolean) =>
   useQuery({
     queryKey: queryKeys.irrigationRecords,
@@ -129,6 +145,7 @@ export const useIrrigationRecordsQuery = (realtimeActive: boolean) =>
     refetchInterval: interval(realtimeActive, HEARTBEAT_REFRESH_MS)
   });
 
+/** Weather overview / precipitation outlook shown on the dashboard. */
 export const useWeatherForecastQuery = (realtimeActive: boolean) =>
   useQuery({
     queryKey: queryKeys.weatherForecast,
@@ -136,6 +153,7 @@ export const useWeatherForecastQuery = (realtimeActive: boolean) =>
     refetchInterval: interval(realtimeActive, FORECAST_REFRESH_MS)
   });
 
+/** The device's own configuration (intervals, thresholds, sensor toggles). */
 export const useDeviceConfigQuery = (realtimeActive: boolean) =>
   useQuery({
     queryKey: queryKeys.deviceConfig,
@@ -146,12 +164,21 @@ export const useDeviceConfigQuery = (realtimeActive: boolean) =>
     refetchInterval: interval(realtimeActive, DEVICE_CONFIG_REFRESH_MS)
   });
 
+// The queries below have no `realtimeActive` param and no `refetchInterval`:
+// they change rarely and are refreshed on demand (via realtime events or
+// explicit invalidation), so continuous polling would be wasteful.
+
+/** All configured irrigation zones (config-like data; refreshed on demand). */
 export const useZonesQuery = () =>
   useQuery({
     queryKey: queryKeys.zones,
     queryFn: async () => (await fetchZones()) ?? []
   });
 
+/** Live per-zone state (active? last action? remaining seconds?). The queryFn
+ * reshapes the API array into a `Record<zoneId, ZoneState>` so consumers can
+ * look up a zone by id in O(1) instead of scanning an array. Doing this
+ * transform inside the queryFn means the cache stores the ready-to-use shape. */
 export const useZoneStatesQuery = () =>
   useQuery({
     queryKey: queryKeys.zoneStates,
@@ -165,12 +192,14 @@ export const useZoneStatesQuery = () =>
     }
   });
 
+/** Global system config, notably the current irrigation mode. */
 export const useSystemConfigQuery = () =>
   useQuery({
     queryKey: queryKeys.systemConfig,
     queryFn: async () => (await fetchSystemConfig()) ?? null
   });
 
+/** Configuration for the AI scheduling feature (provider, model, preferences). */
 export const useAIScheduleConfigQuery = () =>
   useQuery({
     queryKey: queryKeys.aiScheduleConfig,
@@ -182,6 +211,10 @@ export type LastAIRun = {
   entries: ScheduleEntry[];
 } | null;
 
+/** The most recent AI schedule run plus its planned entries. Demonstrates a
+ * two-step queryFn: first fetch the newest run, then fetch its detail. The inner
+ * fetch is wrapped in try/catch so a failure to load entries still returns the
+ * run (entries are "best-effort" — better a partial result than nothing). */
 export const useLastAIRunQuery = () =>
   useQuery({
     queryKey: queryKeys.lastAIRun,
@@ -202,6 +235,7 @@ export const useLastAIRunQuery = () =>
     }
   });
 
+/** Status of the in-progress sequential ("manual") multi-zone run, if any. */
 export const useManualRunQuery = () =>
   useQuery({
     queryKey: queryKeys.manualRun,
@@ -209,12 +243,15 @@ export const useManualRunQuery = () =>
       (await getManualRunStatus()) ?? null
   });
 
+/** Debug-mode flag (when on, external device calls are mocked). */
 export const useDebugConfigQuery = () =>
   useQuery({
     queryKey: queryKeys.debugConfig,
     queryFn: async () => (await fetchDebugConfig()) ?? null
   });
 
+/** Whether irrigation is currently paused due to rain. Reads the field out of a
+ * larger state snapshot, defaulting to "not paused" when absent. */
 export const useRainPauseQuery = () =>
   useQuery({
     queryKey: queryKeys.rainPause,
