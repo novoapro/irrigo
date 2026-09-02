@@ -120,7 +120,7 @@ export const getRainAlert = async (_req: Request, res: Response) => {
     const connected = latestHeartbeat?.device?.connectedSensors ?? [];
 
     const lastSensorRain = connected.includes("RAIN")
-      ? await Heartbeat.findOne({ "sensors.rain": true }).sort({ timestamp: -1 }).lean()
+      ? await Heartbeat.findOne({ "sensors.rain.triggered": true }).sort({ timestamp: -1 }).lean()
       : null;
     const lastConfirmed = settings.lastConfirmedRainAt ? new Date(settings.lastConfirmedRainAt) : null;
 

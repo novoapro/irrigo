@@ -2,13 +2,25 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Backend: TSX Dev Server",
+      "name": "Backend: Debug (breakpoints)",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--import", "tsx", "${workspaceFolder}/backend/src/index.ts"],
+      "envFile": "${workspaceFolder}/backend/.env",
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/backend/node_modules/**/*.js"]
+    },
+    {
+      "name": "Backend: TSX Dev Server (watch)",
       "type": "pwa-node",
       "request": "launch",
       "cwd": "${workspaceFolder}/backend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "envFile": "${workspaceFolder}/.env",
+      "envFile": "${workspaceFolder}/backend/.env",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "${workspaceFolder}/backend/node_modules/**/*.js"]
     },
@@ -40,7 +52,7 @@
     {
       "name": "Launch Frontend & Backend",
       "configurations": [
-        "Backend: TSX Dev Server",
+        "Backend: Debug (breakpoints)",
         "Frontend: Vite Dev Server"
       ]
     }

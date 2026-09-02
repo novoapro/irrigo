@@ -35,10 +35,10 @@ const renderBaselineValue = (heartbeat: Heartbeat) =>
   heartbeat.device.baselinePsi.toFixed(1);
 
 const renderPsiChipTone = (heartbeat: Heartbeat): StatusTone =>
-  heartbeat.sensors.waterPsi >= heartbeat.device.baselinePsi ? "positive" : "alert";
+  heartbeat.sensors.waterPsi.value >= heartbeat.device.baselinePsi ? "positive" : "alert";
 
 const renderPsiValue = (heartbeat: Heartbeat) =>
-  heartbeat.sensors.waterPsi.toFixed(1);
+  heartbeat.sensors.waterPsi.value.toFixed(1);
 
 const formatWeatherTemperature = (weather: Heartbeat["weather"]) => {
   if (!weather || weather.temperature === null || weather.temperature === undefined) {
@@ -100,14 +100,14 @@ const HistorySection = ({
               {heartbeats.map((heartbeat) => {
                 const rainBypassed = !heartbeat.device.connectedSensors?.includes("RAIN");
                 const soilBypassed = !heartbeat.device.connectedSensors?.includes("SOIL");
-                const rainMeta = getRainStatusMeta(rainBypassed, heartbeat.sensors.rain);
-                const soilMeta = getSoilStatusMeta(soilBypassed, heartbeat.sensors.soil);
+                const rainMeta = getRainStatusMeta(rainBypassed, heartbeat.sensors.rain.triggered);
+                const soilMeta = getSoilStatusMeta(soilBypassed, heartbeat.sensors.soil.triggered);
 
                 return (
                   <tr key={heartbeat._id ?? heartbeat.timestamp}>
                     <td>{formatTimestamp(heartbeat.timestamp)}</td>
                     <td>
-                      <GuardStatus guard={heartbeat.guard} />
+                      <GuardStatus guard={heartbeat.guard.triggered} />
                     </td>
                     <td>
                       <StatusChip tone={rainMeta.tone}>{rainMeta.label}</StatusChip>
@@ -167,8 +167,8 @@ const HistorySection = ({
           {heartbeats.map((heartbeat) => {
             const rainBypassed = !heartbeat.device.connectedSensors?.includes("RAIN");
             const soilBypassed = !heartbeat.device.connectedSensors?.includes("SOIL");
-            const rainMeta = getRainStatusMeta(rainBypassed, heartbeat.sensors.rain);
-            const soilMeta = getSoilStatusMeta(soilBypassed, heartbeat.sensors.soil);
+            const rainMeta = getRainStatusMeta(rainBypassed, heartbeat.sensors.rain.triggered);
+            const soilMeta = getSoilStatusMeta(soilBypassed, heartbeat.sensors.soil.triggered);
 
             return (
               <article
@@ -182,7 +182,7 @@ const HistorySection = ({
                       {formatTimestamp(heartbeat.timestamp)}
                     </span>
                   </div>
-                  <GuardStatus guard={heartbeat.guard} />
+                  <GuardStatus guard={heartbeat.guard.triggered} />
                 </header>
                 <dl className="history-card-metrics">
                   <div>

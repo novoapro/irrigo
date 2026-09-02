@@ -41,7 +41,7 @@ export const getStateSnapshot = async (_req: Request, res: Response) => {
     const rainPause = await getRainPauseState(latestHeartbeat);
 
     res.json({
-      guard: latestHeartbeat?.guard ?? false,
+      guard: latestHeartbeat?.guard?.triggered ?? false,
       irrigationMode: systemConfig?.irrigationMode ?? "manual",
       zoneStates,
       activeRun: activeSequentialRun ?? null,

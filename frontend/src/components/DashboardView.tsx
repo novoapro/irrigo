@@ -134,7 +134,8 @@ const DashboardView = ({
     )
     .map((sample) => ({ timestamp: sample.timestamp, psi: sample.psi }));
 
-  const guardActive = status?.guard ?? latestHeartbeatSnapshot?.guard ?? false;
+  const guardActive =
+    status?.guard.triggered ?? latestHeartbeatSnapshot?.guard.triggered ?? false;
 
   const currentWeather: WeatherConditionsSnapshot | null = forecast
     ? {
@@ -166,7 +167,7 @@ const DashboardView = ({
   const latestBaselinePsi =
     status?.device?.baselinePsi ?? latestHeartbeatSnapshot?.device.baselinePsi;
   const latestWaterPsi =
-    status?.sensors?.waterPsi ?? latestHeartbeatSnapshot?.sensors.waterPsi;
+    status?.sensors?.waterPsi.value ?? latestHeartbeatSnapshot?.sensors.waterPsi.value;
 
   // Each boolean sensor's label + tone + active flag comes from one shared
   // decision tree (see readSensor) instead of the four near-identical nested
@@ -174,15 +175,15 @@ const DashboardView = ({
   // undefined when there is none) and `snapshot` is the heartbeat fallback.
   const rain = readSensor(
     connectedSensors.includes("RAIN"),
-    status ? status.sensors.rain : undefined,
-    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.rain : undefined,
+    status ? status.sensors.rain.triggered : undefined,
+    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.rain.triggered : undefined,
     { on: "Detected", off: "No" }
   );
 
   const soil = readSensor(
     connectedSensors.includes("SOIL"),
-    status ? status.sensors.soil : undefined,
-    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.soil : undefined,
+    status ? status.sensors.soil.triggered : undefined,
+    latestHeartbeatSnapshot ? latestHeartbeatSnapshot.sensors.soil.triggered : undefined,
     { on: "Saturated", off: "Dry" }
   );
 

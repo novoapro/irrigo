@@ -53,7 +53,7 @@ export const persistEvent = async (zone: string, action: "on" | "off") => {
   }
 
   const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
-  const pressure = latestHeartbeat?.sensors?.waterPsi ?? null;
+  const pressure = latestHeartbeat?.sensors?.waterPsi?.value ?? null;
 
   const acknowledgedCmd = await acknowledgeCommand(zoneId, action);
 

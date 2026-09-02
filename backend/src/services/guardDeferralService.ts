@@ -410,8 +410,8 @@ const checkDeadlines = async () => {
 };
 
 export const handleHeartbeatForDeferral = async (heartbeat: {
-  guard: boolean;
-  sensors?: { waterPsi?: number | null } | null;
+  guard: { triggered: boolean };
+  sensors?: { waterPsi?: { value?: number | null } | null } | null;
   device?: { baselinePsi?: number | null } | null;
 }) => {
   if (!monitorActive) return;
@@ -421,7 +421,7 @@ export const handleHeartbeatForDeferral = async (heartbeat: {
   // active, and a rain pause that becomes active will defer an in-flight run — the same
   // way a hardware guard does.
   const rainPause = await getRainPauseState();
-  const hardwareGuard = heartbeat.guard;
+  const hardwareGuard = heartbeat.guard.triggered;
   const currentGuard = hardwareGuard || rainPause.active;
   const previousGuard = lastGuardState;
   lastGuardState = currentGuard;
@@ -444,7 +444,7 @@ export const handleHeartbeatForDeferral = async (heartbeat: {
           await onGuardActivated();
         }
       } else if (Date.now() >= pendingZoneConfirmation.confirmAfter) {
-        const psi = heartbeat.sensors?.waterPsi;
+        const psi = heartbeat.sensors?.waterPsi?.value;
         const baseline = heartbeat.device?.baselinePsi;
         const belowBaseline =
           typeof psi === "number" && typeof baseline === "number" && psi < baseline;
@@ -541,8 +541,8 @@ export const startGuardDeferralMonitor = async () => {
     const latest = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
     if (latest) {
       const rainPause = await getRainPauseState(latest);
-      lastGuardState = latest.guard || rainPause.active;
-      lastHardwareGuard = latest.guard;
+      lastGuardState = latest.guard.triggered || rainPause.active;
+      lastHardwareGuard = latest.guard.triggered;
     }
   } catch (err) {
     console.error("[GuardDeferral] Failed to read initial guard state:", err);

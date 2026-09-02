@@ -30,8 +30,12 @@ const mockDelete = vi.mocked(deleteHeartbeats);
 
 const makeHeartbeat = (overrides: Partial<Heartbeat> = {}): Heartbeat => ({
   _id: "hb-1",
-  guard: true,
-  sensors: { waterPsi: 45, rain: false, soil: false },
+  guard: { triggered: true, since: "2026-09-02T00:00:00.000Z" },
+  sensors: {
+    waterPsi: { value: 45, since: "2026-09-02T00:00:00.000Z" },
+    rain: { triggered: false, since: "2026-09-02T00:00:00.000Z" },
+    soil: { triggered: false, since: "2026-09-02T00:00:00.000Z" }
+  },
   device: {
     ip: "192.168.1.50",
     tempF: 70,

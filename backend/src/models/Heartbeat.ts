@@ -1,13 +1,30 @@
 import { Schema, model } from "mongoose";
 import { HEARTBEAT_RETENTION_SECONDS } from "../config/persistence";
 
+/**
+ * A tracked reading paired with `since`: the timestamp at which the reading last
+ * *changed* to its current value. On ingest we carry `since` forward while the value
+ * is unchanged and reset it to "now" when it flips, so the latest heartbeat alone
+ * answers "when did this last change?" — no scan across history required. `TrackedBool`
+ * covers the on/off signals (guard, rain, soil); `TrackedNumber` covers waterPsi.
+ */
+export interface TrackedBool {
+  triggered: boolean;
+  since: Date;
+}
+
+export interface TrackedNumber {
+  value: number;
+  since: Date;
+}
+
 export interface HeartbeatAttributes {
   timestamp: Date;
-  guard: boolean;
+  guard: TrackedBool;
   sensors: {
-    waterPsi: number;
-    rain: boolean;
-    soil: boolean;
+    waterPsi: TrackedNumber;
+    rain: TrackedBool;
+    soil: TrackedBool;
   };
   device: {
     ip: string;
@@ -54,22 +71,21 @@ const heartbeatSchema = new Schema<HeartbeatAttributes>({
     default: () => new Date()
   },
   guard: {
-    type: Boolean,
-    required: true
+    triggered: { type: Boolean, required: true },
+    since: { type: Date, required: true }
   },
   sensors: {
     waterPsi: {
-      type: Number,
-      required: true,
-      min: 0
+      value: { type: Number, required: true, min: 0 },
+      since: { type: Date, required: true }
     },
     rain: {
-      type: Boolean,
-      required: true
+      triggered: { type: Boolean, required: true },
+      since: { type: Date, required: true }
     },
     soil: {
-      type: Boolean,
-      required: true
+      triggered: { type: Boolean, required: true },
+      since: { type: Date, required: true }
     }
   },
   device: {

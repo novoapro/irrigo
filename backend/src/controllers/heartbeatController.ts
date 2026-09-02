@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import type { HeartbeatInput } from "../schemas/heartbeatSchema";
 import Heartbeat from "../models/Heartbeat";
+import type { TrackedBool, TrackedNumber } from "../models/Heartbeat";
 import { relayGuardState } from "../services/guardRelayService";
 import { handleHeartbeatForDeferral } from "../services/guardDeferralService";
 import { getCurrentWeatherConditions } from "../services/weatherForecastService";
@@ -32,12 +33,29 @@ export const createHeartbeat = async (req: Request, res: Response) => {
       console.error("Failed to attach weather snapshot to heartbeat:", weatherError);
     }
 
+    const now = new Date();
+
+    // Previous heartbeat, used only to decide whether each tracked reading changed.
+    // `since` carries forward while a reading holds steady and resets to `now` when it
+    // flips — so the latest heartbeat alone answers "when did this last change?" and no
+    // consumer has to scan history. waterPsi uses a 0.1 psi deadband so analog jitter
+    // doesn't register as a change.
+    const previous = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+    const trackBool = (curr: boolean, prev?: TrackedBool): TrackedBool => ({
+      triggered: curr,
+      since: prev && prev.triggered === curr ? prev.since : now
+    });
+    const trackNumber = (curr: number, prev?: TrackedNumber): TrackedNumber => ({
+      value: curr,
+      since: prev && Math.abs(prev.value - curr) < 0.1 ? prev.since : now
+    });
+
     const heartbeat = await Heartbeat.create({
-      guard: payload.guard,
+      guard: trackBool(payload.guard, previous?.guard),
       sensors: {
-        waterPsi: payload.sensors.waterPsi,
-        rain: payload.sensors.rain,
-        soil: payload.sensors.soil
+        waterPsi: trackNumber(payload.sensors.waterPsi, previous?.sensors.waterPsi),
+        rain: trackBool(payload.sensors.rain, previous?.sensors.rain),
+        soil: trackBool(payload.sensors.soil, previous?.sensors.soil)
       },
       device: {
         ip: payload.device.ip,
@@ -51,10 +69,10 @@ export const createHeartbeat = async (req: Request, res: Response) => {
         ]
       },
       weather: weatherSnapshot ?? null,
-      timestamp: new Date() // use server time, ignore client timestamp
+      timestamp: now // use server time, ignore client timestamp
     });
 
-    void relayGuardState(heartbeat.guard);
+    void relayGuardState(heartbeat.guard.triggered);
     void handleHeartbeatForDeferral(heartbeat.toObject());
 
     emitRealtimeEvent({
@@ -128,25 +146,25 @@ export const listHeartbeats = async (req: Request, res: Response) => {
 
   const { guard, rain, soil, psiMin, psiMax } = req.query;
 
-  if (guard === "true") filter.guard = true;
-  else if (guard === "false") filter.guard = false;
+  if (guard === "true") filter["guard.triggered"] = true;
+  else if (guard === "false") filter["guard.triggered"] = false;
 
-  if (rain === "true") filter["sensors.rain"] = true;
-  else if (rain === "false") filter["sensors.rain"] = false;
+  if (rain === "true") filter["sensors.rain.triggered"] = true;
+  else if (rain === "false") filter["sensors.rain.triggered"] = false;
 
-  if (soil === "true") filter["sensors.soil"] = true;
-  else if (soil === "false") filter["sensors.soil"] = false;
+  if (soil === "true") filter["sensors.soil.triggered"] = true;
+  else if (soil === "false") filter["sensors.soil.triggered"] = false;
 
   if (typeof psiMin === "string" && psiMin.length > 0) {
     const val = Number.parseFloat(psiMin);
     if (!Number.isNaN(val)) {
-      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $gte: val };
+      filter["sensors.waterPsi.value"] = { ...((filter["sensors.waterPsi.value"] as Record<string, number>) ?? {}), $gte: val };
     }
   }
   if (typeof psiMax === "string" && psiMax.length > 0) {
     const val = Number.parseFloat(psiMax);
     if (!Number.isNaN(val)) {
-      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $lte: val };
+      filter["sensors.waterPsi.value"] = { ...((filter["sensors.waterPsi.value"] as Record<string, number>) ?? {}), $lte: val };
     }
   }
 
@@ -211,25 +229,25 @@ export const deleteHeartbeats = async (req: Request, res: Response) => {
     filter.timestamp = { ...((filter.timestamp as Record<string, Date>) ?? {}), $lte: parsed };
   }
 
-  if (guard === "true") filter.guard = true;
-  else if (guard === "false") filter.guard = false;
+  if (guard === "true") filter["guard.triggered"] = true;
+  else if (guard === "false") filter["guard.triggered"] = false;
 
-  if (rain === "true") filter["sensors.rain"] = true;
-  else if (rain === "false") filter["sensors.rain"] = false;
+  if (rain === "true") filter["sensors.rain.triggered"] = true;
+  else if (rain === "false") filter["sensors.rain.triggered"] = false;
 
-  if (soil === "true") filter["sensors.soil"] = true;
-  else if (soil === "false") filter["sensors.soil"] = false;
+  if (soil === "true") filter["sensors.soil.triggered"] = true;
+  else if (soil === "false") filter["sensors.soil.triggered"] = false;
 
   if (typeof psiMin === "string" && psiMin.length > 0) {
     const val = Number.parseFloat(psiMin);
     if (!Number.isNaN(val)) {
-      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $gte: val };
+      filter["sensors.waterPsi.value"] = { ...((filter["sensors.waterPsi.value"] as Record<string, number>) ?? {}), $gte: val };
     }
   }
   if (typeof psiMax === "string" && psiMax.length > 0) {
     const val = Number.parseFloat(psiMax);
     if (!Number.isNaN(val)) {
-      filter["sensors.waterPsi"] = { ...((filter["sensors.waterPsi"] as Record<string, number>) ?? {}), $lte: val };
+      filter["sensors.waterPsi.value"] = { ...((filter["sensors.waterPsi.value"] as Record<string, number>) ?? {}), $lte: val };
     }
   }
 
@@ -293,13 +311,13 @@ export const listHeartbeatSeries = async (req: Request, res: Response) => {
       .limit(limit)
       .select({
         timestamp: 1,
-        "sensors.waterPsi": 1
+        "sensors.waterPsi.value": 1
       })
       .lean();
 
     const series = heartbeats
       .map((entry) => {
-        const psi = Number(entry.sensors?.waterPsi ?? NaN);
+        const psi = Number(entry.sensors?.waterPsi?.value ?? NaN);
         const timestamp =
           entry.timestamp instanceof Date
             ? entry.timestamp.toISOString()

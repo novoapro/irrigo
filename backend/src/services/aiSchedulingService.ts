@@ -145,10 +145,10 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
   // so they intentionally reflect reality (it did rain N hours ago) without the pause
   // watermark. The pause rule itself is driven by `rainPause` above.
   const lastRainHeartbeat = connected.includes("RAIN")
-    ? await Heartbeat.findOne({ "sensors.rain": true }).sort({ timestamp: -1 }).lean()
+    ? await Heartbeat.findOne({ "sensors.rain.triggered": true }).sort({ timestamp: -1 }).lean()
     : null;
   const lastSoilHeartbeat = connected.includes("SOIL")
-    ? await Heartbeat.findOne({ "sensors.soil": true }).sort({ timestamp: -1 }).lean()
+    ? await Heartbeat.findOne({ "sensors.soil.triggered": true }).sort({ timestamp: -1 }).lean()
     : null;
 
   return {
@@ -160,8 +160,8 @@ const gatherData = async (config: AIScheduleConfigAttributes): Promise<GatheredD
       metadata: z.metadata as Record<string, unknown> | undefined
     })),
     currentConditions: {
-      rainDetected: connected.includes("RAIN") ? (latestHeartbeat?.sensors?.rain ?? false) : null,
-      soilSaturated: connected.includes("SOIL") ? (latestHeartbeat?.sensors?.soil ?? false) : null,
+      rainDetected: connected.includes("RAIN") ? (latestHeartbeat?.sensors?.rain?.triggered ?? false) : null,
+      soilSaturated: connected.includes("SOIL") ? (latestHeartbeat?.sensors?.soil?.triggered ?? false) : null,
       temperatureF: latestHeartbeat?.device?.tempF ?? null,
       humidity: latestHeartbeat?.device?.humidity ?? null
     },

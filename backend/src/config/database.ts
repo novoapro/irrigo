@@ -7,6 +7,14 @@ const connectToDatabase = async () => {
     throw new Error("Missing MONGO_URI environment variable");
   }
 
+  // Startup diagnostic: surface exactly which host we're about to dial, so a
+  // stray exported MONGO_URI or the wrong .env file is obvious at a glance.
+  try {
+    console.log(`Connecting to MongoDB host: ${new URL(uri).host}`);
+  } catch {
+    console.log("Connecting to MongoDB (unparseable MONGO_URI)");
+  }
+
   if (mongoose.connection.readyState === mongoose.ConnectionStates.connected) {
     return mongoose.connection;
   }

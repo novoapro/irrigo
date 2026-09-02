@@ -5,7 +5,7 @@ import IrrigationEvent from "../models/IrrigationEvent";
 import StatusSnapshot from "../models/StatusSnapshot";
 
 export interface ResolvedStatusPayload {
-  guard: boolean;
+  guard: HeartbeatAttributes["guard"];
   ready: boolean;
   lastUpdatedAt: string | null;
   sensors: HeartbeatAttributes["sensors"];
@@ -56,9 +56,8 @@ export const snapshotStatus = async (
 };
 
 const buildStatusPayload = async () => {
-  const [latestHeartbeat, recentHeartbeats, latestIrrigation] = await Promise.all([
+  const [latestHeartbeat, latestIrrigation] = await Promise.all([
     Heartbeat.findOne().sort({ timestamp: -1 }).lean(),
-    Heartbeat.find().sort({ timestamp: -1 }).limit(250).lean(),
     IrrigationEvent.findOne().sort({ createdAt: -1 }).lean()
   ]);
 
@@ -87,7 +86,7 @@ const buildStatusPayload = async () => {
     return Number.isNaN(ts.getTime()) ? null : ts.toISOString();
   };
 
-  const heartbeatChanges = calculateChangeMetadata(recentHeartbeats);
+  const heartbeatChanges = calculateChangeMetadata(latestHeartbeat);
   const irrigationChangeIso = toIso(latestIrrigation?.createdAt);
 
   const changeCandidates = [
@@ -109,7 +108,7 @@ const buildStatusPayload = async () => {
   return {
     payload: {
       guard: latestHeartbeat.guard,
-      ready: !latestHeartbeat.guard,
+      ready: !latestHeartbeat.guard.triggered,
       lastUpdatedAt: latestChangeIso,
       sensors: latestHeartbeat.sensors,
       device: latestHeartbeat.device,
@@ -208,53 +207,22 @@ export const listStatusSnapshots = async (req: Request, res: Response) => {
   }
 };
 
-type ComparableValue = boolean | number;
-
-const calculateChangeMetadata = (heartbeats: HeartbeatAttributes[]) => {
-  if (heartbeats.length === 0) {
-    return {
-      guard: null,
-      sensors: {
-        waterPsi: null,
-        rain: null,
-        soil: null
-      }
-    };
-  }
-
-  const getLastChangeTimestamp = <Value extends ComparableValue>(
-    selector: (heartbeat: HeartbeatAttributes) => Value,
-    isEqual: (a: Value, b: Value) => boolean = (a, b) => a === b
-  ): string | null => {
-    if (heartbeats.length === 0) {
-      return null;
-    }
-
-    let lastValue = selector(heartbeats[0]);
-
-    for (let index = 1; index < heartbeats.length; index += 1) {
-      const currentHeartbeat = heartbeats[index];
-      const currentValue = selector(currentHeartbeat);
-
-      if (!isEqual(currentValue, lastValue)) {
-        return heartbeats[index - 1].timestamp.toISOString();
-      }
-
-      lastValue = currentValue;
-    }
-
-    return heartbeats[heartbeats.length - 1].timestamp.toISOString();
+// Each tracked reading now carries its own `since` (set at ingest — see
+// heartbeatController), so "when did this last change?" is a direct read off the latest
+// heartbeat rather than a scan back through hundreds of records.
+const calculateChangeMetadata = (latest: HeartbeatAttributes) => {
+  const toIso = (value: Date | string | null | undefined) => {
+    if (!value) return null;
+    const ts = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(ts.getTime()) ? null : ts.toISOString();
   };
 
   return {
-    guard: getLastChangeTimestamp((heartbeat) => heartbeat.guard),
+    guard: toIso(latest.guard.since),
     sensors: {
-      waterPsi: getLastChangeTimestamp(
-        (heartbeat) => heartbeat.sensors.waterPsi,
-        (a, b) => Math.abs(a - b) < 0.1
-      ),
-      rain: getLastChangeTimestamp((heartbeat) => heartbeat.sensors.rain),
-      soil: getLastChangeTimestamp((heartbeat) => heartbeat.sensors.soil)
+      waterPsi: toIso(latest.sensors.waterPsi.since),
+      rain: toIso(latest.sensors.rain.since),
+      soil: toIso(latest.sensors.soil.since)
     }
   };
 };

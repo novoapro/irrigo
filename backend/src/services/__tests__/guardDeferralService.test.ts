@@ -100,12 +100,29 @@ jest.mock("../irrigationSettingsService", () => ({
 jest.mock("../realtimeService", () => ({ __esModule: true, emitRealtimeEvent: jest.fn() }));
 
 import {
-  handleHeartbeatForDeferral,
+  handleHeartbeatForDeferral as rawHandleHeartbeatForDeferral,
   startGuardDeferralMonitor,
   stopGuardDeferralMonitor,
   clearRunScopedGuardState,
   getLastKnownHardwareGuard
 } from "../guardDeferralService";
+
+// These tests describe heartbeats with primitive readings (`guard: true`,
+// `sensors.waterPsi: 40`). Production now stores each reading as a tracked
+// `{ triggered/value, since }` object, so this adapter wraps the primitives before
+// handing them to the real handler — keeping every call site below unchanged.
+const handleHeartbeatForDeferral = (hb: {
+  guard: boolean;
+  sensors?: { waterPsi?: number };
+  device?: { baselinePsi?: number };
+}) =>
+  rawHandleHeartbeatForDeferral({
+    guard: { triggered: hb.guard },
+    sensors: hb.sensors
+      ? { waterPsi: hb.sensors.waterPsi != null ? { value: hb.sensors.waterPsi } : null }
+      : undefined,
+    device: hb.device
+  });
 
 const BASE_NOW = new Date("2026-07-11T12:00:00.000Z");
 

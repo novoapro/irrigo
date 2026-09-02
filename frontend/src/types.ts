@@ -17,11 +17,26 @@
  * importantly — a discriminated union for realtime events.
  */
 
+/**
+ * A tracked reading paired with `since`: the ISO timestamp at which it last *changed* to
+ * its current value (the backend sets this at ingest, carrying it forward while the value
+ * holds steady). `TrackedBool` covers on/off signals; `TrackedNumber` covers waterPsi.
+ */
+export interface TrackedBool {
+  triggered: boolean;
+  since: string;
+}
+
+export interface TrackedNumber {
+  value: number;
+  since: string;
+}
+
 /** Raw sensor readings carried on every heartbeat. */
 export interface HeartbeatSensors {
-  waterPsi: number;
-  rain: boolean;
-  soil: boolean;
+  waterPsi: TrackedNumber;
+  rain: TrackedBool;
+  soil: TrackedBool;
 }
 
 export type ConnectedSensor = "PRESSURE" | "RAIN" | "SOIL";
@@ -54,7 +69,7 @@ export interface WeatherConditionsSnapshot {
  */
 export interface Heartbeat {
   _id?: string;
-  guard: boolean;
+  guard: TrackedBool;
   sensors: HeartbeatSensors;
   device: HeartbeatDevice;
   timestamp: string;
@@ -185,7 +200,7 @@ export interface ExternalControllerConfig {
  * events.
  */
 export interface StatusPayload {
-  guard: boolean;
+  guard: TrackedBool;
   ready: boolean;
   lastUpdatedAt?: string | null;
   sensors: HeartbeatSensors;

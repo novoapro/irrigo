@@ -5,7 +5,8 @@
  *   - Only two inputs: the rain sensor and the user's manual report. Soil moisture is NOT
  *     a rain-pause input.
  *   - A sensor rain event is treated as a heavy rain (full window) anchored to when the
- *     sensor reported it, and persists for the whole window even after the sensor clears.
+ *     rain *began* (`sensors.rain.since`, the onset of the streak) — NOT the latest
+ *     still-raining report — and persists for the whole window even after the sensor clears.
  *   - The user's report scales the window by intensity (light/moderate/heavy).
  *   - When both are active, the sensor labels the pause; the later expiry always wins.
  */
@@ -16,9 +17,11 @@ let settings: {
   lastConfirmedRainIntensity?: string | null;
   rainPauseClearedAt?: Date | null;
 };
-// Value returned by Heartbeat.findOne({ "sensors.rain": true }) — the most recent
-// rain-sensor detection (or null when the sensor has no rain on record).
-let lastRainHeartbeat: { timestamp: Date } | null;
+// Value returned by Heartbeat.findOne({ "sensors.rain.triggered": true }) — the most recent
+// heartbeat where the rain sensor is (still) triggered. `timestamp` is that latest report;
+// `sensors.rain.since` is when the streak *began* (the onset the pause anchors to). Null
+// when the sensor has no rain on record.
+let lastRainHeartbeat: { timestamp: Date; sensors: { rain: { triggered: true; since: Date } } } | null;
 
 jest.mock("../irrigationSettingsService", () => ({
   __esModule: true,
@@ -28,12 +31,14 @@ jest.mock("../irrigationSettingsService", () => ({
 jest.mock("../../models/Heartbeat", () => ({
   __esModule: true,
   default: {
-    // Honors the `timestamp: { $gt: clearedAt }` watermark filter so cleared events drop out.
-    findOne: jest.fn((query?: { timestamp?: { $gt?: Date } }) => ({
+    // Honors the `"sensors.rain.since": { $gt: clearedAt }` watermark filter: a streak whose
+    // onset is at or before the clear drops out (the user's clear covers it), matching the
+    // real query which filters on onset, not the latest report timestamp.
+    findOne: jest.fn((query?: { ["sensors.rain.since"]?: { $gt?: Date } }) => ({
       sort: () => ({
         lean: async () => {
-          const gt = query?.timestamp?.$gt;
-          if (gt && lastRainHeartbeat && lastRainHeartbeat.timestamp.getTime() <= gt.getTime()) {
+          const gt = query?.["sensors.rain.since"]?.$gt;
+          if (gt && lastRainHeartbeat && lastRainHeartbeat.sensors.rain.since.getTime() <= gt.getTime()) {
             return null;
           }
           return lastRainHeartbeat;
@@ -52,6 +57,16 @@ import { getRainPauseState } from "../guardService";
 
 const HOUR = 3600_000;
 const agoHours = (h: number) => new Date(Date.now() - h * HOUR);
+// A rain-sensor heartbeat whose streak began `sinceHours` ago and last reported
+// `lastReportHours` ago (defaulting to the same moment — a single detection). The pause
+// anchors to the onset (`since`), so the two hours differ only in tests that prove it.
+const rainStreak = (sinceHours: number, lastReportHours = sinceHours) => {
+  const since = agoHours(sinceHours);
+  return {
+    timestamp: agoHours(lastReportHours),
+    sensors: { rain: { triggered: true as const, since } }
+  };
+};
 // A latest-heartbeat with the given connected sensors — controls which branches run.
 // sensors.rain is deliberately false to prove the pause survives after rain clears.
 const latestWith = (connectedSensors: string[]) =>
@@ -80,18 +95,31 @@ describe("getRainPauseState", () => {
   });
 
   it("arms a full (heavy) pause from a sensor rain event and holds it after the sensor clears", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(10) }; // detected 10h ago; currently rain:false
+    lastRainHeartbeat = rainStreak(10); // began 10h ago; currently rain:false
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(true);
     expect(state.source).toBe("rain sensor");
-    expect(state.triggeredAt).toBe(lastRainHeartbeat.timestamp.toISOString());
+    expect(state.triggeredAt).toBe(lastRainHeartbeat.sensors.rain.since.toISOString());
     // Heavy/full 48h window from the sensor time → ~38h remaining even though rain stopped.
     expect(state.remainingHours).toBeGreaterThan(37.5);
     expect(state.remainingHours).toBeLessThan(38.5);
   });
 
+  it("anchors the window to the rain onset, not the latest still-raining report", async () => {
+    // The sensor has been reporting rain continuously: it started 47h ago and the most
+    // recent heartbeat (1h ago) still reads rain. The pause must anchor to the 47h-ago
+    // onset (≈1h of the 48h window left), NOT the 1h-ago report (which would wrongly
+    // reset the window to ≈47h and hold the pause far too long).
+    lastRainHeartbeat = rainStreak(47, 1);
+    const state = await getRainPauseState(latestWith(["RAIN"]));
+    expect(state.active).toBe(true);
+    expect(state.triggeredAt).toBe(lastRainHeartbeat.sensors.rain.since.toISOString());
+    expect(state.remainingHours).toBeGreaterThan(0.5);
+    expect(state.remainingHours).toBeLessThan(1.5);
+  });
+
   it("expires a sensor pause once the full window has elapsed", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(49) }; // older than the 48h window
+    lastRainHeartbeat = rainStreak(49); // began older than the 48h window
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(false);
   });
@@ -108,15 +136,15 @@ describe("getRainPauseState", () => {
   });
 
   it("lets the sensor label the pause while keeping the user's longer window", async () => {
-    // Sensor detected 47h ago (would expire in ~1h), user confirmed heavy 1h ago (~47h left).
-    lastRainHeartbeat = { timestamp: agoHours(47) };
+    // Sensor rain began 47h ago (would expire in ~1h), user confirmed heavy 1h ago (~47h left).
+    lastRainHeartbeat = rainStreak(47);
     settings.lastConfirmedRainAt = agoHours(1);
     settings.lastConfirmedRainIntensity = "heavy";
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(true);
     // Sensor is authoritative for labelling + anchor...
     expect(state.source).toBe("rain sensor");
-    expect(state.triggeredAt).toBe(lastRainHeartbeat.timestamp.toISOString());
+    expect(state.triggeredAt).toBe(lastRainHeartbeat.sensors.rain.since.toISOString());
     // ...but the pause never ends earlier than either input would (user's ~47h wins).
     expect(state.remainingHours).toBeGreaterThan(46.5);
     expect(state.remainingHours).toBeLessThan(47.5);
@@ -129,7 +157,7 @@ describe("getRainPauseState", () => {
   });
 
   it("ignores a sensor rain event at or before the cleared-at watermark", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(2) }; // detected 2h ago
+    lastRainHeartbeat = rainStreak(2); // began 2h ago
     settings.rainPauseClearedAt = agoHours(1); // user removed the pause 1h ago
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(false);
@@ -144,7 +172,7 @@ describe("getRainPauseState", () => {
   });
 
   it("re-arms when a new sensor rain event lands after the watermark", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(1) }; // fresh detection, after the clear
+    lastRainHeartbeat = rainStreak(1); // fresh onset, after the clear
     settings.rainPauseClearedAt = agoHours(2);
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(true);
@@ -153,13 +181,13 @@ describe("getRainPauseState", () => {
 
   it("is inactive when rainPauseHours is 0 (feature disabled)", async () => {
     settings.rainPauseHours = 0;
-    lastRainHeartbeat = { timestamp: agoHours(1) };
+    lastRainHeartbeat = rainStreak(1);
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(false);
   });
 
   it("reports windowHours matching the anchor→expiry span when active", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(10) };
+    lastRainHeartbeat = rainStreak(10);
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(true);
     // Full sensor window is 48h from the anchor.
@@ -169,17 +197,17 @@ describe("getRainPauseState", () => {
 
   it("surfaces lastRainEventAt as context even after the window has expired", async () => {
     // Rain on record but outside the 48h window → pause inactive, event still reported.
-    lastRainHeartbeat = { timestamp: agoHours(49) };
+    lastRainHeartbeat = rainStreak(49);
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(false);
-    expect(state.lastRainEventAt).toBe(lastRainHeartbeat.timestamp.toISOString());
+    expect(state.lastRainEventAt).toBe(lastRainHeartbeat.sensors.rain.since.toISOString());
   });
 
   it("surfaces lastRainEventAt while active alongside the pause window", async () => {
-    lastRainHeartbeat = { timestamp: agoHours(3) };
+    lastRainHeartbeat = rainStreak(3);
     const state = await getRainPauseState(latestWith(["RAIN"]));
     expect(state.active).toBe(true);
-    expect(state.lastRainEventAt).toBe(lastRainHeartbeat.timestamp.toISOString());
+    expect(state.lastRainEventAt).toBe(lastRainHeartbeat.sensors.rain.since.toISOString());
   });
 
   it("omits lastRainEventAt when there is no rain on record", async () => {
@@ -189,8 +217,8 @@ describe("getRainPauseState", () => {
   });
 
   it("drops lastRainEventAt back to the user report when a sensor event is cleared by the watermark", async () => {
-    // Sensor rain 2h ago is cleared; a user-confirmed rain 30m ago survives as the last event.
-    lastRainHeartbeat = { timestamp: agoHours(2) };
+    // Sensor rain began 2h ago is cleared; a user-confirmed rain 30m ago survives as the last event.
+    lastRainHeartbeat = rainStreak(2);
     settings.rainPauseClearedAt = agoHours(1);
     settings.lastConfirmedRainAt = new Date(Date.now() - 30 * 60_000);
     settings.lastConfirmedRainIntensity = "moderate";
