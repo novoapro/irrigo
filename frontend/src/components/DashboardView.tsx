@@ -134,8 +134,7 @@ const DashboardView = ({
     )
     .map((sample) => ({ timestamp: sample.timestamp, psi: sample.psi }));
 
-  const guardActive =
-    status?.guard.triggered ?? latestHeartbeatSnapshot?.guard.triggered ?? false;
+  const guardActive = status?.guard ?? latestHeartbeatSnapshot?.guard ?? false;
 
   const currentWeather: WeatherConditionsSnapshot | null = forecast
     ? {
@@ -167,7 +166,7 @@ const DashboardView = ({
   const latestBaselinePsi =
     status?.device?.baselinePsi ?? latestHeartbeatSnapshot?.device.baselinePsi;
   const latestWaterPsi =
-    status?.sensors?.waterPsi.value ?? latestHeartbeatSnapshot?.sensors.waterPsi.value;
+    status?.sensors?.waterPsi ?? latestHeartbeatSnapshot?.sensors.waterPsi;
 
   // Each boolean sensor's label + tone + active flag comes from one shared
   // decision tree (see readSensor) instead of the four near-identical nested

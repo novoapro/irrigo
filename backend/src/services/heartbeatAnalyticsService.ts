@@ -102,7 +102,7 @@ export const buildHeartbeatOverview = (
       chronological,
       startTime,
       endTime,
-      (sample) => sample.guard.triggered
+      (sample) => sample.guard
     );
     guardPositive = guardDurations.positive;
     guardNegative = guardDurations.negative;
@@ -111,7 +111,7 @@ export const buildHeartbeatOverview = (
       chronological,
       startTime,
       endTime,
-      (sample) => sample.sensors.waterPsi.value > sample.device.baselinePsi
+      (sample) => sample.sensors.waterPsi > sample.device.baselinePsi
     );
     pressurePositive = pressureDurations.positive;
     pressureNegative = pressureDurations.negative;

@@ -37,10 +37,7 @@ export interface EffectiveGuardState {
 
 const INTENSITY_MULTIPLIERS: Record<string, number> = { light: 0.25, moderate: 0.5, heavy: 1.0 };
 
-type HeartbeatLike = {
-  guard?: { triggered: boolean } | null;
-  device?: { connectedSensors?: string[] | null } | null;
-} | null;
+type HeartbeatLike = { guard?: boolean; device?: { connectedSensors?: string[] | null } | null } | null;
 
 /**
  * Computes the current rain-pause window. A rain pause is the "software" form of the
@@ -138,7 +135,7 @@ export const getRainPauseState = async (latestHeartbeat?: HeartbeatLike): Promis
  */
 export const getEffectiveGuard = async (): Promise<EffectiveGuardState> => {
   const latest = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
-  const hardware = latest?.guard?.triggered ?? false;
+  const hardware = latest?.guard ?? false;
   const rainPause = await getRainPauseState(latest);
 
   const reason = hardware

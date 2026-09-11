@@ -5,7 +5,7 @@ import IrrigationEvent from "../models/IrrigationEvent";
 import StatusSnapshot from "../models/StatusSnapshot";
 
 export interface ResolvedStatusPayload {
-  guard: HeartbeatAttributes["guard"];
+  guard: boolean;
   ready: boolean;
   lastUpdatedAt: string | null;
   sensors: HeartbeatAttributes["sensors"];
@@ -15,10 +15,11 @@ export interface ResolvedStatusPayload {
     zone: string | null;
     action: "on" | "off" | null;
   };
+  // Only rain/soil carry a last-change timestamp (from their `since`); guard and waterPsi
+  // are no longer change-tracked. Nothing in the UI renders these per-field times — they
+  // feed the `lastUpdatedAt` roll-up — but the block is kept for that and for API history.
   changes: {
-    guard: string | null;
     sensors: {
-      waterPsi: string | null;
       rain: string | null;
       soil: string | null;
     };
@@ -90,8 +91,6 @@ const buildStatusPayload = async () => {
   const irrigationChangeIso = toIso(latestIrrigation?.createdAt);
 
   const changeCandidates = [
-    heartbeatChanges.guard,
-    heartbeatChanges.sensors.waterPsi,
     heartbeatChanges.sensors.rain,
     heartbeatChanges.sensors.soil,
     irrigationChangeIso,
@@ -108,7 +107,7 @@ const buildStatusPayload = async () => {
   return {
     payload: {
       guard: latestHeartbeat.guard,
-      ready: !latestHeartbeat.guard.triggered,
+      ready: !latestHeartbeat.guard,
       lastUpdatedAt: latestChangeIso,
       sensors: latestHeartbeat.sensors,
       device: latestHeartbeat.device,
@@ -207,9 +206,9 @@ export const listStatusSnapshots = async (req: Request, res: Response) => {
   }
 };
 
-// Each tracked reading now carries its own `since` (set at ingest — see
-// heartbeatController), so "when did this last change?" is a direct read off the latest
-// heartbeat rather than a scan back through hundreds of records.
+// rain/soil each carry their own `since` (set at ingest — see heartbeatController), so
+// "when did this last change?" is a direct read off the latest heartbeat rather than a
+// scan back through hundreds of records. guard/waterPsi aren't change-tracked.
 const calculateChangeMetadata = (latest: HeartbeatAttributes) => {
   const toIso = (value: Date | string | null | undefined) => {
     if (!value) return null;
@@ -218,9 +217,7 @@ const calculateChangeMetadata = (latest: HeartbeatAttributes) => {
   };
 
   return {
-    guard: toIso(latest.guard.since),
     sensors: {
-      waterPsi: toIso(latest.sensors.waterPsi.since),
       rain: toIso(latest.sensors.rain.since),
       soil: toIso(latest.sensors.soil.since)
     }

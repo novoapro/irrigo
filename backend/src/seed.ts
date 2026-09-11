@@ -170,16 +170,16 @@ function generateHeartbeats(): object[] {
     const isRaining = i >= 18 && i <= 22;
     const precipProb = isRaining ? 75 + Math.random() * 20 : Math.random() * 25;
 
-    // Each tracked reading carries `since` = when it last changed. For seed data we anchor
-    // the rain streak (hours 18–22 ago) to its onset so the rain-pause window has a
-    // realistic start; the other readings simply mark this heartbeat's own time.
+    // rain/soil carry `since` = when they last changed. For seed data we anchor the rain
+    // streak (hours 18–22 ago) to its onset so the rain-pause window has a realistic start;
+    // soil simply marks this heartbeat's own time.
     const rainSince = isRaining ? ago(hours(22)) : ts;
 
     entries.push({
       timestamp: ts,
-      guard: { triggered: true, since: ts },
+      guard: true,
       sensors: {
-        waterPsi: { value: 48 + Math.random() * 8, since: ts },
+        waterPsi: 48 + Math.random() * 8,
         rain: { triggered: isRaining, since: rainSince },
         soil: { triggered: humidity > 60, since: ts },
       },

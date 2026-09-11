@@ -18,23 +18,18 @@
  */
 
 /**
- * A tracked reading paired with `since`: the ISO timestamp at which it last *changed* to
+ * An on/off reading paired with `since`: the ISO timestamp at which it last *changed* to
  * its current value (the backend sets this at ingest, carrying it forward while the value
- * holds steady). `TrackedBool` covers on/off signals; `TrackedNumber` covers waterPsi.
+ * holds steady). Used only for rain/soil, whose onset has real meaning.
  */
 export interface TrackedBool {
   triggered: boolean;
   since: string;
 }
 
-export interface TrackedNumber {
-  value: number;
-  since: string;
-}
-
 /** Raw sensor readings carried on every heartbeat. */
 export interface HeartbeatSensors {
-  waterPsi: TrackedNumber;
+  waterPsi: number;
   rain: TrackedBool;
   soil: TrackedBool;
 }
@@ -69,7 +64,7 @@ export interface WeatherConditionsSnapshot {
  */
 export interface Heartbeat {
   _id?: string;
-  guard: TrackedBool;
+  guard: boolean;
   sensors: HeartbeatSensors;
   device: HeartbeatDevice;
   timestamp: string;
@@ -200,7 +195,7 @@ export interface ExternalControllerConfig {
  * events.
  */
 export interface StatusPayload {
-  guard: TrackedBool;
+  guard: boolean;
   ready: boolean;
   lastUpdatedAt?: string | null;
   sensors: HeartbeatSensors;
@@ -212,9 +207,7 @@ export interface StatusPayload {
     action: "on" | "off" | null;
   };
   changes?: {
-    guard: string | null;
     sensors: {
-      waterPsi: string | null;
       rain: string | null;
       soil: string | null;
     };

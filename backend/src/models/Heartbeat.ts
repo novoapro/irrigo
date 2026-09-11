@@ -2,27 +2,24 @@ import { Schema, model } from "mongoose";
 import { HEARTBEAT_RETENTION_SECONDS } from "../config/persistence";
 
 /**
- * A tracked reading paired with `since`: the timestamp at which the reading last
- * *changed* to its current value. On ingest we carry `since` forward while the value
- * is unchanged and reset it to "now" when it flips, so the latest heartbeat alone
- * answers "when did this last change?" — no scan across history required. `TrackedBool`
- * covers the on/off signals (guard, rain, soil); `TrackedNumber` covers waterPsi.
+ * An on/off reading paired with `since`: the timestamp at which it last *changed* to its
+ * current value. On ingest we carry `since` forward while the value is unchanged and reset
+ * it to "now" when it flips, so the latest heartbeat alone answers "when did this last
+ * change?" — no scan across history required. Used only for `rain` and `soil`, whose onset
+ * has real meaning (a rain pause anchors to when rain *began*). `guard` and `waterPsi` are
+ * plain readings: guard is a simple flag, and waterPsi is a jittery analog value whose
+ * "since" would reset almost every heartbeat, so neither earns the extra shape.
  */
 export interface TrackedBool {
   triggered: boolean;
   since: Date;
 }
 
-export interface TrackedNumber {
-  value: number;
-  since: Date;
-}
-
 export interface HeartbeatAttributes {
   timestamp: Date;
-  guard: TrackedBool;
+  guard: boolean;
   sensors: {
-    waterPsi: TrackedNumber;
+    waterPsi: number;
     rain: TrackedBool;
     soil: TrackedBool;
   };
@@ -71,13 +68,14 @@ const heartbeatSchema = new Schema<HeartbeatAttributes>({
     default: () => new Date()
   },
   guard: {
-    triggered: { type: Boolean, required: true },
-    since: { type: Date, required: true }
+    type: Boolean,
+    required: true
   },
   sensors: {
     waterPsi: {
-      value: { type: Number, required: true, min: 0 },
-      since: { type: Date, required: true }
+      type: Number,
+      required: true,
+      min: 0
     },
     rain: {
       triggered: { type: Boolean, required: true },

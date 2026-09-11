@@ -14,11 +14,11 @@ const makeSample = (
   soil = false
 ): HeartbeatAttributes => ({
   timestamp,
-  // Each reading is stored as a tracked {value/triggered, since} object; these fixtures
-  // don't exercise `since`, so anchor it to the sample's own timestamp.
-  guard: { triggered: guard, since: timestamp },
+  guard,
+  // rain/soil are stored as tracked {triggered, since} objects; these fixtures don't
+  // exercise `since`, so anchor it to the sample's own timestamp.
   sensors: {
-    waterPsi: { value: waterPsi, since: timestamp },
+    waterPsi,
     rain: { triggered: rain, since: timestamp },
     soil: { triggered: soil, since: timestamp }
   },
