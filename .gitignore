@@ -15,3 +15,4 @@ backend/.env*
 frontend/.env*
 !frontend/.env.example
 !frontend/.env.*.example
+.specify/scripts/python/__pycache__/common.cpython-314.pyc
