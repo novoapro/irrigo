@@ -77,6 +77,14 @@
 
   /* ── Surface colors ── */
   --color-bg: #ffffff;
+  /* Page backdrop behind all surfaces. Light theme uses the signature cyan
+     gradient; dark theme overrides this to a solid deep-navy below. */
+  --color-bg-body: linear-gradient(135deg,
+      #ffffff 0%,
+      #ffffff 45%,
+      #ebfbfe 70%,
+      #cff4fa 88%,
+      #aeeef6 100%);
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
   --color-surface-sunken: var(--color-gray-50);
@@ -199,6 +207,8 @@ html[data-theme="dark"] {
   --color-info-text: #60a5fa;
 
   --color-bg: #0f172a;
+  /* Dark theme keeps a solid backdrop — no gradient. */
+  --color-bg-body: #0f172a;
   --color-surface: #1e293b;
   --color-surface-raised: #273548;
   --color-surface-sunken: #0f172a;
@@ -260,7 +270,9 @@ html[data-theme="dark"] {
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--color-bg);
+  background: var(--color-bg-body);
+  background-attachment: fixed;
+  background-size: cover;
   color: inherit;
 }
 
@@ -1222,6 +1234,13 @@ html[data-theme="dark"] .app-header-actions-row > button {
 }
 
 .history-filter-reset {
+  /* Float in the card's reserved top-right corner (the header keeps a
+     5rem right padding for it) instead of sitting in the filter flow —
+     otherwise it wraps below the full-width row on mobile and leaves a
+     large empty band under the fields. */
+  position: absolute;
+  top: 0;
+  right: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3692,6 +3711,18 @@ tbody tr:hover {
 
   .time-filter-field {
     min-width: 0;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  /* On small devices let the history filters span the full available width
+     instead of being capped, so the From/To row fills the card. */
+  .history-window-filters {
+    max-width: none;
+  }
+
+  .history-window-filters .records-filters__row {
+    width: 100%;
   }
 
   .date-input {
