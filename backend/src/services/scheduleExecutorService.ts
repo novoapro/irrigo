@@ -1,4 +1,5 @@
 import IrrigationProgram from "../models/IrrigationProgram";
+import type { IrrigationProgramAttributes, ProgramZoneEntry } from "../models/IrrigationProgram";
 import Heartbeat from "../models/Heartbeat";
 import WeatherForecastSnapshot from "../models/WeatherForecastSnapshot";
 import AIScheduleConfig from "../models/AIScheduleConfig";
@@ -6,13 +7,27 @@ import SystemConfig from "../models/SystemConfig";
 import Zone from "../models/Zone";
 import { startSequentialRun, isRunActive } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
+import type { SequentialRunSource } from "../models/SequentialRun";
 import { emitRealtimeEvent } from "./realtimeService";
-import { isWithinPreferredWindow } from "./irrigationSettingsService";
 import { getEffectiveGuard } from "./guardService";
+import { getDeferralDeadline, getWaterSavingFactor } from "./irrigationSettingsService";
+import { getMinutesRunToday, getLastRunByZone } from "./irrigationHistoryService";
+
+// The single, source-agnostic program executor. Every planned IrrigationProgram — AI or
+// manual — is run through the one `runProgram` pre-flight pipeline here. The AI planner
+// (aiSchedulingService) and the manual materializer (programSchedulerService) only decide
+// *when* a program becomes `planned` with a `plannedStartAt`; from that point on there is
+// no source-specific execution path.
 
 const LOOKAHEAD_MS = 60_000;
 const CHECK_INTERVAL_MS = 30_000;
 let checkTimer: NodeJS.Timeout | null = null;
+
+// Hydrated program doc — anything with the fields the pipeline reads/writes and .save().
+type ProgramDoc = IrrigationProgramAttributes & {
+  save: () => Promise<unknown>;
+  toObject: () => Record<string, unknown>;
+};
 
 export const buildZoneInputs = async (
   zoneEntries: { zoneId: string; durationMinutes: number }[]
@@ -53,82 +68,136 @@ export const buildZoneInputs = async (
   return inputs;
 };
 
-export const executeAIProgram = async (programId: string) => {
-  const program = await IrrigationProgram.findOne({ programId });
+const runSourceFor = (program: { source?: string }): SequentialRunSource =>
+  program.source === "ai-schedule" ? "ai-schedule" : "program";
+
+const skipProgram = async (program: ProgramDoc, reason: string) => {
+  program.status = "skipped";
+  program.statusReason = reason;
+  program.deferredAt = undefined;
+  program.deferralDeadline = undefined;
+  program.updatedAt = new Date();
+  await program.save();
+  console.warn(`[ScheduleExecutor] Skipped program "${program.name}" (${program.programId}) — ${reason}`);
+  emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, name: program.name, reason } });
+};
+
+const deferProgram = async (program: ProgramDoc, reason: string, deadline: Date) => {
+  program.status = "deferred";
+  program.statusReason = reason;
+  program.deferredAt = new Date();
+  program.deferralDeadline = deadline;
+  program.updatedAt = new Date();
+  await program.save();
+  emitRealtimeEvent({
+    type: "deferral:triggered",
+    payload: {
+      type: program.source === "ai-schedule" ? "ai-program" : "deferred-program",
+      programId: program.programId,
+      reason,
+      deadline: deadline.toISOString()
+    }
+  });
+};
+
+// The one pre-flight pipeline every planned program passes through, in order:
+// guard/rain-pause → hardware-guard deferral → deferral-deadline expiry → rain & weather
+// gate → daily/rest caps → execute (water-saving + zone clamp). Identical for AI and manual.
+export const runProgram = async (program: ProgramDoc) => {
   if (!program || program.status !== "planned") return;
 
-  const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+  const now = new Date();
+  const plannedStart = program.plannedStartAt ?? now;
+  const deadline = await getDeferralDeadline(plannedStart);
+
   const guard = await getEffectiveGuard();
 
-  // Rain pause is a known, multi-hour condition — cancel the scheduled program rather
-  // than deferring it. (Programs whose start falls inside the window are also cancelled
-  // proactively when the pause is triggered; this catches anything that slips through.)
+  // Rain pause is a known, multi-hour condition — skip this occurrence outright rather than
+  // holding it. (For a non-recurring AI program this is terminal; a recurring manual program
+  // simply re-arms on its next cron.)
   if (guard.rainPause.active) {
-    const reason = guard.reason ?? "Rain pause active — irrigation paused";
-    program.status = "cancelled";
-    program.statusReason = reason;
-    program.deferredAt = undefined;
-    program.deferralDeadline = undefined;
-    program.updatedAt = new Date();
-    await program.save();
-    emitRealtimeEvent({ type: "program:updated", payload: program.toObject() });
-    return;
+    return skipProgram(program, guard.reason ?? "Rain pause active — irrigation paused");
   }
 
+  // Hardware guard is transient — defer until the deferral deadline so the run can still
+  // happen if conditions recover in time. Past the deadline there is no point holding it.
   if (guard.hardware) {
-    const reason = "Guard active — conditions not suitable for irrigation";
-    const deadline = new Date(Date.now() + 24 * 60 * 60_000);
-    program.status = "deferred";
-    program.statusReason = reason;
-    program.deferredAt = new Date();
-    program.deferralDeadline = deadline;
-    program.updatedAt = new Date();
-    await program.save();
-    emitRealtimeEvent({
-      type: "deferral:triggered",
-      payload: {
-        type: "ai-program",
-        programId: program.programId,
-        reason,
-        deadline: deadline.toISOString()
-      }
-    });
-    return;
+    if (now >= deadline) {
+      return skipProgram(program, "Deferral window elapsed — guard did not clear in time");
+    }
+    return deferProgram(program, "Guard active — conditions not suitable for irrigation", deadline);
   }
 
-  const config = await AIScheduleConfig.findOne().lean();
-  if (!config?.enabled) {
-    const reason = "AI scheduling disabled";
-    program.status = "skipped";
-    program.statusReason = reason;
-    program.updatedAt = new Date();
-    await program.save();
-    emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
-    return;
+  // The deferral deadline (plannedStartAt + maxDeferralHours) has passed with the program
+  // still not run — skip it. This replaces the old "preferred window closed" expiry: the
+  // window is now purely an AI-creation concern and no longer gates execution.
+  if (now > deadline) {
+    return skipProgram(program, "Deferral window elapsed — program not run in time");
   }
 
-  if (config.preferences.conservativeWatering) {
-    if (latestHeartbeat?.sensors?.rain) {
-      const reason = "Rain detected — rain sensor active";
-      program.status = "skipped";
-      program.statusReason = reason;
-      program.updatedAt = new Date();
-      await program.save();
-      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
-      return;
+  // Rain & weather gate — now applied to every program, not just AI ones. Config still
+  // physically lives in AIScheduleConfig.preferences (see plan: storage unchanged).
+  const aiConfig = await AIScheduleConfig.findOne().lean();
+  const prefs = aiConfig?.preferences;
+  if (prefs?.conservativeWatering) {
+    const latestHeartbeat = await Heartbeat.findOne().sort({ timestamp: -1 }).lean();
+    if (latestHeartbeat?.sensors?.rain?.triggered) {
+      return skipProgram(program, "Rain detected — rain sensor active");
     }
 
     const forecast = await WeatherForecastSnapshot.findOne().sort({ fetchedAt: -1 }).lean();
     const precipProb = forecast?.precipitationProbability ?? 0;
-    if (precipProb >= config.preferences.rainThresholdPercent) {
-      const reason = `Precipitation probability ${precipProb}% exceeds threshold (${config.preferences.rainThresholdPercent}%)`;
-      program.status = "skipped";
-      program.statusReason = reason;
-      program.updatedAt = new Date();
-      await program.save();
-      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
-      return;
+    if (precipProb >= prefs.rainThresholdPercent) {
+      return skipProgram(
+        program,
+        `Precipitation probability ${precipProb}% exceeds threshold (${prefs.rainThresholdPercent}%)`
+      );
     }
+  }
+
+  // ── Effective durations: water saving is applied HERE for all sources. (The AI prompt no
+  // longer pre-reduces durations, so there is no double counting — see aiSchedulingService.) ──
+  const factor = await getWaterSavingFactor();
+  let entries: ProgramZoneEntry[] = factor < 1
+    ? program.zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
+    : program.zoneEntries.map((e) => ({ ...e }));
+
+  // ── Min rest between runs: drop any zone that ran within the configured interval. ──
+  const minDaysBetweenRuns = prefs?.minDaysBetweenRuns ?? 0;
+  if (minDaysBetweenRuns > 0 && entries.length > 0) {
+    const lastRunByZone = await getLastRunByZone(entries.map((e) => e.zoneId));
+    const restMs = minDaysBetweenRuns * 24 * 3600_000;
+    const kept: ProgramZoneEntry[] = [];
+    for (const e of entries) {
+      const last = lastRunByZone.get(e.zoneId);
+      if (last && now.getTime() - last.getTime() < restMs) {
+        console.log(`[ScheduleExecutor] Zone ${e.zoneId} ran within ${minDaysBetweenRuns}d — dropping (min rest not elapsed)`);
+        continue;
+      }
+      kept.push(e);
+    }
+    if (kept.length === 0) {
+      return skipProgram(program, `Min rest not elapsed — all zones ran within ${minDaysBetweenRuns} day(s)`);
+    }
+    entries = kept;
+  }
+
+  // ── Max total per day: skip if running this program would exceed the daily minute cap. ──
+  const maxDailyRunMinutes = prefs?.maxDailyRunMinutes;
+  if (typeof maxDailyRunMinutes === "number" && maxDailyRunMinutes > 0) {
+    const minutesToday = await getMinutesRunToday(now);
+    const programMinutes = entries.reduce((sum, e) => sum + e.durationMinutes, 0);
+    if (minutesToday + programMinutes > maxDailyRunMinutes) {
+      return skipProgram(
+        program,
+        `Daily limit reached — ${minutesToday}m already run today + ${programMinutes}m would exceed ${maxDailyRunMinutes}m`
+      );
+    }
+  }
+
+  const inputs = await buildZoneInputs(entries);
+  if (inputs.length === 0) {
+    return skipProgram(program, "No runnable zones after validation");
   }
 
   program.status = "executing";
@@ -137,71 +206,44 @@ export const executeAIProgram = async (programId: string) => {
   emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
 
   try {
-    // Do NOT re-apply the water-saving factor here. The AI planner already accounts
-    // for waterSavingMode when it chooses each zone's durationMinutes (see the
-    // "Water saving" rule in aiSchedulingService.buildPrompt), so multiplying again
-    // double-counts the reduction and makes runs far shorter than what was scheduled.
-    const inputs = await buildZoneInputs(program.zoneEntries);
-    await startSequentialRun(inputs, "ai-schedule", program.programId);
+    await startSequentialRun(inputs, runSourceFor(program), program.programId);
   } catch (err: any) {
     const reason = `Execution failed — ${err?.message ?? "unknown error"}`;
     program.status = "skipped";
     program.statusReason = reason;
     program.updatedAt = new Date();
     await program.save();
-    console.error(`[ScheduleExecutor] Failed to start AI program ${program.programId}:`, err);
+    console.error(`[ScheduleExecutor] Failed to start program ${program.programId}:`, err);
   }
 };
 
-const checkPendingAIPrograms = async () => {
+const checkDuePrograms = async () => {
   const sysConfig = await SystemConfig.findOne().lean();
-  if (!sysConfig || sysConfig.irrigationMode !== "smart") return;
+  // No automatic execution in manual mode. Both smart and scheduled run the same executor.
+  if (!sysConfig || sysConfig.irrigationMode === "manual") return;
 
   if (isRunActive()) return;
 
   const now = new Date();
-
-  const inWindow = await isWithinPreferredWindow(now);
-
-  if (!inWindow) {
-    const expiredPrograms = await IrrigationProgram.find({
-      source: "ai-schedule",
-      status: "planned",
-      enabled: true,
-      plannedStartAt: { $lte: now }
-    });
-
-    for (const program of expiredPrograms) {
-      const reason = "Irrigation window closed — conditions were never met during the eligible window";
-      program.status = "skipped";
-      program.statusReason = reason;
-      program.updatedAt = new Date();
-      await program.save();
-      console.warn(`[ScheduleExecutor] Skipped expired program "${program.name}" (${program.programId})`);
-      emitRealtimeEvent({ type: "program:skipped", payload: { programId: program.programId, reason } });
-    }
-    return;
-  }
-
   const cutoff = new Date(now.getTime() + LOOKAHEAD_MS);
 
+  // Every source is eligible — the old `source: "ai-schedule"` filter is gone.
   const duePrograms = await IrrigationProgram.find({
-    source: "ai-schedule",
     status: "planned",
     enabled: true,
-    plannedStartAt: { $lte: cutoff }
+    plannedStartAt: { $ne: null, $lte: cutoff }
   }).sort({ plannedStartAt: 1 });
 
   for (const program of duePrograms) {
     if (isRunActive()) break;
-    await executeAIProgram(program.programId);
+    await runProgram(program as unknown as ProgramDoc);
   }
 };
 
 export const startScheduleExecutor = () => {
   if (checkTimer) return;
   checkTimer = setInterval(() => {
-    void checkPendingAIPrograms();
+    void checkDuePrograms();
   }, CHECK_INTERVAL_MS);
   console.log("[ScheduleExecutor] Started, checking every 30s");
 };

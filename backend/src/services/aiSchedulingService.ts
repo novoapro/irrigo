@@ -14,7 +14,7 @@ import { callAI } from "./aiProviderService";
 import { emitRealtimeEvent } from "./realtimeService";
 import { getIrrigationSettings, getTimezone } from "./irrigationSettingsService";
 import { getRainPauseState, type RainPauseState } from "./guardService";
-import type { PreferredTimeWindow, WaterSavingMode } from "../models/configs/IrrigationSettings";
+import type { PreferredTimeWindow } from "../models/configs/IrrigationSettings";
 
 interface PendingProgram {
   programId: string;
@@ -183,7 +183,6 @@ const buildPrompt = (
   data: GatheredData,
   now: Date,
   preferredTimeWindows: PreferredTimeWindow[],
-  waterSavingMode: WaterSavingMode,
   rainPauseHours: number,
   timezone: string
 ): { system: string; user: string } => {
@@ -240,7 +239,9 @@ JSON schema:
   }
   rules.push(`${rules.length + 1}. Rain forecast: if precipitation probability >= ${prefs.rainThresholdPercent}% is forecast within the planning window, skip irrigation for affected periods.`);
   rules.push(`${rules.length + 1}. Irrigation windows: only schedule within ${timeWindowsDesc} (${timezone}).`);
-  rules.push(`${rules.length + 1}. Water saving: ${waterSavingMode}${waterSavingMode === "moderate" ? " — reduce durations ~25-40%" : waterSavingMode === "aggressive" ? " — reduce durations ~40-60%, skip zones not critically dry" : ""}.`);
+  // NOTE: water saving is deliberately NOT a prompt rule. It is applied at execution time to
+  // every program (see scheduleExecutorService.runProgram), so pre-reducing durations here
+  // would double-count the reduction. Plan durations as if water saving were "normal".
   rules.push(`${rules.length + 1}. Max daily irrigation: ${prefs.maxDailyRunMinutes} min. Min days between runs per zone: ${prefs.minDaysBetweenRuns}.`);
   rules.push(`${rules.length + 1}. Zones run sequentially within a program — account for total duration.`);
   rules.push(`${rules.length + 1}. A zone irrigated recently (manually or scheduled) may not need another run — check history before scheduling.`);
@@ -462,7 +463,7 @@ export const runScheduleEvaluation = async (
     }
 
     const irrigationSettings = await getIrrigationSettings();
-    const { system, user } = buildPrompt(config, data, now, irrigationSettings.preferredTimeWindows, irrigationSettings.waterSavingMode, irrigationSettings.rainPauseHours, timezone);
+    const { system, user } = buildPrompt(config, data, now, irrigationSettings.preferredTimeWindows, irrigationSettings.rainPauseHours, timezone);
 
     run.systemPrompt = system;
     run.userPrompt = user;

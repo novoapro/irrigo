@@ -620,13 +620,21 @@ export type WaterSavingMode = "normal" | "moderate" | "aggressive";
 
 export type RainIntensity = "light" | "moderate" | "heavy";
 
+export type RainPromptResponse = "confirmed" | "dismissed";
+
 export interface IrrigationSettings {
   _id?: string;
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  // How long a program may be deferred past its scheduled start before being skipped.
+  maxDeferralHours: number;
   rainPauseHours: number;
   lastConfirmedRainAt?: string | null;
   lastConfirmedRainIntensity?: RainIntensity | null;
+  // Server-managed rain-pause state (read-only from the client).
+  rainPauseClearedAt?: string | null;
+  lastRainPromptRespondedAt?: string | null;
+  lastRainPromptResponse?: RainPromptResponse | null;
   timezone: string;
   updatedAt?: string;
 }

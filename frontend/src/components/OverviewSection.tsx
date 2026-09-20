@@ -120,7 +120,9 @@ const OverviewSection = ({
                             <YAxis
                               domain={["auto", "auto"]}
                               padding={{ top: 20, bottom: 20 }}
-                              width={30}
+                              // Wide enough for 3-digit psi labels (e.g. "120"); at width 30
+                              // they were clipped by the axis' tick region.
+                              width={40}
                               tick={{ fill: ct.axisColor }}
                             />
                             <Tooltip

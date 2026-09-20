@@ -182,7 +182,11 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
     clearRunScopedGuardState(run._id.toString());
   } catch { /* best effort */ }
 
-  if (run.programId && run.source === "ai-schedule") {
+  // Write the outcome back onto the program for BOTH sources. AI programs are terminal
+  // after this; manual programs return to a terminal state (completed/skipped) which frees
+  // the materializer to arm their next cron occurrence. Matching only status "executing"
+  // keeps this from clobbering a program a "Run now" override started outside the executor.
+  if (run.programId) {
     const { default: IrrigationProgram } = await import("../models/IrrigationProgram");
     const newStatus = anyFailed ? "skipped" : "completed";
     const update: Record<string, unknown> = { status: newStatus, updatedAt: new Date() };
@@ -190,7 +194,7 @@ const finalizeRun = async (run: InstanceType<typeof SequentialRun>) => {
       update.statusReason = run.statusReason ?? "One or more zones failed during execution";
     }
     await IrrigationProgram.updateOne(
-      { programId: run.programId, source: "ai-schedule", status: "executing" },
+      { programId: run.programId, status: "executing" },
       { $set: update }
     );
   }
@@ -424,6 +428,7 @@ export const cleanupOrphanedRuns = async (): Promise<number> => {
   return cleaned;
 };
 
+// Fallback used only if the configured deferral setting can't be read.
 const DEFERRAL_SAFETY_CAP_MS = 24 * 60 * 60_000;
 
 export const deferCurrentZone = async (): Promise<boolean> => {
@@ -446,11 +451,17 @@ export const deferCurrentZone = async (): Promise<boolean> => {
     currentZone.accumulatedMs = (currentZone.accumulatedMs ?? 0) + Math.max(0, elapsed);
   }
 
+  let capMs = DEFERRAL_SAFETY_CAP_MS;
+  try {
+    const { getMaxDeferralHours } = await import("./irrigationSettingsService");
+    capMs = (await getMaxDeferralHours()) * 3600_000;
+  } catch { /* fall back to the safety cap */ }
+
   currentZone.status = "deferred";
   run.status = "deferred";
   run.statusReason = "Guard activated — conditions not suitable for irrigation";
   run.deferredAt = new Date();
-  run.deferralDeadline = new Date(Date.now() + DEFERRAL_SAFETY_CAP_MS);
+  run.deferralDeadline = new Date(Date.now() + capMs);
   await run.save();
 
   clearSafetyTimeout();

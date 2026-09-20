@@ -8,15 +8,7 @@ import {
   deferCurrentZone,
   resumeDeferredRun
 } from "./sequentialRunService";
-import { isWithinPreferredWindow } from "./irrigationSettingsService";
 import { getRainPauseState } from "./guardService";
-
-interface DeferredProgramEntry {
-  programId: string;
-  deferredAt: Date;
-  deadline: Date;
-  zoneEntries: { zoneId: string; durationMinutes: number }[];
-}
 
 const GUARD_GRACE_PERIOD_MS = 60_000;
 // How long after a zone-attributed guard activation to wait before confirming whether
@@ -34,7 +26,6 @@ let lastGuardState: boolean | null = null;
 // Hardware guard tracked separately from the combined (hardware OR rain-pause) state:
 // only hardware activations can be attributed to a running zone's own pressure dip.
 let lastHardwareGuard: boolean | null = null;
-const deferredPrograms = new Map<string, DeferredProgramEntry>();
 let pendingGraceDeferral: { runId: string; zoneStartedAt: number } | null = null;
 // A hardware guard activation attributed to the current zone that is awaiting its
 // one confirmation heartbeat (~1 minute after the activation, forced from the device).
@@ -83,12 +74,6 @@ const requestForcedHeartbeat = async () => {
   } catch (err) {
     console.error("[GuardDeferral] Failed to request forced heartbeat:", err);
   }
-};
-
-export const getDeferredPrograms = () => deferredPrograms;
-
-export const addDeferredProgram = (entry: DeferredProgramEntry) => {
-  deferredPrograms.set(entry.programId, entry);
 };
 
 const deferActiveRun = async () => {
@@ -225,48 +210,18 @@ const resumeDeferredTasks = async () => {
 
   const { isRunActive } = await import("./sequentialRunService");
 
-  for (const [programId, deferred] of deferredPrograms) {
-    if (isRunActive()) break;
-
-    if (deferred.deadline > now) {
-      const { startSequentialRun } = await import("./sequentialRunService");
-      const { default: Zone } = await import("../models/Zone");
-      const { getWaterSavingFactor } = await import("./irrigationSettingsService");
-
-      const factor = await getWaterSavingFactor();
-      const zoneIds = deferred.zoneEntries.map((e) => e.zoneId);
-      const zones = await Zone.find({ zoneId: { $in: zoneIds } }).lean();
-      const nameMap = new Map(zones.map((z) => [z.zoneId, z.name]));
-
-      const inputs = deferred.zoneEntries.map((e) => ({
-        zoneId: e.zoneId,
-        name: nameMap.get(e.zoneId) ?? e.zoneId,
-        durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor))
-      }));
-
-      try {
-        await startSequentialRun(inputs, "program", programId);
-        deferredPrograms.delete(programId);
-        emitRealtimeEvent({
-          type: "deferral:recovered",
-          payload: { type: "deferred-program", programId }
-        });
-      } catch (err) {
-        console.error(`[GuardDeferral] Failed to start deferred program ${programId}:`, err);
-      }
-    } else {
-      deferredPrograms.delete(programId);
-    }
-  }
-
+  // Deferred programs (any source) are flipped back to "planned" once the guard clears and
+  // they are still inside their deferral window. The single executor then re-runs them
+  // through the normal pre-flight pipeline. Resumption is gated ONLY by the deferral
+  // deadline (plannedStartAt + maxDeferralHours) — never by the preferred window, which is
+  // an AI-creation concern and must not block a program the user scheduled to run.
   if (!isRunActive()) {
-    const deferredAIPrograms = await IrrigationProgram.find({
-      source: "ai-schedule",
+    const deferredProgramsToResume = await IrrigationProgram.find({
       status: "deferred",
       deferralDeadline: { $gt: now }
     }).sort({ plannedStartAt: 1 }).limit(1);
 
-    for (const program of deferredAIPrograms) {
+    for (const program of deferredProgramsToResume) {
       program.status = "planned";
       program.deferredAt = undefined;
       program.deferralDeadline = undefined;
@@ -274,22 +229,20 @@ const resumeDeferredTasks = async () => {
       await program.save();
       emitRealtimeEvent({
         type: "deferral:recovered",
-        payload: { type: "ai-program", programId: program.programId }
+        payload: {
+          type: program.source === "ai-schedule" ? "ai-program" : "deferred-program",
+          programId: program.programId
+        }
       });
     }
   }
 };
 
 const onGuardDeactivated = async () => {
-  const inWindow = await isWithinPreferredWindow(new Date());
-  if (inWindow) {
-    await resumeDeferredTasks();
-  }
+  await resumeDeferredTasks();
 };
 
 const hasDeferredTasks = async (): Promise<boolean> => {
-  if (deferredPrograms.size > 0) return true;
-
   const active = getActiveRun();
   if (active) {
     const run = await SequentialRun.findById(active.runId).lean();
@@ -302,12 +255,11 @@ const hasDeferredTasks = async (): Promise<boolean> => {
   const deferredEntry = await ScheduleEntry.findOne({ status: "deferred", deferralDeadline: { $gt: new Date() } });
   if (deferredEntry) return true;
 
-  const deferredAIProgram = await IrrigationProgram.findOne({
-    source: "ai-schedule",
+  const deferredProgram = await IrrigationProgram.findOne({
     status: "deferred",
     deferralDeadline: { $gt: new Date() }
   });
-  if (deferredAIProgram) return true;
+  if (deferredProgram) return true;
 
   return false;
 };
@@ -372,27 +324,14 @@ const checkDeadlines = async () => {
     });
   }
 
-  for (const [programId, deferred] of deferredPrograms) {
-    if (deferred.deadline <= now) {
-      deferredPrograms.delete(programId);
-      emitRealtimeEvent({
-        type: "deferral:expired",
-        payload: {
-          type: "deferred-program",
-          programId,
-          reason: "Deferral deadline expired — guard did not clear in time"
-        }
-      });
-    }
-  }
-
-  const expiredAIPrograms = await IrrigationProgram.find({
-    source: "ai-schedule",
+  // Any deferred program (AI or manual) whose deferral deadline has passed is skipped.
+  // The deadline was set to plannedStartAt + maxDeferralHours when the program was deferred.
+  const expiredPrograms = await IrrigationProgram.find({
     status: "deferred",
     deferralDeadline: { $lte: now }
   });
 
-  for (const program of expiredAIPrograms) {
+  for (const program of expiredPrograms) {
     const reason = "Deferral deadline expired — guard did not clear in time";
     program.status = "skipped";
     program.statusReason = reason;
@@ -401,7 +340,7 @@ const checkDeadlines = async () => {
     emitRealtimeEvent({
       type: "deferral:expired",
       payload: {
-        type: "ai-program",
+        type: program.source === "ai-schedule" ? "ai-program" : "deferred-program",
         programId: program.programId,
         reason
       }
@@ -516,12 +455,10 @@ export const handleHeartbeatForDeferral = async (heartbeat: {
       await checkDeadlines();
     }
 
-    // When guard is off but deferred tasks exist, check if we've entered a preferred window
+    // Guard is off and deferred tasks exist → resume them. No preferred-window gate: the
+    // deferral deadline is the only thing that limits how long a program may wait.
     if (currentGuard === false && !deferredThisHeartbeat && await hasDeferredTasks()) {
-      const inWindow = await isWithinPreferredWindow(new Date());
-      if (inWindow) {
-        await resumeDeferredTasks();
-      }
+      await resumeDeferredTasks();
     }
   } catch (err) {
     console.error("[GuardDeferral] Error handling heartbeat:", err);
@@ -532,7 +469,6 @@ export const startGuardDeferralMonitor = async () => {
   monitorActive = true;
   lastGuardState = null;
   lastHardwareGuard = null;
-  deferredPrograms.clear();
   pendingGraceDeferral = null;
   cancelPendingConfirmation();
   suppressedZoneActivation = null;
@@ -588,7 +524,6 @@ export const stopGuardDeferralMonitor = () => {
   monitorActive = false;
   lastGuardState = null;
   lastHardwareGuard = null;
-  deferredPrograms.clear();
   pendingGraceDeferral = null;
   cancelPendingConfirmation();
   suppressedZoneActivation = null;

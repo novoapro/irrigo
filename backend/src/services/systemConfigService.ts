@@ -33,8 +33,10 @@ export const updateSystemConfig = async (mode: IrrigationMode) => {
 export const applyModeServices = (mode: IrrigationMode) => {
   switch (mode) {
     case "smart":
-      stopProgramScheduler();
+      // The single executor + the manual materializer run in both automated modes; only
+      // the AI planner cron is smart-specific.
       startScheduleExecutor();
+      startProgramScheduler();
       startAIScheduleCron();
       startGuardDeferralMonitor();
       runScheduleEvaluation("cron").catch((err) =>
@@ -42,8 +44,8 @@ export const applyModeServices = (mode: IrrigationMode) => {
       );
       break;
     case "scheduled":
-      stopScheduleExecutor();
       stopAIScheduleCron();
+      startScheduleExecutor();
       startProgramScheduler();
       startGuardDeferralMonitor();
       break;

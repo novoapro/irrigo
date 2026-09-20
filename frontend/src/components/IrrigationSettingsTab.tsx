@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import type { CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AIScheduleConfig, AISchedulePreferences, IrrigationSettings, PreferredTimeWindow, ScheduleEntry, ScheduleRun, WaterSavingMode, Zone } from "../types";
 import {
@@ -93,6 +94,16 @@ const MIN_REST_OPTIONS = [
   { value: "7", label: "1 week" },
 ];
 
+const MAX_DEFERRAL_OPTIONS = [
+  { value: "0", label: "No deferral — skip if it can't run on time" },
+  { value: "1", label: "1 hour" },
+  { value: "2", label: "2 hours" },
+  { value: "3", label: "3 hours" },
+  { value: "6", label: "6 hours (default)" },
+  { value: "12", label: "12 hours" },
+  { value: "24", label: "24 hours" },
+];
+
 const DAYS_OF_WEEK = [
   { value: 1, label: "Mon" },
   { value: 2, label: "Tue" },
@@ -143,6 +154,16 @@ const DEFAULT_PREFS: AISchedulePreferences = {
   rainThresholdPercent: 40,
   maxDailyRunMinutes: 120,
   minDaysBetweenRuns: 1
+};
+
+// Visual divider between the two setting groups (Program Execution / Program Creation).
+const settingsGroupTitleStyle: CSSProperties = {
+  margin: "1.25rem 0 0.25rem",
+  fontSize: "0.8rem",
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  opacity: 0.75
 };
 
 // ── Component ──
@@ -236,6 +257,7 @@ const IrrigationSettingsForm = ({
   // Irrigation settings state
   const [timeWindows, setTimeWindows] = useState<PreferredTimeWindow[]>(initialSettings.preferredTimeWindows);
   const [waterSavingMode, setWaterSavingMode] = useState<WaterSavingMode>(initialSettings.waterSavingMode);
+  const [maxDeferralHours, setMaxDeferralHours] = useState(initialSettings.maxDeferralHours ?? 6);
   const [rainPauseHours, setRainPauseHours] = useState(initialSettings.rainPauseHours ?? 48);
   const [timezone, setTimezone] = useState(initialSettings.timezone ?? "America/New_York");
 
@@ -284,7 +306,7 @@ const IrrigationSettingsForm = ({
           aiPayload.apiKey = apiKey;
         }
         await Promise.all([
-          updateIrrigationSettings({ preferredTimeWindows: timeWindows, waterSavingMode, rainPauseHours, timezone }),
+          updateIrrigationSettings({ preferredTimeWindows: timeWindows, waterSavingMode, maxDeferralHours, rainPauseHours, timezone }),
           updateAIScheduleConfig(aiPayload),
         ]);
         setDirty(false);
@@ -293,7 +315,7 @@ const IrrigationSettingsForm = ({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     }
-  }, [timeWindows, waterSavingMode, rainPauseHours, timezone, aiEnabled, provider, model, apiKey, scheduleFrequency, selectedDays, scheduleHour, evalWindow, userContext, prefs, onScheduleChanged, wrapSave]);
+  }, [timeWindows, waterSavingMode, maxDeferralHours, rainPauseHours, timezone, aiEnabled, provider, model, apiKey, scheduleFrequency, selectedDays, scheduleHour, evalWindow, userContext, prefs, onScheduleChanged, wrapSave]);
 
   const handleRunNow = useCallback(async () => {
     setError(null);
@@ -316,10 +338,18 @@ const IrrigationSettingsForm = ({
       >
         {error && <p className="zone-control-panel__error">{error}</p>}
 
-        {/* ── Schedule & Timing ── */}
+        {/* ══════════════════════════════════════════════════════════════════
+            PROGRAM EXECUTION — applies to every program once it exists, whether
+            the AI created it or you did. These govern how/whether a program runs.
+           ══════════════════════════════════════════════════════════════════ */}
+
+        <h4 className="settings-group-title" style={settingsGroupTitleStyle}>Program Execution</h4>
+        <p className="form-hint">
+          These control how any program runs once it exists — whether the AI created it or you did.
+        </p>
 
         <fieldset className="form-fieldset">
-          <legend>Schedule &amp; Timing</legend>
+          <legend>General</legend>
 
           <div className="form-group">
             <label>Timezone</label>
@@ -333,14 +363,117 @@ const IrrigationSettingsForm = ({
           </div>
 
           <div className="form-group">
-            <label>Preferred Irrigation Times</label>
-            <span className="form-hint">
-              Time windows when irrigation is allowed. Programs will only run within these windows.
-            </span>
-            <PreferredTimeWindowsEditor
-              windows={timeWindows}
-              onChange={(w) => { setTimeWindows(w); markDirty(); }}
+            <label>Max Deferral</label>
+            <Dropdown
+              value={String(maxDeferralHours)}
+              options={MAX_DEFERRAL_OPTIONS}
+              onChange={(v) => { setMaxDeferralHours(parseInt(v, 10)); markDirty(); }}
             />
+            <span className="form-hint">
+              How long a program may wait past its scheduled start (e.g. while a guard is active) before it's skipped. Measured from the scheduled time.
+            </span>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-fieldset">
+          <legend>Water Usage</legend>
+
+          <div className="form-group">
+            <label>Water Saving Mode</label>
+            <Dropdown
+              value={waterSavingMode}
+              options={WATER_SAVING_OPTIONS}
+              onChange={(v) => { setWaterSavingMode(v as WaterSavingMode); markDirty(); }}
+            />
+            <span className="form-hint">Reduces zone durations for every program at run time (manual and AI-planned).</span>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>Max Total per Day</label>
+              <Dropdown
+                value={String(prefs.maxDailyRunMinutes)}
+                options={MAX_DAILY_OPTIONS}
+                onChange={(v) => updatePref("maxDailyRunMinutes", parseInt(v, 10))}
+              />
+            </div>
+            <div className="form-group">
+              <label>Min Rest Between Runs</label>
+              <Dropdown
+                value={String(prefs.minDaysBetweenRuns)}
+                options={MIN_REST_OPTIONS}
+                onChange={(v) => updatePref("minDaysBetweenRuns", parseInt(v, 10))}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset className="form-fieldset">
+          <legend>Rain &amp; Weather</legend>
+
+          <div className="form-group">
+            <label>Rain Pause</label>
+            <Dropdown
+              value={String(rainPauseHours)}
+              options={RAIN_PAUSE_OPTIONS}
+              onChange={(v) => { setRainPauseHours(Number(v)); markDirty(); }}
+            />
+            <span className="form-hint">Wait this long after rain or soil saturation before irrigating again.</span>
+          </div>
+
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={prefs.conservativeWatering}
+                onChange={(e) => updatePref("conservativeWatering", e.target.checked)}
+              />
+              <span>Skip watering if rain is expected</span>
+            </label>
+          </div>
+
+          <div className="form-group">
+            <label>Rain Probability Threshold</label>
+            <Dropdown
+              value={String(prefs.rainThresholdPercent)}
+              options={RAIN_THRESHOLD_OPTIONS}
+              onChange={(v) => updatePref("rainThresholdPercent", parseInt(v, 10))}
+            />
+            <span className="form-hint">Skip irrigation when the chance of rain exceeds this.</span>
+          </div>
+
+        </fieldset>
+
+        {/* ══════════════════════════════════════════════════════════════════
+            PROGRAM CREATION (AI) — only shapes how the AI plans new programs.
+            None of these change how a program runs once it has been created.
+           ══════════════════════════════════════════════════════════════════ */}
+
+        <h4 className="settings-group-title" style={settingsGroupTitleStyle}>Program Creation (AI)</h4>
+        <p className="form-hint">
+          These only shape how the AI creates programs. They don't change how a program runs once it exists.
+        </p>
+
+        <fieldset className="form-fieldset">
+          <legend>AI Scheduling</legend>
+
+          <div className="zone-form-top-row">
+            <span className="ai-schedule-enable-label">AI Scheduling</span>
+            <label
+              className={`toggle-switch${aiEnabled ? " toggle-switch--on" : ""}`}
+              role="switch"
+              aria-checked={aiEnabled}
+              aria-label="Enable AI scheduling"
+            >
+              <input
+                type="checkbox"
+                checked={aiEnabled}
+                onChange={(e) => { setAiEnabled(e.target.checked); markDirty(); }}
+              />
+              <span className="toggle-switch__track">
+                <span className="toggle-switch__thumb" />
+              </span>
+            </label>
           </div>
 
           <div className="form-row">
@@ -398,102 +531,21 @@ const IrrigationSettingsForm = ({
           </div>
         </fieldset>
 
-        {/* ── Rain & Weather ── */}
-
         <fieldset className="form-fieldset">
-          <legend>Rain &amp; Weather</legend>
-
+          <legend>Preferred Irrigation Times</legend>
           <div className="form-group">
-            <label>Rain Pause</label>
-            <Dropdown
-              value={String(rainPauseHours)}
-              options={RAIN_PAUSE_OPTIONS}
-              onChange={(v) => { setRainPauseHours(Number(v)); markDirty(); }}
+            <span className="form-hint">
+              The AI only schedules programs within these windows. This does not restrict when a program runs once it has been created.
+            </span>
+            <PreferredTimeWindowsEditor
+              windows={timeWindows}
+              onChange={(w) => { setTimeWindows(w); markDirty(); }}
             />
-            <span className="form-hint">Wait this long after rain or soil saturation before irrigating again.</span>
-          </div>
-
-          <div className="form-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={prefs.conservativeWatering}
-                onChange={(e) => updatePref("conservativeWatering", e.target.checked)}
-              />
-              <span>Skip watering if rain is expected</span>
-            </label>
-          </div>
-
-          <div className="form-group">
-            <label>Rain Probability Threshold</label>
-            <Dropdown
-              value={String(prefs.rainThresholdPercent)}
-              options={RAIN_THRESHOLD_OPTIONS}
-              onChange={(v) => updatePref("rainThresholdPercent", parseInt(v, 10))}
-            />
-            <span className="form-hint">Skip irrigation when the chance of rain exceeds this.</span>
-          </div>
-
-        </fieldset>
-
-        {/* ── Water Usage ── */}
-
-        <fieldset className="form-fieldset">
-          <legend>Water Usage</legend>
-
-          <div className="form-group">
-            <label>Water Saving Mode</label>
-            <Dropdown
-              value={waterSavingMode}
-              options={WATER_SAVING_OPTIONS}
-              onChange={(v) => { setWaterSavingMode(v as WaterSavingMode); markDirty(); }}
-            />
-            <span className="form-hint">Reduces zone durations for all scheduled and AI-planned irrigation.</span>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Max Total per Day</label>
-              <Dropdown
-                value={String(prefs.maxDailyRunMinutes)}
-                options={MAX_DAILY_OPTIONS}
-                onChange={(v) => updatePref("maxDailyRunMinutes", parseInt(v, 10))}
-              />
-            </div>
-            <div className="form-group">
-              <label>Min Rest Between Runs</label>
-              <Dropdown
-                value={String(prefs.minDaysBetweenRuns)}
-                options={MIN_REST_OPTIONS}
-                onChange={(v) => updatePref("minDaysBetweenRuns", parseInt(v, 10))}
-              />
-            </div>
           </div>
         </fieldset>
-
-        {/* ── AI Provider ── */}
 
         <fieldset className="form-fieldset">
           <legend>AI Provider</legend>
-
-          <div className="zone-form-top-row">
-            <span className="ai-schedule-enable-label">AI Scheduling</span>
-            <label
-              className={`toggle-switch${aiEnabled ? " toggle-switch--on" : ""}`}
-              role="switch"
-              aria-checked={aiEnabled}
-              aria-label="Enable AI scheduling"
-            >
-              <input
-                type="checkbox"
-                checked={aiEnabled}
-                onChange={(e) => { setAiEnabled(e.target.checked); markDirty(); }}
-              />
-              <span className="toggle-switch__track">
-                <span className="toggle-switch__thumb" />
-              </span>
-            </label>
-          </div>
 
           <div className="form-row">
             <div className="form-group">

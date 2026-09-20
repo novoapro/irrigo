@@ -71,6 +71,21 @@ export const getWaterSavingMode = async (): Promise<WaterSavingMode> => {
   return settings.waterSavingMode;
 };
 
+// How long a program may sit deferred past its scheduled start before being skipped.
+export const getMaxDeferralHours = async (): Promise<number> => {
+  const settings = await getIrrigationSettings();
+  return settings.maxDeferralHours ?? 6;
+};
+
+// The absolute instant a program scheduled at `plannedStartAt` stops being eligible to
+// run. Measured from the scheduled start (not from when it was deferred), so a program is
+// never dragged further into the future than the user allows. Returns `plannedStartAt`
+// itself when deferral is disabled (0h).
+export const getDeferralDeadline = async (plannedStartAt: Date): Promise<Date> => {
+  const hours = await getMaxDeferralHours();
+  return new Date(plannedStartAt.getTime() + hours * 3600_000);
+};
+
 export const migrateIrrigationSettings = async (): Promise<void> => {
   const existing = await IrrigationSettings.findOne();
   if (existing) return;

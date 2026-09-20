@@ -103,6 +103,13 @@ jest.mock("../../models/IrrigationProgram", () => ({
 
 jest.mock("../realtimeService", () => ({ __esModule: true, emitRealtimeEvent: jest.fn() }));
 
+// deferCurrentZone reads the configured deferral cap; stub it so the test doesn't touch the
+// (unconnected) IrrigationSettings model.
+jest.mock("../irrigationSettingsService", () => ({
+  __esModule: true,
+  getMaxDeferralHours: jest.fn(async () => 24)
+}));
+
 import {
   startSequentialRun,
   onZoneOff,

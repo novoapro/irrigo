@@ -706,6 +706,7 @@ async function seed() {
       { startHour: 20, endHour: 22 },
     ],
     waterSavingMode: "normal",
+    maxDeferralHours: 6,
   });
   console.log("✓ irrigation settings");
 

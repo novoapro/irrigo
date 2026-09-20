@@ -13,6 +13,11 @@ export type RainPromptResponse = "confirmed" | "dismissed";
 export interface IrrigationSettingsAttributes {
   preferredTimeWindows: PreferredTimeWindow[];
   waterSavingMode: WaterSavingMode;
+  // How long any program (AI or manual) may be deferred past its scheduled start before
+  // it is skipped. An execution-time setting: the deferral deadline is always measured as
+  // plannedStartAt + maxDeferralHours, regardless of when the deferral was triggered.
+  // 0 ⇒ no deferral (skip immediately if it cannot run at its scheduled time).
+  maxDeferralHours: number;
   rainPauseHours: number;
   lastConfirmedRainAt: Date | null;
   lastConfirmedRainIntensity: RainIntensity | null;
@@ -45,6 +50,12 @@ const irrigationSettingsSchema = new Schema<IrrigationSettingsAttributes>({
     type: String,
     enum: ["normal", "moderate", "aggressive"],
     default: "normal"
+  },
+  maxDeferralHours: {
+    type: Number,
+    default: 6,
+    min: 0,
+    max: 168
   },
   rainPauseHours: {
     type: Number,

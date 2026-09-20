@@ -1,52 +1,32 @@
 import IrrigationProgram from "../models/IrrigationProgram";
 import SystemConfig from "../models/SystemConfig";
-import Zone from "../models/Zone";
 import { startSequentialRun, cancelRun } from "./sequentialRunService";
 import type { StartRunZoneInput } from "./sequentialRunService";
 import { emitRealtimeEvent } from "./realtimeService";
-import { addDeferredProgram } from "./guardDeferralService";
-import { getEffectiveGuard } from "./guardService";
-import { getTimezone } from "./irrigationSettingsService";
+import { getTimezone, getWaterSavingFactor } from "./irrigationSettingsService";
+import { buildZoneInputs } from "./scheduleExecutorService";
 import { cronMatchesNow, getMinuteKeyInTimezone } from "./cronUtils";
+
+// Materializer for manual (cron) programs. This service no longer executes anything — it
+// only *arms* the next occurrence of each recurring program by giving it a plannedStartAt
+// and status "planned". The single executor (scheduleExecutorService) then runs it through
+// the same pre-flight pipeline as an AI program. This is what makes "a program is the same
+// after creation, regardless of source" true.
 
 const CHECK_INTERVAL_MS = 30_000;
 let checkTimer: NodeJS.Timeout | null = null;
 const lastFiredMinute = new Map<string, string>();
 
-const buildZoneInputs = async (
-  zoneEntries: { zoneId: string; durationMinutes: number }[]
-): Promise<StartRunZoneInput[]> => {
-  const zoneIds = zoneEntries.map((e) => e.zoneId);
-  const zones = await Zone.find({ zoneId: { $in: zoneIds } }).lean();
-  const nameMap = new Map(zones.map((z) => [z.zoneId, z.name]));
-
-  return zoneEntries.map((e) => ({
-    zoneId: e.zoneId,
-    name: nameMap.get(e.zoneId) ?? e.zoneId,
-    durationMinutes: e.durationMinutes
-  }));
-};
-
-const executeProgramZones = async (
-  programId: string,
-  zoneEntries: { zoneId: string; durationMinutes: number }[]
-) => {
-  try {
-    const { getWaterSavingFactor } = await import("./irrigationSettingsService");
-    const factor = await getWaterSavingFactor();
-    const adjustedEntries = factor < 1
-      ? zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
-      : zoneEntries;
-    const inputs = await buildZoneInputs(adjustedEntries);
-    await startSequentialRun(inputs, "program", programId);
-  } catch (err) {
-    console.error(`[ProgramScheduler] Failed to start sequential run for program ${programId}:`, err);
-  }
-};
+// A program that is already planned / running / waiting must not be re-armed on the same
+// cron tick — only idle/terminal programs (completed, skipped, cancelled, or never run) are
+// eligible to be armed for their next occurrence.
+const ARMABLE = (status: string) => !["planned", "executing", "deferred"].includes(status);
 
 const checkPrograms = async () => {
   const config = await SystemConfig.findOne().lean();
-  if (!config || config.irrigationMode !== "scheduled") return;
+  // Manual programs are materialized in both "scheduled" and "smart" mode; only fully
+  // manual mode disables automatic scheduling.
+  if (!config || config.irrigationMode === "manual") return;
 
   const now = new Date();
   const tz = await getTimezone();
@@ -54,7 +34,7 @@ const checkPrograms = async () => {
     enabled: true,
     source: { $in: ["manual", null] },
     scheduleCron: { $ne: null }
-  }).lean();
+  });
 
   for (const program of programs) {
     if (!program.scheduleCron) continue;
@@ -64,46 +44,20 @@ const checkPrograms = async () => {
     if (lastFiredMinute.get(program.programId) === mk) continue;
     lastFiredMinute.set(program.programId, mk);
 
-    const guard = await getEffectiveGuard();
+    if (!ARMABLE(program.status)) continue;
 
-    // Rain pause is a known, multi-hour condition with a definite expiry — skip this
-    // occurrence outright rather than deferring it (deferral is meant for transient
-    // hardware-guard blips that clear on their own).
-    if (guard.rainPause.active) {
-      const reason = guard.reason ?? "Rain pause active — irrigation paused";
-      console.log(`[ProgramScheduler] ${reason} — skipping program "${program.name}"`);
-      emitRealtimeEvent({
-        type: "program:skipped",
-        payload: { programId: program.programId, name: program.name, reason }
-      });
-      continue;
-    }
+    // Arm the occurrence — the executor picks it up on its next tick and applies guard /
+    // rain / weather / caps / deferral uniformly. No guard or execution logic lives here.
+    program.plannedStartAt = now;
+    program.status = "planned";
+    program.statusReason = undefined;
+    program.deferredAt = undefined;
+    program.deferralDeadline = undefined;
+    program.updatedAt = now;
+    await program.save();
 
-    if (guard.hardware) {
-      const deadline = new Date(now.getTime() + 24 * 60 * 60_000);
-      addDeferredProgram({
-        programId: program.programId,
-        deferredAt: now,
-        deadline,
-        zoneEntries: program.zoneEntries
-      });
-      console.log(`[ProgramScheduler] Guard active — deferred program "${program.name}" until ${deadline.toISOString()}`);
-      emitRealtimeEvent({
-        type: "deferral:triggered",
-        payload: {
-          type: "deferred-program",
-          programId: program.programId,
-          reason: "Guard active — conditions not suitable for irrigation",
-          deadline: deadline.toISOString()
-        }
-      });
-      continue;
-    }
-
-    console.log(`[ProgramScheduler] Triggering program "${program.name}" (${program.programId})`);
-    emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
-
-    void executeProgramZones(program.programId, program.zoneEntries);
+    console.log(`[ProgramScheduler] Armed manual program "${program.name}" (${program.programId})`);
+    emitRealtimeEvent({ type: "program:updated", payload: program.toObject() });
   }
 };
 
@@ -112,7 +66,7 @@ export const startProgramScheduler = () => {
   checkTimer = setInterval(() => {
     void checkPrograms();
   }, CHECK_INTERVAL_MS);
-  console.log("[ProgramScheduler] Started, checking every 30s");
+  console.log("[ProgramScheduler] Started (materializer), checking every 30s");
 };
 
 export const stopProgramScheduler = () => {
@@ -124,6 +78,10 @@ export const stopProgramScheduler = () => {
   }
 };
 
+// Explicit "Run now" — a user override, intentionally distinct from scheduled execution:
+// it bypasses guard/rain/caps (the UI already prompts the user to confirm running while a
+// guard is active). It still uses the shared buildZoneInputs (zone clamp + unknown-zone
+// drop) and the water-saving factor so the *mechanics* of a run match the executor.
 export const runProgramNow = async (programId: string) => {
   const program = await IrrigationProgram.findOne({ programId }).lean();
   if (!program) throw new Error("Program not found");
@@ -131,15 +89,17 @@ export const runProgramNow = async (programId: string) => {
 
   emitRealtimeEvent({ type: "program:triggered", payload: { programId: program.programId, name: program.name } });
 
-  const { getWaterSavingFactor } = await import("./irrigationSettingsService");
   const factor = await getWaterSavingFactor();
   const adjustedEntries = factor < 1
     ? program.zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
     : program.zoneEntries;
-  const inputs = await buildZoneInputs(adjustedEntries);
+
+  const inputs: StartRunZoneInput[] = await buildZoneInputs(adjustedEntries);
+  if (inputs.length === 0) throw new Error("Program has no runnable zones");
+
   const runId = await startSequentialRun(inputs, "program", program.programId);
 
-  return { programId: program.programId, zonesTriggered: program.zoneEntries.length, runId };
+  return { programId: program.programId, zonesTriggered: inputs.length, runId };
 };
 
 export const cancelProgramRun = cancelRun;
