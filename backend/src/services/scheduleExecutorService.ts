@@ -158,9 +158,15 @@ export const runProgram = async (program: ProgramDoc) => {
   // ── Effective durations: water saving is applied HERE for all sources. (The AI prompt no
   // longer pre-reduces durations, so there is no double counting — see aiSchedulingService.) ──
   const factor = await getWaterSavingFactor();
-  let entries: ProgramZoneEntry[] = factor < 1
-    ? program.zoneEntries.map((e) => ({ ...e, durationMinutes: Math.max(1, Math.round(e.durationMinutes * factor)) }))
-    : program.zoneEntries.map((e) => ({ ...e }));
+  // Read zoneId/durationMinutes explicitly instead of spreading `e`. In the scheduled path
+  // `program` is a hydrated Mongoose doc, so each zoneEntry is a subdocument whose fields
+  // live behind prototype getters — `{ ...e }` copies Mongoose internals (_doc, $__, …) and
+  // drops `zoneId` (undefined). That made buildZoneInputs treat every zone as unknown and
+  // skip the program with "No runnable zones after validation", so nothing ever ran.
+  let entries: ProgramZoneEntry[] = program.zoneEntries.map((e) => ({
+    zoneId: e.zoneId,
+    durationMinutes: factor < 1 ? Math.max(1, Math.round(e.durationMinutes * factor)) : e.durationMinutes
+  }));
 
   // ── Min rest between runs: drop any zone that ran within the configured interval. ──
   const minDaysBetweenRuns = prefs?.minDaysBetweenRuns ?? 0;
