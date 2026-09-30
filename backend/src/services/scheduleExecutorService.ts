@@ -11,7 +11,6 @@ import type { SequentialRunSource } from "../models/SequentialRun";
 import { emitRealtimeEvent } from "./realtimeService";
 import { getEffectiveGuard } from "./guardService";
 import { getDeferralDeadline, getWaterSavingFactor } from "./irrigationSettingsService";
-import { getMinutesRunToday, getLastRunByZone } from "./irrigationHistoryService";
 
 // The single, source-agnostic program executor. Every planned IrrigationProgram — AI or
 // manual — is run through the one `runProgram` pre-flight pipeline here. The AI planner
@@ -102,7 +101,14 @@ const deferProgram = async (program: ProgramDoc, reason: string, deadline: Date)
 
 // The one pre-flight pipeline every planned program passes through, in order:
 // guard/rain-pause → hardware-guard deferral → deferral-deadline expiry → rain & weather
-// gate → daily/rest caps → execute (water-saving + zone clamp). Identical for AI and manual.
+// gate → execute (water-saving + zone clamp). Identical for AI and manual.
+//
+// Policy/budget caps (min days between runs, max daily minutes) are deliberately NOT enforced
+// here. They are planning-phase concerns the AI planner already accounts for when deciding
+// whether to CREATE a program (see the prompt rules in aiSchedulingService). Once a program is
+// scheduled, the executor only blocks on real-time conditions that would make the run itself
+// fail or waste water — rain, rain pause, hardware guard. If it is planned and the environment
+// is clear, it runs. (A user who force-creates a program past those caps expects it to run.)
 export const runProgram = async (program: ProgramDoc) => {
   if (!program || program.status !== "planned") return;
 
@@ -163,43 +169,10 @@ export const runProgram = async (program: ProgramDoc) => {
   // live behind prototype getters — `{ ...e }` copies Mongoose internals (_doc, $__, …) and
   // drops `zoneId` (undefined). That made buildZoneInputs treat every zone as unknown and
   // skip the program with "No runnable zones after validation", so nothing ever ran.
-  let entries: ProgramZoneEntry[] = program.zoneEntries.map((e) => ({
+  const entries: ProgramZoneEntry[] = program.zoneEntries.map((e) => ({
     zoneId: e.zoneId,
     durationMinutes: factor < 1 ? Math.max(1, Math.round(e.durationMinutes * factor)) : e.durationMinutes
   }));
-
-  // ── Min rest between runs: drop any zone that ran within the configured interval. ──
-  const minDaysBetweenRuns = prefs?.minDaysBetweenRuns ?? 0;
-  if (minDaysBetweenRuns > 0 && entries.length > 0) {
-    const lastRunByZone = await getLastRunByZone(entries.map((e) => e.zoneId));
-    const restMs = minDaysBetweenRuns * 24 * 3600_000;
-    const kept: ProgramZoneEntry[] = [];
-    for (const e of entries) {
-      const last = lastRunByZone.get(e.zoneId);
-      if (last && now.getTime() - last.getTime() < restMs) {
-        console.log(`[ScheduleExecutor] Zone ${e.zoneId} ran within ${minDaysBetweenRuns}d — dropping (min rest not elapsed)`);
-        continue;
-      }
-      kept.push(e);
-    }
-    if (kept.length === 0) {
-      return skipProgram(program, `Min rest not elapsed — all zones ran within ${minDaysBetweenRuns} day(s)`);
-    }
-    entries = kept;
-  }
-
-  // ── Max total per day: skip if running this program would exceed the daily minute cap. ──
-  const maxDailyRunMinutes = prefs?.maxDailyRunMinutes;
-  if (typeof maxDailyRunMinutes === "number" && maxDailyRunMinutes > 0) {
-    const minutesToday = await getMinutesRunToday(now);
-    const programMinutes = entries.reduce((sum, e) => sum + e.durationMinutes, 0);
-    if (minutesToday + programMinutes > maxDailyRunMinutes) {
-      return skipProgram(
-        program,
-        `Daily limit reached — ${minutesToday}m already run today + ${programMinutes}m would exceed ${maxDailyRunMinutes}m`
-      );
-    }
-  }
 
   const inputs = await buildZoneInputs(entries);
   if (inputs.length === 0) {

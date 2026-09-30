@@ -43,17 +43,21 @@ jest.mock("../guardService", () => ({
   getEffectiveGuard: (...args: unknown[]) => getEffectiveGuardMock(...args)
 }));
 
+const getLastRunByZoneMock = jest.fn(async () => new Map<string, Date>());
+const getMinutesRunTodayMock = jest.fn(async () => 0);
 jest.mock("../irrigationHistoryService", () => ({
   __esModule: true,
-  getLastRunByZone: jest.fn(async () => new Map()),
-  getMinutesRunToday: jest.fn(async () => 0)
+  getLastRunByZone: (...args: unknown[]) => getLastRunByZoneMock(...(args as [])),
+  getMinutesRunToday: (...args: unknown[]) => getMinutesRunTodayMock(...(args as []))
 }));
 
-// runProgram reads AIScheduleConfig.preferences for the rain/caps gates. Return a config
-// with conservativeWatering off so the gate is skipped (no Heartbeat/forecast lookups).
+// runProgram reads AIScheduleConfig.preferences for the rain gate. `aiConfigPrefs` is mutable
+// so a test can inject caps (minDaysBetweenRuns / maxDailyRunMinutes) and prove the executor
+// ignores them — those are planning-phase concerns, not execution gates.
+let aiConfigPrefs: Record<string, unknown> = { conservativeWatering: false };
 jest.mock("../../models/AIScheduleConfig", () => ({
   __esModule: true,
-  default: { findOne: () => ({ lean: async () => ({ preferences: { conservativeWatering: false } }) }) }
+  default: { findOne: () => ({ lean: async () => ({ preferences: aiConfigPrefs }) }) }
 }));
 jest.mock("../../models/Heartbeat", () => ({ __esModule: true, default: { findOne: jest.fn() } }));
 jest.mock("../../models/WeatherForecastSnapshot", () => ({ __esModule: true, default: { findOne: jest.fn() } }));
@@ -148,6 +152,9 @@ describe("runProgram (hydrated program with subdocument zoneEntries)", () => {
     getEffectiveGuardMock.mockReset().mockResolvedValue({ rainPause: { active: false }, hardware: false, reason: null });
     getDeferralDeadlineMock.mockReset().mockResolvedValue(new Date(Date.now() + 6 * 3600_000));
     getWaterSavingFactorMock.mockReset().mockResolvedValue(1);
+    getLastRunByZoneMock.mockReset().mockResolvedValue(new Map<string, Date>());
+    getMinutesRunTodayMock.mockReset().mockResolvedValue(0);
+    aiConfigPrefs = { conservativeWatering: false };
   });
 
   const makeProgram = (zoneEntries: unknown[]) => ({
@@ -189,5 +196,35 @@ describe("runProgram (hydrated program with subdocument zoneEntries)", () => {
     expect(startSequentialRunMock).toHaveBeenCalledTimes(1);
     const inputs = startSequentialRunMock.mock.calls[0]![0] as Array<{ zoneId: string; durationMinutes: number }>;
     expect(inputs).toEqual([{ zoneId: "front", name: "Front", durationMinutes: 10 }]);
+  });
+
+  // Policy caps are planning-phase concerns, not execution gates. A scheduled program must
+  // run even when its zone ran within minDaysBetweenRuns and the day is already over the daily
+  // cap — the AI planner (or a user force-creating a program) already made that call. If anyone
+  // reinstates these gates in runProgram, this test fails.
+  it("runs a scheduled program even when min-rest and daily caps would be exceeded", async () => {
+    aiConfigPrefs = { conservativeWatering: false, minDaysBetweenRuns: 2, maxDailyRunMinutes: 1 };
+    getLastRunByZoneMock.mockResolvedValue(new Map([["front", new Date(Date.now() - 60_000)]])); // ran 1 min ago
+    getMinutesRunTodayMock.mockResolvedValue(999); // already way over the 1-minute daily cap
+    findMock.mockReturnValue(leanZones([{ zoneId: "front", name: "Front", maxDurationMinutes: 30 }]));
+    const program = makeProgram([fakeSubdoc("front", 2)]);
+
+    await runProgram(program as never);
+
+    expect(program.status).toBe("executing");
+    expect(startSequentialRunMock).toHaveBeenCalledTimes(1);
+    const inputs = startSequentialRunMock.mock.calls[0]![0] as Array<{ zoneId: string; durationMinutes: number }>;
+    expect(inputs).toEqual([{ zoneId: "front", name: "Front", durationMinutes: 2 }]);
+  });
+
+  it("still blocks on a real-time condition — rain pause — even though caps are ignored", async () => {
+    getEffectiveGuardMock.mockResolvedValue({ rainPause: { active: true }, hardware: false, reason: "Rain pause active (rain sensor)" });
+    findMock.mockReturnValue(leanZones([{ zoneId: "front", name: "Front", maxDurationMinutes: 30 }]));
+    const program = makeProgram([fakeSubdoc("front", 2)]);
+
+    await runProgram(program as never);
+
+    expect(program.status).toBe("skipped");
+    expect(startSequentialRunMock).not.toHaveBeenCalled();
   });
 });
